@@ -1,0 +1,40 @@
+import { KeyPairType } from './types';
+import { SessionType, PendingPreKey, Chain, OldRatchetInfo, Ratchet, IndexInfo, RecordType } from './session-types';
+export declare class SessionRecord implements RecordType {
+    private static migrations;
+    private static migrate;
+    registrationId?: number;
+    sessions: {
+        [k: string]: SessionType;
+    };
+    version: string;
+    constructor(registrationId?: number);
+    static deserialize(serialized: string): SessionRecord;
+    serialize(): string;
+    haveOpenSession(): boolean;
+    getSessionByBaseKey(baseKey: ArrayBuffer): SessionType | undefined;
+    getSessionByRemoteEphemeralKey(remoteEphemeralKey: ArrayBuffer): SessionType | undefined;
+    getOpenSession(): SessionType | undefined;
+    private detectDuplicateOpenSessions;
+    updateSessionState(session: SessionType): void;
+    getSessions(): SessionType[];
+    archiveCurrentState(): void;
+    promoteState(session: SessionType): void;
+    removeOldChains(session: SessionType): void;
+    removeOldSessions(): void;
+    deleteAllSessions(): void;
+}
+export declare function keyPairStirngToArrayBuffer(kp: KeyPairType<string>): KeyPairType<ArrayBuffer>;
+export declare function keyPairArrayBufferToString(kp: KeyPairType<ArrayBuffer>): KeyPairType<string>;
+export declare function pendingPreKeyStringToArrayBuffer(ppk: PendingPreKey<string>): PendingPreKey<ArrayBuffer>;
+export declare function pendingPreKeyArrayBufferToString(ppk: PendingPreKey<ArrayBuffer>): PendingPreKey<string>;
+export declare function chainStringToArrayBuffer(c: Chain<string>): Chain<ArrayBuffer>;
+export declare function chainArrayBufferToString(c: Chain<ArrayBuffer>): Chain<string>;
+export declare function oldRatchetInfoStringToArrayBuffer(ori: OldRatchetInfo<string>): OldRatchetInfo<ArrayBuffer>;
+export declare function oldRatchetInfoArrayBufferToString(ori: OldRatchetInfo<ArrayBuffer>): OldRatchetInfo<string>;
+export declare function ratchetStringToArrayBuffer(r: Ratchet<string>): Ratchet<ArrayBuffer>;
+export declare function ratchetArrayBufferToString(r: Ratchet<ArrayBuffer>): Ratchet<string>;
+export declare function indexInfoStringToArrayBuffer(ii: IndexInfo<string>): IndexInfo<ArrayBuffer>;
+export declare function indexInfoArrayBufferToString(ii: IndexInfo<ArrayBuffer>): IndexInfo<string>;
+export declare function sessionTypeStringToArrayBuffer(sess: SessionType<string>): SessionType<ArrayBuffer>;
+export declare function sessionTypeArrayBufferToString(sess: SessionType<ArrayBuffer>): SessionType<string>;

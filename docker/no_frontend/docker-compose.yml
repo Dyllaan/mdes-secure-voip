@@ -1,0 +1,47 @@
+services:
+  # API Gateway
+  gateway:
+    build:
+      context: ../../services/gateway
+    container_name: voip-gateway
+    ports:
+      - "3000:3000"
+    env_file:
+      - ../../services/gateway/.env.docker
+    depends_on:
+      - auth-service
+      - realtime-service
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ../../services/auth
+    container_name: voip-auth
+    expose:
+      - "3003"
+    env_file:
+      - ../../services/auth/.env.docker
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  # Realtime Service
+  realtime-service:
+    build:
+      context: ../../services/Real-time-Comms
+    container_name: voip-realtime
+    ports:                    # CHANGE from 'expose' to 'ports'
+      - "3001:3001"          # Socket.IO
+      - "9000:9000"          # PeerJS - must be 'ports' not 'expose'
+    env_file:
+      - ../../services/Real-time-Comms/.env
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+networks:
+  voip-network:
+    driver: bridge

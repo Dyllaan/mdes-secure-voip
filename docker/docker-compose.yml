@@ -1,0 +1,61 @@
+services:
+  # API Gateway
+  gateway:
+    build:
+      context: ../services/gateway
+    container_name: voip-gateway
+    ports:
+      - "3000:3000"
+    env_file:
+      - ../services/gateway/.env.docker
+    depends_on:
+      - auth-service
+      - realtime-service
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  # Auth Service
+  auth-service:
+    build:
+      context: ../services/auth
+    container_name: voip-auth
+    expose:
+      - "3003"
+    env_file:
+      - ../services/auth/.env.docker
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  # Realtime Service
+  realtime-service:
+    build:
+      context: ../services/Real-time-Comms
+    container_name: voip-realtime
+    expose:
+      - "3001"
+      - "9000"
+    env_file:
+      - ../services/Real-time-Comms/.env
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ../voip_frontend
+      dockerfile: Dockerfile
+    container_name: voip-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+networks:
+  voip-network:
+    driver: bridge

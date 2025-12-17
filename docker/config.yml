@@ -1,0 +1,7 @@
+tunnel: 76a6a88b-73b5-4f36-8862-c4d397928103
+credentials-file: C:\Users\louis\.cloudflared\76a6a88b-73b5-4f36-8862-c4d397928103.json
+
+ingress:
+  - hostname: your-voip-app.yourdomain.com
+    service: http://localhost:80
+  - service: http_status:404
