@@ -1,0 +1,24 @@
+{
+  "name": "music-bot",
+  "version": "1.0.0",
+  "description": "Music bot with Socket.IO",
+  "main": "music-server.js",
+  "scripts": {
+    "start": "node music-server.js",
+    "dev": "nodemon music-server.js"
+  },
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "play-dl": "^1.9.7",
+    "socket.io": "^4.6.0",
+    "youtubei.js": "^16.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

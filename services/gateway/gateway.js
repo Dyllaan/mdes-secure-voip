@@ -1,7 +1,7 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
-const http = require('http'); // Add this
+const http = require('http');
 require('dotenv').config({
   path: process.env.NODE_ENV === 'docker' ? '.env.docker' : '.env.local'
 });

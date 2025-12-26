@@ -128,7 +128,7 @@ async function initializeDatabase() {
   });
 }
 
-// Seed predefined users
+// Seed predefined users for dev only
 async function seedUsers() {
   const predefinedUsers = [
     {
@@ -214,8 +214,6 @@ function authenticateToken(req, res, next) {
   req.user = decoded;
   next();
 }
-
-// Routes
 
 // Health check
 app.get('/health', (req, res) => {
