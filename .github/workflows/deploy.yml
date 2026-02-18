@@ -31,6 +31,9 @@ jobs:
             realtime:
               - 'services/realtime/**'
               - 'Dockerfile.realtime'
+            frontend:
+              - 'voip_frontend/**'
+              - 'Dockerfile.frontend'
 
   build-and-push:
     needs: detect-changes
@@ -77,5 +80,5 @@ jobs:
           docker build \
             -f Dockerfile.frontend \
             -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
-            ./services/frontend
+            ./voip_frontend
           docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
