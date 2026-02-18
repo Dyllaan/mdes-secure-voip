@@ -51,24 +51,24 @@ jobs:
           docker build \
             --build-arg PORT=3000 \
             -f Dockerfile.gateway \
-            -t ${{ env.REGISTRY }}/voip-gateway:latest \
+            -t ${{ env.REGISTRY }}/p2p-voip-gateway:latest \
             ./services/gateway
-          docker push ${{ env.REGISTRY }}/voip-gateway:latest
+          docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
 
       - name: Build and Push Auth Service
         if: needs.detect-changes.outputs.auth == 'true'
         run: |
           docker build \
             -f Dockerfile.auth-service \
-            -t ${{ env.REGISTRY }}/voip-auth-service:latest \
+            -t ${{ env.REGISTRY }}/p2p-voip-auth-service:latest \
             ./services/auth
-          docker push ${{ env.REGISTRY }}/voip-auth-service:latest
+          docker push ${{ env.REGISTRY }}/p2p-voip-auth-service:latest
 
       - name: Build and Push Realtime Service
         if: needs.detect-changes.outputs.realtime == 'true'
         run: |
           docker build \
             -f Dockerfile.realtime \
-            -t ${{ env.REGISTRY }}/voip-realtime:latest \
+            -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
             ./services/realtime
-          docker push ${{ env.REGISTRY }}/voip-realtime:latest
+          docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
