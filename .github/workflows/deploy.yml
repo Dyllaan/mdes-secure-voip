@@ -46,7 +46,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Build and Push Gateway
-        # if: needs.detect-changes.outputs.gateway == 'true'
+        if: needs.detect-changes.outputs.gateway == 'true'
         working-directory: ./services/gateway
         run: |
           docker build \
