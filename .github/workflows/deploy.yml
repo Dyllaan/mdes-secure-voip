@@ -72,3 +72,10 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
             ./services/realtime
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
+      - name: Build and Push Frontend
+        run: |
+          docker build \
+            -f Dockerfile.frontend \
+            -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
+            ./services/frontend
+          docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
