@@ -2,12 +2,11 @@ import { useEffect, useRef } from "react";
 import { Monitor } from "lucide-react";
 
 interface ScreenshareVideoProps {
-    peerId: string;
     alias: string;
     stream: MediaStream;
 }
 
-export default function ScreenshareVideo({ peerId, alias, stream }: ScreenshareVideoProps) {
+export default function ScreenshareVideo({ alias, stream }: ScreenshareVideoProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {

@@ -12,7 +12,6 @@ export interface RemoteScreenStream {
 interface UseScreenShareOptions {
     socket: Socket | null;
     currentRoomId: string | null;
-    roomPeerIds: string[];
     peerHost: string;
     peerPort: number;
     peerPath: string;
@@ -22,7 +21,6 @@ interface UseScreenShareOptions {
 const useScreenshare = ({
     socket,
     currentRoomId,
-    roomPeerIds,
     peerHost,
     peerPort,
     peerPath,

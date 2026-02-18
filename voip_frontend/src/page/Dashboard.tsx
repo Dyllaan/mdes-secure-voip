@@ -78,7 +78,6 @@ const Dashboard = () => {
                         {remoteScreenStreams.map(({ peerId, alias, stream }) => (
                             <div key={peerId} className="relative flex-shrink-0">
                                 <ScreenShareVideo
-                                    peerId={peerId}
                                     alias={alias}
                                     stream={stream}
                                 />

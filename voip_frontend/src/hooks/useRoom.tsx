@@ -11,7 +11,6 @@ interface UseRoomOptions {
     peer: Peer | null;
     signalClient: SignalProtocolClient | null;
     processedStream: MediaStream | null;
-    username: string | null;
     roomId: string;
     onPeerJoined:  (peerId: string) => void;
     onPeerLeft:    (peerId: string) => void;
@@ -23,7 +22,6 @@ const useRoom = ({
     peer,
     signalClient,
     processedStream,
-    username,
     roomId,
     onPeerJoined,
     onPeerLeft,

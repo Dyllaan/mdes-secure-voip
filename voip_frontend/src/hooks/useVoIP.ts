@@ -73,7 +73,6 @@ const useVoIP = () => {
     const {
         remoteStreams,
         isEncryptionReady,
-        roomPeerIds,
         addRemoteStream,
         removeStream,
         registerIncomingConnection,
@@ -83,7 +82,6 @@ const useVoIP = () => {
         peer,
         signalClient,
         processedStream,
-        username,
         roomId: currentRoomId ?? "",
         onPeerJoined:  addRoomPeer,
         onPeerLeft:    removeRoomPeer,
@@ -104,7 +102,6 @@ const useVoIP = () => {
     } = useScreenShare({
         socket,
         currentRoomId,
-        roomPeerIds,
         peerHost:   PEER_HOST,
         peerPort:   PEER_PORT,
         peerPath:   PEER_PATH,
