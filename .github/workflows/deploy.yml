@@ -34,6 +34,7 @@ jobs:
             frontend:
               - 'voip_frontend/**'
               - 'Dockerfile.frontend'
+              - 'nginx.conf'
 
   build-and-push:
     needs: detect-changes
