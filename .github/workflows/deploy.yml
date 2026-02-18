@@ -80,13 +80,11 @@ jobs:
 
           # Build Frontend only if changed
       - name: Set up Node.js
-        if: needs.detect-changes.outputs.frontend == 'true'
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           
       - name: Build Frontend
-        if: needs.detect-changes.outputs.frontend == 'true'
         working-directory: ./voip_frontend
         run: |
           npm ci
@@ -94,10 +92,8 @@ jobs:
           npm run build -- --mode production
       
       - name: Copy frontend build
-        if: needs.detect-changes.outputs.frontend == 'true'
         run: cp -r voip_frontend/dist ./
       - name: Build and Push Frontend
-        if: needs.detect-changes.outputs.frontend == 'true'
         run: |
           docker build \
             -f Dockerfile.frontend \
