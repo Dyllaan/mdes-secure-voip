@@ -10,43 +10,7 @@ const helmet = require('helmet');
 const crypto = require('crypto');
 const fs = require('fs');
 require('dotenv').config();
-
-const config = {
-  services: {
-    realtime: {
-      port: process.env.REALTIME_PORT || 3001,
-      peerPort: process.env.PEER_PORT || 9000
-    }
-  },
-  jwt: {
-    secret: process.env.JWT_SECRET || (() => {
-      throw new Error('JWT_SECRET environment variable is required');
-    })(),
-    expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-  },
-  security: {
-    maxMessageLength: 500,
-    maxAliasLength: 50,
-    maxRoomIdLength: 20,
-    socketRateLimitWindow: 60000, // 1 minute
-    socketRateLimitMax: 100, // 100 actions per minute
-    apiRateLimitWindow: 15 * 60 * 1000, // 15 minutes
-    apiRateLimitMax: 100, // 100 requests per 15 minutes
-    maxQueuedMessages: 100, // Max messages per user queue
-    maxPrekeyRefreshPerHour: 10
-  },
-  cors: {
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || [
-      "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:5173",
-      "http://localhost:8080"
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true
-  }
-};
+const config = require('./config');
 
 class SecureRealtimeService {
   constructor() {
@@ -146,7 +110,7 @@ class SecureRealtimeService {
     this.app.get('/health', (req, res) => {
       res.json({ 
         status: 'healthy',
-        services: ['signaling', 'voip', 'media-sync', 'encrypted-chat'],
+        services: ['signaling', 'voip', 'encrypted-chat'],
         activeRooms: this.rooms.size,
         activeUsers: this.users.size,
         signalKeysRegistered: this.signalKeys.size,
@@ -165,11 +129,6 @@ class SecureRealtimeService {
         .map(([id, room]) => ({
           id,
           userCount: room.users.size,
-          hasHost: !!room.mediaHost,
-          currentVideo: room.currentVideo ? {
-            videoId: room.currentVideo.videoId,
-            isPlaying: room.currentVideo.isPlaying
-          } : null
         }));
 
       res.json({ rooms: accessibleRooms });
@@ -359,37 +318,6 @@ class SecureRealtimeService {
       socket.on('room-key-response', (data) => {
         if (this.checkSocketRateLimit(socket, 'room-key-response', 10, 60000)) {
           this.handleRoomKeyResponse(socket, data);
-        }
-      });
-      
-      // Media sync
-      socket.on('media-load', (data) => {
-        if (this.checkSocketRateLimit(socket, 'media-load', 10, 60000)) {
-          this.handleMediaLoad(socket, data);
-        }
-      });
-
-      socket.on('media-play', (data) => {
-        if (this.checkSocketRateLimit(socket, 'media-play', 30, 60000)) {
-          this.handleMediaPlay(socket, data);
-        }
-      });
-
-      socket.on('media-pause', (data) => {
-        if (this.checkSocketRateLimit(socket, 'media-pause', 30, 60000)) {
-          this.handleMediaPause(socket, data);
-        }
-      });
-
-      socket.on('media-seek', (data) => {
-        if (this.checkSocketRateLimit(socket, 'media-seek', 30, 60000)) {
-          this.handleMediaSeek(socket, data);
-        }
-      });
-
-      socket.on('media-sync-request', () => {
-        if (this.checkSocketRateLimit(socket, 'media-sync-request', 20, 10000)) {
-          this.handleMediaSyncRequest(socket);
         }
       });
       
@@ -1014,134 +942,6 @@ class SecureRealtimeService {
     console.log(` Room key delivered: ${socket.username} → ${requesterSocket.username}`);
   }
 
-  handleMediaLoad(socket, data) {
-    const { videoId } = data;
-    const room = this.rooms.get(socket.roomId);
-    
-    if (!room) {
-      return socket.emit('media-error', { message: 'Not in a room' });
-    }
-
-    // Validate video ID
-    if (!videoId || typeof videoId !== 'string' || videoId.length > 100) {
-      return socket.emit('media-error', { message: 'Invalid video ID' });
-    }
-
-    // Only allow host to load media, or first user if no host
-    if (!room.mediaHost) {
-      room.mediaHost = socket.id;
-    }
-    
-    if (room.mediaHost !== socket.id) {
-      return socket.emit('media-error', { message: 'Only host can load media' });
-    }
-
-    room.currentVideo = {
-      videoId: this.sanitizeInput(videoId),
-      currentTime: 0,
-      isPlaying: false,
-      lastUpdate: Date.now(),
-      host: socket.id
-    };
-
-    this.io.to(socket.roomId).emit('media-loaded', { 
-      videoId: room.currentVideo.videoId, 
-      host: socket.id 
-    });
-  }
-
-  handleMediaPlay(socket, data) {
-    const { currentTime } = data;
-    const room = this.rooms.get(socket.roomId);
-    
-    if (!room?.currentVideo) {
-      return socket.emit('media-error', { message: 'No media loaded' });
-    }
-
-    if (room.mediaHost !== socket.id) {
-      return socket.emit('media-error', { message: 'Only host can control playback' });
-    }
-
-    if (typeof currentTime !== 'number' || currentTime < 0) {
-      return socket.emit('media-error', { message: 'Invalid time value' });
-    }
-
-    room.currentVideo.currentTime = currentTime;
-    room.currentVideo.isPlaying = true;
-    room.currentVideo.lastUpdate = Date.now();
-
-    socket.to(socket.roomId).emit('media-play', {
-      currentTime,
-      serverTime: room.currentVideo.lastUpdate
-    });
-  }
-
-  handleMediaPause(socket, data) {
-    const { currentTime } = data;
-    const room = this.rooms.get(socket.roomId);
-    
-    if (!room?.currentVideo) {
-      return socket.emit('media-error', { message: 'No media loaded' });
-    }
-
-    if (room.mediaHost !== socket.id) {
-      return socket.emit('media-error', { message: 'Only host can control playback' });
-    }
-
-    if (typeof currentTime !== 'number' || currentTime < 0) {
-      return socket.emit('media-error', { message: 'Invalid time value' });
-    }
-
-    room.currentVideo.currentTime = currentTime;
-    room.currentVideo.isPlaying = false;
-    room.currentVideo.lastUpdate = Date.now();
-
-    socket.to(socket.roomId).emit('media-pause', {
-      currentTime,
-      serverTime: room.currentVideo.lastUpdate
-    });
-  }
-
-  handleMediaSeek(socket, data) {
-    const { newTime } = data;
-    const room = this.rooms.get(socket.roomId);
-    
-    if (!room?.currentVideo) {
-      return socket.emit('media-error', { message: 'No media loaded' });
-    }
-
-    if (room.mediaHost !== socket.id) {
-      return socket.emit('media-error', { message: 'Only host can control playback' });
-    }
-
-    if (typeof newTime !== 'number' || newTime < 0) {
-      return socket.emit('media-error', { message: 'Invalid time value' });
-    }
-
-    room.currentVideo.currentTime = newTime;
-    room.currentVideo.lastUpdate = Date.now();
-
-    socket.to(socket.roomId).emit('media-seek', {
-      newTime,
-      serverTime: room.currentVideo.lastUpdate
-    });
-  }
-
-  handleMediaSyncRequest(socket) {
-    const room = this.rooms.get(socket.roomId);
-    
-    if (!room?.currentVideo) {
-      return socket.emit('media-sync', { noMedia: true });
-    }
-
-    socket.emit('media-sync', {
-      videoId: room.currentVideo.videoId,
-      currentTime: this.calculateCurrentTime(room),
-      isPlaying: room.currentVideo.isPlaying,
-      serverTime: Date.now()
-    });
-  }
-
   // WebRTC signaling handlers
   handleWebRTCOffer(socket, data) {
     const { targetPeerId, offer } = data;
@@ -1258,8 +1058,6 @@ class SecureRealtimeService {
     this.rooms.set(roomId, {
       id: roomId,
       users: new Map(),
-      mediaHost: null,
-      currentVideo: null,
       createdBy,
       createdAt: Date.now()
     });
@@ -1277,15 +1075,6 @@ class SecureRealtimeService {
       socketId: socket.id, 
       peerId: socket.peerId 
     });
-
-    // Transfer host if needed
-    if (room.mediaHost === socket.id && room.users.size > 0) {
-      const newHost = room.users.values().next().value;
-      room.mediaHost = newHost.socketId;
-      this.io.to(roomId).emit('media-host-changed', { 
-        newHost: newHost.peerId 
-      });
-    }
 
     // Clean up empty rooms
     if (room.users.size === 0) {
@@ -1436,46 +1225,3 @@ class SecureRealtimeService {
 }
 
 module.exports = SecureRealtimeService;
-
-// Start the service if this file is run directly
-if (require.main === module) {
-  async function start() {
-    try {
-      console.log(' Starting Secure Real-time Communications Service...');
-      console.log(' Signal Protocol E2E Encryption Enabled');
-      
-      const service = new SecureRealtimeService();
-      await service.start();
-      
-      console.log('Service started successfully!');
-      console.log(` Socket.IO server: ${process.env.NODE_ENV === 'production' ? 'wss' : 'ws'}://localhost:${process.env.REALTIME_PORT || 3001}`);
-      console.log(` PeerJS server: ${process.env.NODE_ENV === 'production' ? 'wss' : 'ws'}://localhost:${process.env.PEER_PORT || 9000}`);
-      console.log(` Health check: http://localhost:${process.env.REALTIME_PORT || 3001}/health`);
-      
-    } catch (error) {
-      console.error('Failed to start service:', error);
-      process.exit(1);
-    }
-  }
-
-  // Handle graceful shutdown
-  let isShuttingDown = false;
-  
-  const shutdown = (signal) => {
-    if (isShuttingDown) return;
-    isShuttingDown = true;
-    
-    console.log(`\n Received ${signal}, shutting down gracefully...`);
-    
-    // Give connections time to close
-    setTimeout(() => {
-      console.log('Shutdown complete');
-      process.exit(0);
-    }, 5000);
-  };
-
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-  start();
-}

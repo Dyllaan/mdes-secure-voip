@@ -111,7 +111,7 @@ app.use((req, res) => {
 // Create HTTP server
 const server = http.createServer(app);
 
-// Handle WebSocket upgrades at server level
+// Handle WebSocket upgrades
 server.on('upgrade', (req, socket, head) => {
   console.log(' Upgrade request for:', req.url);
   

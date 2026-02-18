@@ -2,10 +2,10 @@
   "name": "realtime-service",
   "version": "1.0.0",
   "description": "Secure real-time communications service with WebRTC, Socket.IO, and JWT authentication",
-  "main": "realtime-service.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node realtime-service.js",
-    "dev": "nodemon realtime-service.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "keywords": [
     "webrtc",

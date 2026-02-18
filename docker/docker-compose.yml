@@ -43,6 +43,7 @@ services:
     restart: unless-stopped
 
   # Frontend
+  
   frontend:
     build:
       context: ../voip_frontend
