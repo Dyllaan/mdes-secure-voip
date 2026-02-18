@@ -81,5 +81,5 @@ jobs:
           docker build \
             -f Dockerfile.frontend \
             -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
-            ./voip_frontend
+            .
           docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
