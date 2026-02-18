@@ -1,5 +1,4 @@
-import AudioWithVolume from "./AudioWithVolume.js";
-import {useEffect} from "react";
+import AudioWithVolume from "../voip/AudioWithVolume.js";
 
 type RoomAudioProps = {
     remoteStreams: { peerId: string; stream: MediaStream }[];
@@ -8,10 +7,6 @@ type RoomAudioProps = {
 };
 
 export default function RoomAudio({ remoteStreams, localAudioRef, peerVolumes } : RoomAudioProps) {
-    useEffect(() => {
-        console.log(peerVolumes)
-    }, [peerVolumes]);
-
     return (
         <div>
             <audio ref={localAudioRef} autoPlay muted className="hidden" />
@@ -19,7 +14,7 @@ export default function RoomAudio({ remoteStreams, localAudioRef, peerVolumes } 
                 <AudioWithVolume
                     key={peerId}
                     stream={stream}
-                    volume={peerVolumes[peerId] || 1}  // default volume is 1
+                    volume={peerVolumes[peerId] || 1}
                 />
             ))}
         </div>

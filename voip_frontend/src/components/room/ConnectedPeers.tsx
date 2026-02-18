@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Avatar from "./Avatar";
+import Avatar from "@/components/voip/Avatar";
 import { Slider } from "@/components/ui/slider";
 import {
     DropdownMenu,
@@ -107,7 +107,7 @@ const ConnectedPeers = ({ socket, setPeerVolumes }: ConnectedPeersProps) => {
                     ))}
                 </div>
             ) : (
-                <h4 className="text-gray-700 font-semibold">
+                <h4 className="text-gray-500 font-semibold">
                     No peers connected
                 </h4>
             )}

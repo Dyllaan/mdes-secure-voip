@@ -8,7 +8,8 @@ import { SimpleNoiseGate } from "../utils/SimpleNoiseGate";
 import { useAuth } from "./useAuth";
 import { SignalProtocolClient } from "../utils/SignalProtocolClient";
 import type { DecryptedMessage } from "../utils/SignalProtocolClient";
-import type { UserConnectedData } from "@/types/voip.types";
+import useRoom from "./useRoom";
+import useScreenShare from "./useScreenshare";
 
 export interface ChatMessage {
     sender: string;
@@ -22,25 +23,22 @@ export interface RemoteStream {
     stream: MediaStream;
 }
 
-const PEER_HOST = config.PEER_HOST;
+const PEER_HOST   = config.PEER_HOST;
 const PEER_SECURE = config.PEER_SECURE === "true";
-const PEER_PORT = parseInt(config.PEER_PORT, 10);
-const PEER_PATH = config.PEER_PATH;
+const PEER_PORT   = parseInt(config.PEER_PORT, 10);
+const PEER_PATH   = config.PEER_PATH;
 
 const useVoIP = () => {
     const { accessToken, user, isAuthenticated } = useAuth();
 
-    // Stable primitives derived from user object — avoids re-running the
-    // effect every render just because `user` is a new object reference.
     const userId   = user?.id?.toString() ?? null;
     const username = user?.username       ?? null;
 
-    const [myPeerId,          setMyPeerId]          = useState<string>("");
-    const [chatMessages,      setChatMessages]       = useState<ChatMessage[]>([]);
-    const [message,           setMessage]            = useState<string>("");
-    const [remoteStreams,     setRemoteStreams]       = useState<RemoteStream[]>([]);
-    const [isConnected,       setIsConnected]        = useState<boolean>(false);
-    const [isEncryptionReady, setIsEncryptionReady]  = useState<boolean>(false);
+    const [myPeerId,      setMyPeerId]      = useState<string>("");
+    const [chatMessages,  setChatMessages]  = useState<ChatMessage[]>([]);
+    const [message,       setMessage]       = useState<string>("");
+    const [isConnected,   setIsConnected]   = useState<boolean>(false);
+    const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
 
     const localAudioRef      = useRef<HTMLAudioElement | null>(null);
     const localStreamRef     = useRef<MediaStream | null>(null);
@@ -49,42 +47,120 @@ const useVoIP = () => {
     const peerRef            = useRef<Peer | null>(null);
     const socketRef          = useRef<Socket | null>(null);
     const signalClientRef    = useRef<SignalProtocolClient | null>(null);
+    const accessTokenRef     = useRef<string | null>(accessToken);
 
-    // Keep a ref to the *current* token so Socket.IO's `auth` callback always
-    // sends a fresh value on reconnect without needing to re-run the effect.
-    const accessTokenRef = useRef<string | null>(accessToken);
+    const roomPeerIdsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
+
+    const [socket,          setSocket]          = useState<Socket | null>(null);
+    const [peer,            setPeer]            = useState<Peer | null>(null);
+    const [signalClient,    setSignalClient]    = useState<SignalProtocolClient | null>(null);
+    const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
+
+    const addRoomPeer = useCallback((peerId: string) => {
+        roomPeerIdsRef.current.add(peerId);
+    }, []);
+
+    const removeRoomPeer = useCallback((peerId: string) => {
+        roomPeerIdsRef.current.delete(peerId);
+    }, []);
+
+    const clearRoomPeers = useCallback(() => {
+        roomPeerIdsRef.current.clear();
+    }, []);
+
+    const {
+        remoteStreams,
+        isEncryptionReady,
+        roomPeerIds,
+        addRemoteStream,
+        removeStream,
+        registerIncomingConnection,
+        closeAllConnections,
+    } = useRoom({
+        socket,
+        peer,
+        signalClient,
+        processedStream,
+        username,
+        roomId: currentRoomId ?? "",
+        onPeerJoined:  addRoomPeer,
+        onPeerLeft:    removeRoomPeer,
+        onRoomCleared: clearRoomPeers,
+    });
+
+    const {
+        isSharing,
+        localScreenStream,
+        remoteScreenStreams,
+        startScreenShare,
+        stopScreenShare,
+        dismissScreenShare,
+        handleRoomScreenPeerIds,
+        handlePeerScreenshareStarted,
+        handleRemoteScreenShareStopped,
+        handleNewScreenPeer,
+    } = useScreenShare({
+        socket,
+        currentRoomId,
+        roomPeerIds,
+        peerHost:   PEER_HOST,
+        peerPort:   PEER_PORT,
+        peerPath:   PEER_PATH,
+        peerSecure: PEER_SECURE,
+    });
+
+    // ── Screenshare signalling ────────────────────────────────────────────────
     useEffect(() => {
-        accessTokenRef.current = accessToken;
-    }, [accessToken]);
+        if (!socket) return;
+
+        const handleRoomScreenPeers = ({ peers }: { peers: Array<{ screenPeerId: string; alias: string }> }) => {
+            handleRoomScreenPeerIds(peers);
+        };
+
+        const handlePeerStarted = ({ peerId, alias, screenPeerId }: { peerId: string; alias: string; screenPeerId: string }) => {
+            handlePeerScreenshareStarted(peerId, alias, screenPeerId);
+        };
+
+        const handlePeerStopped = ({ peerId }: { peerId: string }) => {
+            handleRemoteScreenShareStopped(peerId);
+        };
+
+        const handleNewPeer = (data: { screenPeerId: string; alias: string }) => {
+            handleNewScreenPeer(data);
+        };
+
+        socket.on("room-screen-peers",        handleRoomScreenPeers);
+        socket.on("peer-screenshare-started", handlePeerStarted);
+        socket.on("peer-screenshare-stopped", handlePeerStopped);
+        socket.on("new-screen-peer",          handleNewPeer);
+
+        return () => {
+            socket.off("room-screen-peers",        handleRoomScreenPeers);
+            socket.off("peer-screenshare-started", handlePeerStarted);
+            socket.off("peer-screenshare-stopped", handlePeerStopped);
+            socket.off("new-screen-peer",          handleNewPeer);
+        };
+    }, [socket, handleRoomScreenPeerIds, handlePeerScreenshareStarted, handleRemoteScreenShareStopped, handleNewScreenPeer]);
 
     useEffect(() => {
-        if (!isAuthenticated || !accessToken || !userId || !username) {
-            console.log("Waiting for authentication...");
-            return;
-        }
+        if (!isAuthenticated || !accessToken || !userId || !username) return;
 
-        console.log("Authenticated as:", username);
-        console.log("Connecting to realtime service...");
-
-        // `cancelled` stops async continuations that outlive this effect run.
         let cancelled = false;
 
-        // ── Audio setup ──────────────────────────────────────────────────────
         const initializeAudio = async (): Promise<void> => {
             try {
                 const rawStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
-                        echoCancellation:  true,
-                        noiseSuppression:  true,
-                        autoGainControl:   true,
-                        sampleRate:        48000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl:  true,
+                        sampleRate:       48000,
                     },
                 });
 
-                if (cancelled) {
-                    rawStream.getTracks().forEach(t => t.stop());
-                    return;
-                }
+                if (cancelled) { rawStream.getTracks().forEach(t => t.stop()); return; }
 
                 localStreamRef.current = rawStream;
                 if (localAudioRef.current) localAudioRef.current.srcObject = rawStream;
@@ -92,16 +168,16 @@ const useVoIP = () => {
                 const noiseGate = new SimpleNoiseGate();
                 noiseGateRef.current = noiseGate;
 
-                const processedStream = await noiseGate.processStream(rawStream);
+                const processed = await noiseGate.processStream(rawStream);
                 if (cancelled) {
                     rawStream.getTracks().forEach(t => t.stop());
-                    processedStream.getTracks().forEach(t => t.stop());
+                    processed.getTracks().forEach(t => t.stop());
                     noiseGate.cleanup();
                     return;
                 }
 
-                processedStreamRef.current = processedStream;
-                console.log("Got local audio stream with noise gate");
+                processedStreamRef.current = processed;
+                setProcessedStream(processed);
             } catch (err) {
                 console.error("Failed to get local stream", err);
             }
@@ -109,22 +185,19 @@ const useVoIP = () => {
 
         initializeAudio();
 
-        // ── Socket.IO ────────────────────────────────────────────────────────
-        // Using a function for `auth` so every reconnect attempt sends the
-        // latest token rather than the one captured at connection time.
         const voipSocket = io(config.SIGNALING_SERVER, {
-            path:              "/socket.io/",
-            auth:              (cb) => cb({ token: accessTokenRef.current }),
-            transports:        ["websocket", "polling"],
-            withCredentials:   true,
-            reconnection:      true,
-            reconnectionDelay: 1000,
+            path:                 "/socket.io/",
+            auth:                 (cb) => cb({ token: accessTokenRef.current }),
+            transports:           ["websocket", "polling"],
+            withCredentials:      true,
+            reconnection:         true,
+            reconnectionDelay:    1000,
             reconnectionAttempts: 5,
         });
 
         socketRef.current = voipSocket;
+        setSocket(voipSocket);
 
-        // ── connect ──────────────────────────────────────────────────────────
         voipSocket.on("connect", async () => {
             if (cancelled) return;
             console.log("Socket.IO connected:", voipSocket.id);
@@ -133,12 +206,11 @@ const useVoIP = () => {
             if (!userId) return;
 
             try {
-                const signalClient = new SignalProtocolClient(userId, voipSocket);
-                signalClientRef.current = signalClient;
+                const client = new SignalProtocolClient(userId, voipSocket);
+                signalClientRef.current = client;
 
-                signalClient.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
+                client.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
                     if (cancelled) return;
-                    console.log("Room message decrypted from:", decryptedMsg.senderAlias);
                     setChatMessages(prev => [...prev, {
                         sender:    decryptedMsg.senderUserId,
                         message:   decryptedMsg.message,
@@ -147,14 +219,10 @@ const useVoIP = () => {
                     }]);
                 };
 
-                console.log("Starting Signal Protocol initialization...");
-                await signalClient.initialize();
-
-                if (cancelled) return;
-                console.log("Signal Protocol initialized and ready");
+                await client.initialize();
+                if (!cancelled) setSignalClient(client);
             } catch (error) {
                 console.error("Failed to initialize encryption:", error);
-                if (!cancelled) setIsEncryptionReady(false);
             }
         });
 
@@ -167,14 +235,19 @@ const useVoIP = () => {
             console.log("Socket.IO disconnected:", reason);
             if (!cancelled) {
                 setIsConnected(false);
-                setIsEncryptionReady(false);
+                setCurrentRoomId(null);
+                roomPeerIdsRef.current.clear();
             }
         });
 
-        // ── peer-assigned ────────────────────────────────────────────────────
+        voipSocket.on("join-error",  ({ message: errMsg }: { message: string }) => console.error("Join room error:", errMsg));
+        voipSocket.on("room-closed", () => { if (!cancelled) { setCurrentRoomId(null); roomPeerIdsRef.current.clear(); } });
+        voipSocket.on("rate-limit-exceeded", ({ action, retryAfter }: { action: string; retryAfter: number }) => {
+            console.warn("Rate limit exceeded:", action, "retry after:", retryAfter);
+        });
+
         voipSocket.on("peer-assigned", ({ peerId }: { peerId: string }) => {
             if (cancelled) return;
-            console.log("Server assigned peer ID:", peerId);
 
             const newPeer = new Peer(peerId, {
                 host:   PEER_HOST,
@@ -185,41 +258,30 @@ const useVoIP = () => {
             });
 
             peerRef.current = newPeer;
+            setPeer(newPeer);
 
-            newPeer.on("open", async (id: string) => {
+            newPeer.on("open", (id: string) => {
                 if (cancelled) return;
-                console.log("PeerJS connected with ID:", id);
                 setMyPeerId(id);
-
-                // Wait for Signal Protocol (up to 10 s)
-                const signalClient = signalClientRef.current;
-                if (signalClient && !signalClient.isReady()) {
-                    console.log("Waiting for Signal Protocol initialization...");
-                    let attempts = 0;
-                    while (!signalClient.isReady() && attempts < 40 && !cancelled) {
-                        await new Promise(resolve => setTimeout(resolve, 250));
-                        attempts++;
-                    }
-                    if (!signalClient.isReady()) {
-                        console.error("Signal Protocol initialization timeout");
-                    }
-                }
-
-                if (cancelled) return;
-
-                console.log("Joining room: main-room with alias:", username);
-                voipSocket.emit("join-room", { roomId: "main-room", alias: username });
             });
 
+            // Audio-only call handler — screenshare calls go to the dedicated screen Peer
             newPeer.on("call", (incomingCall: MediaConnection) => {
                 if (cancelled) return;
-                console.log("Incoming call from:", incomingCall.peer);
+
+                if (!roomPeerIdsRef.current.has(incomingCall.peer)) {
+                    console.warn(`Rejecting call from peer not in room: ${incomingCall.peer}`);
+                    incomingCall.close();
+                    return;
+                }
+
+                console.log("Incoming audio call from:", incomingCall.peer);
+                registerIncomingConnection(incomingCall.peer, incomingCall);
 
                 const waitForStream = (): void => {
                     if (cancelled) return;
                     if (processedStreamRef.current) {
                         incomingCall.answer(processedStreamRef.current);
-                        console.log("Answered call from:", incomingCall.peer);
                     } else {
                         setTimeout(waitForStream, 100);
                     }
@@ -228,132 +290,25 @@ const useVoIP = () => {
 
                 incomingCall.on("stream", (remoteStream: MediaStream) => {
                     if (cancelled) return;
-                    console.log("Received stream from:", incomingCall.peer);
-                    setRemoteStreams(prev =>
-                        prev.some(rs => rs.peerId === incomingCall.peer)
-                            ? prev
-                            : [...prev, { peerId: incomingCall.peer, stream: remoteStream }]
-                    );
+                    addRemoteStream(incomingCall.peer, remoteStream);
                 });
+
+                incomingCall.on("close",  () => removeStream(incomingCall.peer));
+                incomingCall.on("error",  () => removeStream(incomingCall.peer));
             });
 
-            newPeer.on("error", (error) => {
-                console.error("PeerJS error:", error);
-            });
+            newPeer.on("error", (error) => console.error("PeerJS error:", error));
         });
 
-        // ── all-users (sent when we join an existing room) ───────────────────
-        voipSocket.on("all-users", async (users: Array<{ peerId: string; alias: string; userId: string }>) => {
-            if (cancelled) return;
-            console.log("Received all-users:", users);
-
-            if (signalClientRef.current) {
-                try {
-                    await signalClientRef.current.joinRoom("main-room", users.map(u => u.userId));
-
-                    if (cancelled) return;
-
-                    if (signalClientRef.current.isRoomReady()) {
-                        setIsEncryptionReady(true);
-                        console.log("Joined encrypted room - encryption ready");
-                    } else {
-                        console.warn("Joined room but encryption not ready yet");
-                    }
-                } catch (error) {
-                    console.error("Failed to join encrypted room:", error);
-                    if (!cancelled) setIsEncryptionReady(false);
-                }
-            }
-
-            users.forEach(({ peerId, alias }) => {
-                console.log(`Calling existing user: ${peerId} (${alias})`);
-                const waitAndCall = (): void => {
-                    if (cancelled) return;
-                    if (processedStreamRef.current && peerRef.current) {
-                        const outgoingCall = peerRef.current.call(peerId, processedStreamRef.current);
-
-                        outgoingCall.on("stream", (remoteStream: MediaStream) => {
-                            if (cancelled) return;
-                            console.log("Received stream from existing user:", peerId);
-                            setRemoteStreams(prev =>
-                                prev.some(rs => rs.peerId === peerId)
-                                    ? prev
-                                    : [...prev, { peerId, stream: remoteStream }]
-                            );
-                        });
-
-                        outgoingCall.on("error", (error) => {
-                            console.error("Error calling", peerId, error);
-                        });
-                    } else {
-                        setTimeout(waitAndCall, 100);
-                    }
-                };
-                waitAndCall();
-            });
-        });
-
-        // ── user-connected (new peer joins after us) ─────────────────────────
-        voipSocket.on("user-connected", ({ peerId, alias }: UserConnectedData) => {
-            if (cancelled) return;
-            console.log(`New user connected: ${peerId} (Alias: ${alias})`);
-
-            const waitAndCall = (): void => {
-                if (cancelled) return;
-                if (processedStreamRef.current && peerRef.current) {
-                    const outgoingCall = peerRef.current.call(peerId, processedStreamRef.current);
-
-                    outgoingCall.on("stream", (remoteStream: MediaStream) => {
-                        if (cancelled) return;
-                        console.log("Received stream from new user:", peerId);
-                        setRemoteStreams(prev =>
-                            prev.some(rs => rs.peerId === peerId)
-                                ? prev
-                                : [...prev, { peerId, stream: remoteStream }]
-                        );
-                    });
-
-                    outgoingCall.on("error", (error) => {
-                        console.error("Error calling new user", peerId, error);
-                    });
-                } else {
-                    setTimeout(waitAndCall, 100);
-                }
-            };
-            waitAndCall();
-        });
-
-        // ── user-disconnected ────────────────────────────────────────────────
-        voipSocket.on("user-disconnected", (disconnectedPeerId: string) => {
-            console.log("User disconnected:", disconnectedPeerId);
-            if (!cancelled) {
-                setRemoteStreams(prev => prev.filter(rs => rs.peerId !== disconnectedPeerId));
-            }
-        });
-
-        // ── server error events ──────────────────────────────────────────────
-        voipSocket.on("join-error", ({ message: errMsg }: { message: string }) => {
-            console.error("Join room error:", errMsg);
-        });
-
-        voipSocket.on("rate-limit-exceeded", ({ action, retryAfter }: { action: string; retryAfter: number }) => {
-            console.warn("Rate limit exceeded for:", action, "Retry after:", retryAfter);
-        });
-
-        // ── Cleanup ──────────────────────────────────────────────────────────
         return () => {
-            console.log("Cleaning up VoIP hook");
             cancelled = true;
-
             localStreamRef.current?.getTracks().forEach(t => t.stop());
             processedStreamRef.current?.getTracks().forEach(t => t.stop());
             noiseGateRef.current?.cleanup();
             signalClientRef.current?.cleanup();
             peerRef.current?.destroy();
-
             voipSocket.disconnect();
 
-            // Reset refs so stale values don't bleed into the next run
             localStreamRef.current     = null;
             processedStreamRef.current = null;
             noiseGateRef.current       = null;
@@ -361,40 +316,59 @@ const useVoIP = () => {
             peerRef.current            = null;
             socketRef.current          = null;
 
+            roomPeerIdsRef.current.clear();
+
+            setSocket(null);
+            setPeer(null);
+            setSignalClient(null);
+            setProcessedStream(null);
             setIsConnected(false);
-            setIsEncryptionReady(false);
+            setCurrentRoomId(null);
         };
 
-    // Only primitive deps — avoids re-running when `user` object reference
-    // changes but the actual id/username haven't changed.
-    }, [isAuthenticated, accessToken, userId, username]);
+    }, [isAuthenticated, accessToken, userId, username, addRemoteStream, removeStream, registerIncomingConnection]);
 
-    // ── sendMessage ──────────────────────────────────────────────────────────
+    const joinRoom = useCallback(async (roomId: string): Promise<void> => {
+        const voipSocket = socketRef.current;
+        const client     = signalClientRef.current;
+
+        if (!voipSocket || !myPeerId) { console.error("Not connected"); return; }
+
+        if (client && !client.isReady()) {
+            let attempts = 0;
+            while (!client.isReady() && attempts < 40) {
+                await new Promise(resolve => setTimeout(resolve, 250));
+                attempts++;
+            }
+        }
+
+        closeAllConnections();
+        roomPeerIdsRef.current.clear();
+
+        voipSocket.emit("join-room", { roomId, alias: username });
+        setCurrentRoomId(roomId);
+    }, [myPeerId, username, closeAllConnections]);
+
+    const leaveRoom = useCallback((): void => {
+        const voipSocket = socketRef.current;
+        if (voipSocket && currentRoomId) {
+            voipSocket.emit("leave-room", { roomId: currentRoomId });
+        }
+        closeAllConnections();
+        roomPeerIdsRef.current.clear();
+        setCurrentRoomId(null);
+    }, [currentRoomId, closeAllConnections]);
+
     const sendMessage = useCallback(async (): Promise<void> => {
-        const signalClient = signalClientRef.current;
-
-        if (!signalClient) {
-            console.error("Signal client not ready");
-            return;
-        }
-        if (!signalClient.isRoomReady()) {
-            console.error("Room encryption not ready");
-            return;
-        }
-        if (!message.trim()) return;
+        const client = signalClientRef.current;
+        if (!client)               { console.error("Signal client not ready"); return; }
+        if (!client.isRoomReady()) { console.error("Room encryption not ready"); return; }
+        if (!message.trim())       return;
 
         try {
-            console.log("Sending encrypted room message:", message);
-            await signalClient.sendRoomMessage(message);
-
-            setChatMessages(prev => [...prev, {
-                sender:  "me",
-                message: message,
-                alias:   username ?? "Me",
-            }]);
-
+            await client.sendRoomMessage(message);
+            setChatMessages(prev => [...prev, { sender: "me", message, alias: username ?? "Me" }]);
             setMessage("");
-            console.log("Encrypted room message sent");
         } catch (error) {
             console.error("Failed to send encrypted message:", error);
         }
@@ -413,8 +387,17 @@ const useVoIP = () => {
         isConnected,
         isAuthenticated,
         isEncryptionReady,
+        currentRoomId,
+        joinRoom,
+        leaveRoom,
         user,
         signalClient:     signalClientRef.current,
+        isSharing,
+        localScreenStream,
+        remoteScreenStreams,
+        startScreenShare,
+        stopScreenShare,
+        dismissScreenShare,
     };
 };
 

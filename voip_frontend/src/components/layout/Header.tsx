@@ -1,6 +1,6 @@
-import ConnectedPeers from "../voip/ConnectedPeers";
+import ConnectedPeers from "../room/ConnectedPeers";
 import { Socket } from "socket.io-client";
-import RoomAudio from "../voip/RoomAudio";
+import RoomAudio from "../room/RoomAudio";
 
 interface HeaderProps {
     socket: Socket | null;

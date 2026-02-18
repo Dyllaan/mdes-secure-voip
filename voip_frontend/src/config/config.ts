@@ -4,6 +4,6 @@ const config = {
   PEER_HOST: import.meta.env.VITE_PEER_HOST || window.location.hostname,
   PEER_PORT: import.meta.env.VITE_PEER_PORT || (window.location.port || '80'),
   PEER_SECURE: import.meta.env.VITE_PEER_SECURE || (window.location.protocol === 'https:' ? 'true' : 'false'),
-  PEER_PATH: import.meta.env.VITE_PEER_PATH || '/peerjs',  // ADD THIS
+  PEER_PATH: import.meta.env.VITE_PEER_PATH || '/peerjs',
 };
 export default config;

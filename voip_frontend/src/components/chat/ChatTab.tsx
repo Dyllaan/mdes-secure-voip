@@ -24,12 +24,10 @@ const ChatTab = ({ messages, message, setMessage, sendMessage }: ChatTabProps) =
         }
     };
 
-    // Auto-scroll to bottom when new messages arrive
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Helper function to check if message is from current user
     const isMyMessage = (msg: ChatMessage) => {
         return msg.sender === "me" || msg.sender === user?.username;
     };
@@ -41,7 +39,7 @@ const ChatTab = ({ messages, message, setMessage, sendMessage }: ChatTabProps) =
                 {messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
                         <p className="text-muted-foreground text-center italic">
-                            No messages yet. Start the conversation!
+                            No messages yet.
                         </p>
                     </div>
                 ) : (

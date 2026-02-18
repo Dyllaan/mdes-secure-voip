@@ -1,4 +1,3 @@
-// src/components/AudioSettings.tsx
 import { useState, useEffect } from "react";
 import { Slider } from "@/components/ui/slider";
 import { SimpleNoiseGate } from "@/utils/SimpleNoiseGate";
@@ -110,19 +109,6 @@ const AudioSettings = ({ noiseGate }: AudioSettingsProps) => {
                         <span>25 (Balanced)</span>
                         <span>50 (Aggressive)</span>
                     </div>
-                </div>
-
-                {/* Instructions */}
-                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 space-y-2">
-                    <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100">
-                        How to adjust:
-                    </h4>
-                    <ol className="text-xs text-blue-800 dark:text-blue-200 space-y-1 list-decimal list-inside">
-                        <li>Watch the green bar while you type or make noise</li>
-                        <li>Move the threshold slider so clicks are BELOW the blue line</li>
-                        <li>Speak normally - your voice should be ABOVE the blue line</li>
-                        <li>The gate shows 🟢 OPEN when you speak,  CLOSED when silent</li>
-                    </ol>
                 </div>
 
                 {/* Presets */}
