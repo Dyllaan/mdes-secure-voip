@@ -16,6 +16,7 @@ jobs:
       gateway: ${{ steps.changes.outputs.gateway }}
       auth: ${{ steps.changes.outputs.auth }}
       realtime: ${{ steps.changes.outputs.realtime }}
+      frontend: ${{ steps.changes.outputs.frontend }}
     steps:
       - uses: actions/checkout@v3
       - uses: dorny/paths-filter@v2
@@ -76,7 +77,27 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
             ./services/realtime
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
+
+          # Build Frontend only if changed
+      - name: Set up Node.js
+        if: needs.detect-changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Build Frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
+        working-directory: ./voip_frontend
+        run: |
+          npm ci
+          rm -rf dist .vite
+          npm run build -- --mode production
+      
+      - name: Copy frontend build
+        if: needs.detect-changes.outputs.frontend == 'true'
+        run: cp -r voip_frontend/dist ./
       - name: Build and Push Frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
         run: |
           docker build \
             -f Dockerfile.frontend \
