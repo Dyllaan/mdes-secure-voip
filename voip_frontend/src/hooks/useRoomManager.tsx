@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import config from "../config/config";
 import { useAuth } from "./useAuth";
 
@@ -24,7 +24,10 @@ const useRoomManager = () => {
         setError(null);
         try {
             const res = await fetch(`${config.SIGNALING_SERVER}/api/realtime/rooms`, {
-                headers: authHeaders,
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                },
             });
             if (!res.ok) throw new Error("Failed to fetch rooms");
             const data = await res.json();
@@ -35,6 +38,13 @@ const useRoomManager = () => {
             setLoading(false);
         }
     }, [accessToken]);
+
+    useEffect(() => {
+        fetchRooms();
+        const interval = setInterval(fetchRooms, 15000);
+        console.log("Started room list polling");
+        return () => clearInterval(interval);
+    }, [fetchRooms]);
 
     const createRoom = useCallback(async (roomId?: string): Promise<RoomInfo | null> => {
         setLoading(true);
