@@ -21,6 +21,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import type { MfaSetupResponse } from '@/types/dto/MfaResponses';
 import MfaCodeInput from '../MfaCodeInput';
+import config from '@/config/config';
 
 interface MfaSetupDialogProps {
   open: boolean;
@@ -44,38 +45,27 @@ export default function MfaSetupDialog({
   
 
   const handleSetupMfa = async () => {
-    console.log('handleSetupMfa called');
-    console.log('accessToken:', accessToken);
-    
     if (!accessToken) {
-      console.error('No access token available!');
       toast.error('Please login first');
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log('Calling POST auth/mfa/setup');
-      
-      const response = await axios.post('auth/mfa/setup', {}, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+      const response = await axios.post(`${config.AUTH_URL}/mfa/setup`, {}, {
+        headers: { Authorization: `Bearer ${accessToken}` }
       });
 
-      console.log('MFA setup response:', response);
-
-      if (response.data.success) {
-        setSetupData(response.data as MfaSetupResponse);
-        setStep('verify');
-        toast.success('MFA setup initiated');
-      } else {
-        console.error('Setup failed:', response);
-        toast.error('Failed to setup MFA');
-      }
+      setSetupData(response.data as MfaSetupResponse);
+      setStep('verify');
+      toast.success('MFA setup initiated');
     } catch (error) {
       console.error('MFA setup failed:', error);
-      toast.error('An unexpected error occurred');
+      if (axios.isAxiosError(error) && error.response?.data?.cause) {
+        toast.error(error.response.data.cause);
+      } else {
+        toast.error('An unexpected error occurred');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -86,27 +76,24 @@ export default function MfaSetupDialog({
 
     setIsLoading(true);
     try {
-      const response = await axios.post('auth/mfa/verify', {
+      await axios.post(`${config.AUTH_URL}/mfa/verify`, {
         code: verificationCode
       }, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        }
+        headers: { Authorization: `Bearer ${accessToken}` }
       });
 
-      if (response.data.success) {
-        toast.success('MFA enabled successfully!');
-        changeUserIsMfaEnabled(true);
-        setStep('backup');
-        await fetchMfaStatus();
-
-      } else {
-        toast.error('Invalid verification code');
-        setVerificationCode('');
-      }
+      toast.success('MFA enabled successfully!');
+      changeUserIsMfaEnabled(true);
+      setStep('backup');
+      await fetchMfaStatus();
     } catch (error) {
       console.error('MFA verification failed:', error);
-      toast.error('An unexpected error occurred');
+      if (axios.isAxiosError(error) && error.response?.data?.cause) {
+        toast.error(error.response.data.cause);
+      } else {
+        toast.error('Invalid verification code');
+      }
+      setVerificationCode('');
     } finally {
       setIsLoading(false);
     }
@@ -124,12 +111,12 @@ export default function MfaSetupDialog({
   const handleDownloadBackupCodes = () => {
     if (!setupData?.backupCodes) return;
 
-    const content = `Dedicate Backup Codes\nGenerated: ${new Date().toLocaleString()}\n\n${setupData.backupCodes.join('\n')}\n\nKeep these codes safe. Each code can only be used once.`;
+    const content = `Talk Backup Codes\nGenerated: ${new Date().toLocaleString()}\n\n${setupData.backupCodes.join('\n')}\n\nKeep these codes safe. Each code can only be used once.`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'dedicate-backup-codes.txt';
+    a.download = 'talk-backup-codes.txt';
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Backup codes downloaded');
