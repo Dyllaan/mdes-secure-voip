@@ -1,6 +1,7 @@
 class RoomManager {
-    constructor(config) {
+    constructor(config, io) {
         this.config = config;
+        this.io = io;
         this.rooms = new Map(); // roomId -> room state
         this.users = new Map(); // socketId -> user info
     }
@@ -25,23 +26,21 @@ class RoomManager {
         room.users.set(socket.id, userInfo);
         this.users.set(socket.id, { ...userInfo, roomId });
         console.log(`User ${userInfo.username} joined room ${roomId}`);
+        this.broadcastRoomList();
     }
 
     leaveRoom(socket, roomId) {
         const room = this.rooms.get(roomId);
         if (!room) return;
-
         room.users.delete(socket.id);
         this.users.delete(socket.id);
         socket.leave(roomId);
-
-        // FIX: was emitting 'user-left' but frontend listens for 'user-disconnected'
         socket.to(roomId).emit('user-disconnected', socket.peerId);
-
         if (room.users.size === 0) {
             this.rooms.delete(roomId);
             console.log(`Room deleted: ${roomId} (empty)`);
         }
+        this.broadcastRoomList(); // after potential deletion
     }
 
     getExistingUsers(roomId, excludeSocketId) {
@@ -69,6 +68,15 @@ class RoomManager {
 
     deleteRoom(roomId) {
         this.rooms.delete(roomId);
+    }
+
+    broadcastRoomList() {
+    const rooms = Array.from(this.rooms.entries()).map(([id, room]) => ({
+        id,
+        userCount: room.users.size,
+        createdBy: room.createdBy,
+    }));
+    this.io.emit('room-list', { rooms });
     }
 }
 

@@ -1,9 +1,7 @@
-export default function Page({ children }: { children: React.ReactNode }) {
+export default function Page({ children, className = "" }: { children: React.ReactNode, className?: string }) {
   return (
-    <div className="h-screen overflow-hidden flex">
-      <div className="container mx-auto py-8 px-4">
-        {children}
-      </div>
+    <div className={`h-screen w-full ${className}`}>
+      {children}
     </div>
   );
 }

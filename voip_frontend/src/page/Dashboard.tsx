@@ -38,7 +38,7 @@ const Dashboard = () => {
     const isMobile = useIsMobile();
 
     return (
-        <Page>
+        <Page className="flex">
             {/* RoomManager — desktop sidebar or mobile drawer */}
             <RoomManager
                 socket={socket}

@@ -18,7 +18,7 @@ class SocketEventHandlers {
         this.messageQueues = new Map();
         this.rsaPublicKeys = new Map();
 
-        this.roomManager = new RoomManager(this.config);
+        this.roomManager = new RoomManager(this.config, this.io);
 
         this.signal = new SignalProtocolHandler(this);
         this.roomKey = new RoomKeyHandler(this);
@@ -53,6 +53,13 @@ class SocketEventHandlers {
             socket.peerId = peerId;
             socket.emit('peer-assigned', { peerId });
             console.log(`Assigned peer ID to ${socket.username}: ${peerId}`);
+
+            const rooms = Array.from(this.roomManager.rooms.entries()).map(([id, room]) => ({
+                id,
+                userCount: room.users.size,
+                createdBy: room.createdBy,
+            }));
+            socket.emit('room-list', { rooms });
 
             const rl = (action, max, window) =>
                 this.checkSocketRateLimit(socket, action, max, window);

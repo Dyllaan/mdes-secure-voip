@@ -58,7 +58,7 @@ services:
       - POSTGRES_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
       - POSTGRES_DB=postgres
     volumes:
-      - auth-db-data:/var/lib/postgresql/data
+      - auth-db-data:/var/lib/postgresql
     ports:
       - "5432:5432"
     restart: always
@@ -80,6 +80,9 @@ services:
   #  networks:
   #    - voip-network
   #    - central_network
+
+volumes:
+  auth-db-data:
 
 networks:
   voip-network:
