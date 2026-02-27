@@ -32,7 +32,7 @@ class SocketEventHandlers {
             const token = socket.handshake.auth.token;
             if (!token) return next(new Error('Authentication required'));
             try {
-                const secret = Buffer.from(config.jwt.secret, 'base64');
+                const secret = Buffer.from(this.config.jwt.secret, 'base64');
                 const decoded = jwt.verify(token, secret);
                 socket.userId = decoded.userId;
                 socket.username = decoded.username;

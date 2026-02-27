@@ -57,6 +57,8 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
       - POSTGRES_DB=postgres
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: always
