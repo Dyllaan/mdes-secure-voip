@@ -68,8 +68,6 @@ class UserHandler {
                 });
                 console.log(`Notified ${socket.username} of existing screenshare by ${sharerAlias}`);
 
-                // FIX: also tell the sharer about this new joiner's screen peer ID
-                // so the sharer can call them with the screen stream
                 if (socket.screenPeerId) {
                     const sharerSocket = this._findSocketByPeerId(sharerPeerId);
                     if (sharerSocket) {

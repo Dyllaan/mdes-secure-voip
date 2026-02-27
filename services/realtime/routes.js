@@ -80,7 +80,8 @@ function authenticateRequest(config) {
 
         const token = authHeader.substring(7);
         try {
-            const decoded = jwt.verify(token, config.jwt.secret);
+            const secret = Buffer.from(config.jwt.secret, 'base64');
+            const decoded = jwt.verify(token, secret);
             req.userId = decoded.userId;
             req.username = decoded.username;
             next();
