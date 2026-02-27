@@ -36,7 +36,7 @@ export default function RoomManager({
     mobileOpen = false,
     onMobileClose,
 }: RoomManagerProps) {
-    const { rooms, loading, error, fetchRooms, createRoom, deleteRoom } = useRoomManager();
+    const { rooms, loading, error, fetchRooms, createRoom, deleteRoom } = useRoomManager(socket);
     const [customRoomId, setCustomRoomId] = useState("");
     const [creating, setCreating] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -126,7 +126,7 @@ export default function RoomManager({
                     >
                         <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
                     </button>
-                    {/* Close button — mobile only */}
+                    {/* Close button - mobile only */}
                     {isMobile && (
                         <button
                             onClick={onMobileClose}

@@ -50,7 +50,7 @@ class ChatHandler {
 
         const message = {
             id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.userId,
+            senderUserId: socket.username,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),
@@ -82,7 +82,7 @@ class ChatHandler {
 
         const queued = {
             id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.userId,
+            senderUserId: socket.username,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),
@@ -128,7 +128,7 @@ class ChatHandler {
 
         const message = {
             id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.userId,
+            senderUserId: socket.username,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),

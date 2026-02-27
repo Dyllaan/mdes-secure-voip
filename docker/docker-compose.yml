@@ -36,8 +36,24 @@ services:
     networks:
       - voip-network
 
+  #p2p-voip-realtime-service:
+  #  image: dflouis/p2p-voip-realtime:latest
+  #  container_name: voip-realtime
+  #  expose:
+  #    - "9001"
+  #    - "9000"
+  #  environment:
+  #    - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+  #    - REALTIME_PORT=9001
+  #    - PEER_PORT=9000
+  #  networks:
+  #    - voip-network
+  #  restart: unless-stopped
+
   p2p-voip-realtime-service:
-    image: dflouis/p2p-voip-realtime:latest
+    build:
+      context: ../services/realtime
+      dockerfile: ../../Dockerfile.realtime
     container_name: voip-realtime
     expose:
       - "9001"

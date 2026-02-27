@@ -2,17 +2,15 @@
 require('dotenv').config();
 const SecureRealtimeService = require('./SecureRealtimeService');
 
-// Start the service if this file is run directly
 if (require.main === module) {
   async function start() {
     try {
       console.log(' Starting Secure Real-time Communications Service...');
-      console.log(' Signal Protocol E2E Encryption Enabled');
       
       const service = new SecureRealtimeService();
       await service.start();
       
-      console.log('Service started successfully!');
+      console.log('Service started successfully');
       console.log(` Socket.IO server: ${process.env.NODE_ENV === 'production' ? 'wss' : 'ws'}://localhost:${process.env.REALTIME_PORT || 3001}`);
       console.log(` PeerJS server: ${process.env.NODE_ENV === 'production' ? 'wss' : 'ws'}://localhost:${process.env.PEER_PORT || 9000}`);
       console.log(` Health check: http://localhost:${process.env.REALTIME_PORT || 3001}/health`);
@@ -23,7 +21,6 @@ if (require.main === module) {
     }
   }
 
-  // Handle graceful shutdown
   let isShuttingDown = false;
   
   const shutdown = (signal) => {

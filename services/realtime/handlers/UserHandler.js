@@ -30,7 +30,7 @@ class UserHandler {
         }
 
         if (!this.roomManager.rooms.has(roomId)) {
-            this.roomManager.createRoom(roomId, socket.userId);
+            this.roomManager.createRoom(roomId, socket.username);
         }
 
         const room = this.roomManager.rooms.get(roomId);
@@ -45,7 +45,6 @@ class UserHandler {
             socketId: socket.id,
             peerId,
             alias: socket.alias,
-            userId: socket.userId,
             username: socket.username,
             joinedAt: Date.now()
         };
@@ -54,7 +53,7 @@ class UserHandler {
 
         const existingUsers = Array.from(room.users.values())
             .filter(user => user.socketId !== socket.id)
-            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.userId }));
+            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.username }));
 
         socket.emit('all-users', existingUsers);
 
@@ -86,21 +85,21 @@ class UserHandler {
             if (rsaKey) socket.emit('user-rsa-key', { userId: user.userId, publicKey: rsaKey });
         });
 
-        const newUserRSAKey = this.rsaPublicKeys.get(socket.userId);
+        const newUserRSAKey = this.rsaPublicKeys.get(socket.username);
         if (newUserRSAKey) {
-            socket.to(roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: newUserRSAKey });
+            socket.to(roomId).emit('user-rsa-key', { userId: socket.username, publicKey: newUserRSAKey });
         }
 
         socket.to(roomId).emit('user-connected', {
             peerId,
             alias: socket.alias,
-            userId: socket.userId
+            userId: socket.username
         });
 
-        const queue = this.messageQueues.get(socket.userId);
+        const queue = this.messageQueues.get(socket.username);
         if (queue && queue.length > 0) {
             socket.emit('queued-messages', { messages: queue });
-            this.messageQueues.delete(socket.userId);
+            this.messageQueues.delete(socket.username);
             console.log(`Delivered ${queue.length} queued messages to ${socket.username}`);
         }
 
@@ -128,7 +127,7 @@ class UserHandler {
     handleRequestScreenPeerId(socket) {
         const timestamp = Date.now();
         const random = crypto.randomBytes(8).toString('hex');
-        const screenPeerId = `screen-${socket.userId}-${timestamp}-${random}`;
+        const screenPeerId = `screen-${socket.username}-${timestamp}-${random}`;
         socket.screenPeerId = screenPeerId;
         socket.emit('screen-peer-assigned', { peerId: screenPeerId });
         console.log(`Assigned screen peer ID to ${socket.username}: ${screenPeerId}`);

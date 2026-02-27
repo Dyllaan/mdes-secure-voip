@@ -11,6 +11,7 @@ export default function AudioWithVolume({ stream, volume }: AudioConfig) {
     const audioContextRef = useRef<AudioContext | null>(null);
     const gainNodeRef     = useRef<GainNode | null>(null);
     const sourceRef       = useRef<MediaStreamAudioSourceNode | null>(null);
+    const mergerRef       = useRef<ChannelMergerNode | null>(null);
 
     useEffect(() => {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -30,8 +31,10 @@ export default function AudioWithVolume({ stream, volume }: AudioConfig) {
             gainNode.connect(audioContext.destination);
 
             gainNode.gain.value = volume;
+
             sourceRef.current   = source;
             gainNodeRef.current = gainNode;
+            mergerRef.current   = merger;
 
             console.log("Audio setup for stream:", stream.id);
         } catch (err) {
@@ -44,22 +47,24 @@ export default function AudioWithVolume({ stream, volume }: AudioConfig) {
 
         return () => {
             console.log("Tearing down audio graph for stream:", stream.id);
-
-            // Disconnect Web Audio nodes
-            try { sourceRef.current?.disconnect(); }   catch {}
+            try { mergerRef.current?.disconnect(); }  catch {}
+            try { sourceRef.current?.disconnect(); }  catch {}
             try { gainNodeRef.current?.disconnect(); } catch {}
-
             audioContext.close().catch(() => {});
-
             sourceRef.current   = null;
             gainNodeRef.current = null;
+            mergerRef.current   = null;
             audioContextRef.current = null;
         };
     }, [stream]);
 
     useEffect(() => {
-        if (gainNodeRef.current) {
-            gainNodeRef.current.gain.value = volume;
+        if (!gainNodeRef.current || !mergerRef.current || !audioContextRef.current) return;
+        if (volume === 0) {
+            try { mergerRef.current.disconnect(); } catch {}
+        } else {
+            try { mergerRef.current.connect(gainNodeRef.current); } catch {}
+            gainNodeRef.current.gain.setTargetAtTime(volume, audioContextRef.current.currentTime, 0.01);
         }
     }, [volume]);
 

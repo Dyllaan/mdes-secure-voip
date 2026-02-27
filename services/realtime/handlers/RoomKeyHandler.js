@@ -19,13 +19,13 @@ class RoomKeyHandler {
             return socket.emit('signal-error', { message: 'RSA public key too large' });
         }
 
-        this.rsaPublicKeys.set(socket.userId, sanitizeInput(publicKey));
+        this.rsaPublicKeys.set(socket.username, sanitizeInput(publicKey));
 
         console.log(`RSA public key registered for user ${socket.username}`);
 
         if (socket.roomId) {
             socket.to(socket.roomId).emit('user-rsa-key', {
-                userId: socket.userId,
+                userId: socket.username,
                 publicKey: sanitizeInput(publicKey)
             });
         }
@@ -66,7 +66,7 @@ class RoomKeyHandler {
 
         providerSocket.emit('request-room-key', {
             roomId,
-            requesterId: socket.userId
+            requesterId: socket.username
         });
 
         console.log(`Room key requested: ${socket.username} from ${providerSocket.username}`);

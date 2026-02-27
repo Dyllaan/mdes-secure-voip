@@ -29,7 +29,7 @@ const useRoom = ({
 }: UseRoomOptions) => {
     const [remoteStreams,     setRemoteStreams]     = useState<RemoteStream[]>([]);
     const [isEncryptionReady, setIsEncryptionReady] = useState<boolean>(false);
-    const [roomPeerIds,       setRoomPeerIds]       = useState<string[]>([]);
+    const [connectedPeers, setConnectedPeers] = useState<Array<{ peerId: string; alias: string }>>([]);
 
     const processedStreamRef = useRef(processedStream);
     const peerRef            = useRef(peer);
@@ -46,17 +46,14 @@ const useRoom = ({
         );
     }, []);
 
-    // Only removes the stream entry — does NOT close the connection.
+    // Only removes the stream entry does NOT close the connection.
     // Used by local PeerJS close/error events which can fire during normal
-    // renegotiation (e.g. when a screenshare call opens to the same peer).
+    // renegotiation (when a screenshare call opens to the same peer).
     const removeStream = useCallback((peerId: string) => {
         openConnectionsRef.current.delete(peerId);
         setRemoteStreams(prev => prev.filter(rs => rs.peerId !== peerId));
     }, []);
 
-    // Closes the connection AND removes the stream.
-    // Only called from server-driven user-disconnected events — never from
-    // local PeerJS close events — to avoid false disconnects during renegotiation.
     const closePeerConnection = useCallback((peerId: string) => {
         const conn = openConnectionsRef.current.get(peerId);
         if (conn) {
@@ -87,7 +84,6 @@ const useRoom = ({
                 addRemoteStream(peerId, remoteStream);
             });
 
-            // Use removeStream (not closePeerConnection) — same reasoning as above.
             outgoingCall.on("close", () => removeStream(peerId));
             outgoingCall.on("error", (error) => {
                 console.error("Error calling peer", peerId, error);
@@ -109,7 +105,7 @@ const useRoom = ({
 
             onRoomCleared();
             users.forEach(({ peerId }) => onPeerJoined(peerId));
-            setRoomPeerIds(users.map(u => u.peerId));
+            setConnectedPeers(users);
 
             if (signalClient) {
                 try {
@@ -130,16 +126,14 @@ const useRoom = ({
         const handleUserConnected = ({ peerId, alias }: UserConnectedData) => {
             console.log(`New user connected: ${peerId} (${alias})`);
             onPeerJoined(peerId);
-            setRoomPeerIds(prev => prev.includes(peerId) ? prev : [...prev, peerId]);
+            setConnectedPeers(prev => prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]);
             callPeer(peerId);
         };
 
         const handleUserDisconnected = (disconnectedPeerId: string) => {
             console.log("User disconnected:", disconnectedPeerId);
             onPeerLeft(disconnectedPeerId);
-            setRoomPeerIds(prev => prev.filter(id => id !== disconnectedPeerId));
-            // This is the ONLY place we call closePeerConnection —
-            // driven by the server confirming the peer has left.
+            setConnectedPeers(prev => prev.filter(p => p.peerId !== disconnectedPeerId));
             closePeerConnection(disconnectedPeerId);
         };
 
@@ -158,7 +152,7 @@ const useRoom = ({
         if (!roomId) {
             closeAllConnections();
             setIsEncryptionReady(false);
-            setRoomPeerIds([]);
+            setConnectedPeers([]);
             onRoomCleared();
         }
     }, [roomId, closeAllConnections, onRoomCleared]);
@@ -167,7 +161,7 @@ const useRoom = ({
         remoteStreams,
         isEncryptionReady,
         setIsEncryptionReady,
-        roomPeerIds,
+        connectedPeers,
         addRemoteStream,
         removeStream,
         registerIncomingConnection,

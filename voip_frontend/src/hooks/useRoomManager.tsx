@@ -1,13 +1,14 @@
 import { useState, useCallback, useEffect } from "react";
 import config from "../config/config";
 import { useAuth } from "@/hooks/useAuth";
+import type { Socket } from "socket.io-client";
 
 export interface RoomInfo {
   id: string;
   userCount: number;
 }
 
-const useRoomManager = () => {
+const useRoomManager = (socket: Socket | null) => {
   const { user } = useAuth();
   const accessToken = user?.accessToken;
 
@@ -15,13 +16,19 @@ const useRoomManager = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error,   setError]   = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!socket) return;
+    socket.on("room-list", ({ rooms }: { rooms: RoomInfo[] }) => setRooms(rooms));
+    return () => { socket.off("room-list"); };
+  }, [socket]);
+
   const authHeaders = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${accessToken}`,
   };
 
   const fetchRooms = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); 
     setError(null);
     try {
       const res = await fetch(`${config.SIGNALING_SERVER}/api/realtime/rooms`, {

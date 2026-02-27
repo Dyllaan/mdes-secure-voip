@@ -14,7 +14,7 @@ export default function RoomAudio({ remoteStreams, localAudioRef, peerVolumes } 
                 <AudioWithVolume
                     key={peerId}
                     stream={stream}
-                    volume={peerVolumes[peerId] || 1}
+                    volume={peerVolumes[peerId] ?? 0.4}
                 />
             ))}
         </div>

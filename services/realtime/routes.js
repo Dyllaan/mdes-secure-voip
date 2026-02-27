@@ -82,8 +82,7 @@ function authenticateRequest(config) {
         try {
             const secret = Buffer.from(config.jwt.secret, 'base64');
             const decoded = jwt.verify(token, secret);
-            req.userId = decoded.userId;
-            req.username = decoded.username;
+            req.username = decoded.sub;
             next();
         } catch (err) {
             if (err.name === 'TokenExpiredError') {

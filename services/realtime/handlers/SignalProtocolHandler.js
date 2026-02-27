@@ -50,7 +50,7 @@ class SignalProtocolHandler {
         }
 
         const keyBundle = {
-            userId: socket.userId,
+            userId: socket.username,
             identityKey: sanitizeInput(identityKey),
             signedPreKey: {
                 keyId: signedPreKey.keyId,
@@ -66,7 +66,7 @@ class SignalProtocolHandler {
             updatedAt: Date.now()
         };
 
-        this.signalKeys.set(socket.userId, keyBundle);
+        this.signalKeys.set(socket.username, keyBundle);
 
         socket.emit('signal-keys-registered', {
             success: true,
@@ -142,7 +142,7 @@ class SignalProtocolHandler {
             }
         }
 
-        const bundle = this.signalKeys.get(socket.userId);
+        const bundle = this.signalKeys.get(socket.username);
         if (!bundle) {
             return socket.emit('signal-error', { message: 'No key bundle found. Register keys first.' });
         }

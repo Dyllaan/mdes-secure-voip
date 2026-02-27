@@ -6,7 +6,6 @@ import {
     DropdownMenuContent,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Socket } from "socket.io-client";
 
 interface Peer {
     peerId: string;
@@ -14,16 +13,15 @@ interface Peer {
 }
 
 interface ConnectedPeersProps {
-    socket: Socket | null;
     setPeerVolumes: (volumes: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
+    connectedPeers: Peer[];
 }
 
-const ConnectedPeers = ({ socket, setPeerVolumes }: ConnectedPeersProps) => {
-    const [connectedPeers, setConnectedPeers] = useState<Peer[]>([]);
+const ConnectedPeers = ({ setPeerVolumes, connectedPeers }: ConnectedPeersProps) => {
     const [peerColors, setPeerColors] = useState<Record<string, string>>({});
 
     useEffect(() => {
-        console.log(connectedPeers);
+        connectedPeers.forEach(({ peerId }) => assignColor(peerId));
     }, [connectedPeers]);
 
     const assignColor = (peerId: string) => {
@@ -32,43 +30,6 @@ const ConnectedPeers = ({ socket, setPeerVolumes }: ConnectedPeersProps) => {
             return { ...prev, [peerId]: `hsl(${Math.random() * 360}, 100%, 50%)` };
         });
     };
-
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleAllUsers = (peers: Peer[]) => {
-            peers.forEach(({ peerId }) => assignColor(peerId));
-            setConnectedPeers(peers);
-        };
-
-        const handleUserConnected = ({ peerId, alias }: { peerId: string; alias?: string }) => {
-            assignColor(peerId);
-            setConnectedPeers((prev) => [
-                ...prev.filter((p) => p.peerId !== peerId),
-                { peerId, alias: alias || "Unknown" }
-            ]);
-        };
-
-        const handleUserDisconnected = (peerId: string) => {
-            setConnectedPeers((prev) => prev.filter((p) => p.peerId !== peerId));
-        };
-
-        const handleAliasUpdated = ({ peerId, alias }: { peerId: string; alias: string }) => {
-            setConnectedPeers((prev) => prev.map((p) => p.peerId === peerId ? { ...p, alias } : p));
-        };
-
-        socket.on("all-users", handleAllUsers);
-        socket.on("user-connected", handleUserConnected);
-        socket.on("user-disconnected", handleUserDisconnected);
-        socket.on("alias-updated", handleAliasUpdated);
-
-        return () => {
-            socket.off("all-users", handleAllUsers);
-            socket.off("user-connected", handleUserConnected);
-            socket.off("user-disconnected", handleUserDisconnected);
-            socket.off("alias-updated", handleAliasUpdated);
-        };
-    }, [socket]);
 
     return (
         <div className="p-4 border rounded-lg">

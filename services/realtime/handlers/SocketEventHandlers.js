@@ -34,22 +34,21 @@ class SocketEventHandlers {
             try {
                 const secret = Buffer.from(this.config.jwt.secret, 'base64');
                 const decoded = jwt.verify(token, secret);
-                socket.userId = decoded.userId;
-                socket.username = decoded.username;
-                console.log(`Socket authenticated: ${socket.id} (User: ${decoded.username})`);
+                socket.userId = decoded.sub;
+                socket.username = socket.handshake.auth.username;
+                console.log(`Socket authenticated: ${socket.id} (User: ${socket.username})`);
                 next();
             } catch (err) {
                 console.log(`Socket authentication failed: ${err.message}`);
                 return next(new Error('Invalid or expired token'));
             }
         });
-
         this.io.on('connection', (socket) => {
             console.log(`User connected: ${socket.id} (${socket.username})`);
 
             this.socketRateLimits.set(socket.id, new Map());
 
-            const peerId = this.generateSecurePeerId(socket.userId);
+            const peerId = this.generateSecurePeerId(socket.username);
             socket.peerId = peerId;
             socket.emit('peer-assigned', { peerId });
             console.log(`Assigned peer ID to ${socket.username}: ${peerId}`);
@@ -190,9 +189,9 @@ class SocketEventHandlers {
         return null;
     }
 
-    findSocketByUserId(userId) {
+    findSocketByUserId(username) {
         for (const socket of this.io.sockets.sockets.values()) {
-            if (socket.userId === userId) return socket;
+            if (socket.username === username) return socket;
         }
         return null;
     }

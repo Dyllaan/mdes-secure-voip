@@ -3,7 +3,6 @@ import { useState } from "react";
 import Header from "@/components/layout/Header";
 import RoomManager from "@/components/room/RoomManager";
 import ScreenShareVideo from "@/components/room/screenshare/ScreenshareVideo";
-import { SidebarInset } from "@/components/ui/sidebar";
 import Page from "@/components/layout/Page";
 import ChatTab from "@/components/chat/ChatTab";
 import { Button } from "@/components/ui/button";
@@ -29,6 +28,7 @@ const Dashboard = () => {
         startScreenShare,
         stopScreenShare,
         dismissScreenShare,
+        connectedPeers,
     } = useVoIP();
 
     const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
@@ -39,7 +39,7 @@ const Dashboard = () => {
 
     return (
         <Page className="flex">
-            {/* RoomManager — desktop sidebar or mobile drawer */}
+            {/* RoomManager - desktop sidebar or mobile drawer */}
             <RoomManager
                 socket={socket}
                 currentRoomId={currentRoomId}
@@ -53,7 +53,7 @@ const Dashboard = () => {
 
             {/* Main content */}
             <div className="flex flex-col flex-1 min-w-0 overflow-hidden h-full">
-                {/* Mobile top bar — rooms toggle + current room indicator */}
+                {/* Mobile top bar - rooms toggle + current room indicator */}
                 {isMobile && (
                     <div className="flex items-center gap-2 border-b border-border px-3 py-2 bg-background shrink-0">
                         <button
@@ -74,7 +74,7 @@ const Dashboard = () => {
                 <Header
                     setPeerVolumes={setPeerVolumes}
                     peerVolumes={peerVolumes}
-                    socket={socket}
+                    connectedPeers={connectedPeers}
                     remoteStreams={remoteStreams}
                     localAudioRef={localAudioRef}
                 />

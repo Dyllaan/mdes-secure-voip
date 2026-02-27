@@ -10,6 +10,7 @@ import { SignalProtocolClient } from "../utils/SignalProtocolClient";
 import type { DecryptedMessage } from "../utils/SignalProtocolClient";
 import useRoom from "./useRoom";
 import useScreenShare from "./useScreenshare";
+import type { RoomInfo } from "./useRoomManager";
 
 export interface ChatMessage {
   sender: string;
@@ -29,14 +30,12 @@ const PEER_PORT = parseInt(config.PEER_PORT, 10);
 const PEER_PATH = config.PEER_PATH;
 
 const useVoIP = () => {
-  // ── Auth ────────────────────────────────────────────────────────────────
   const { user, signedIn } = useAuth();
   const isAuthenticated = signedIn;
   const accessToken = user?.accessToken ?? null;
-  const userId = user?.username ?? null;   // new User type has no id; username is the unique key
   const username = user?.username ?? null;
 
-  // ── State / Refs ────────────────────────────────────────────────────────
+  const [roomList, setRoomList] = useState<RoomInfo[]>([]);
   const [myPeerId, setMyPeerId] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [message, setMessage] = useState("");
@@ -69,6 +68,7 @@ const useVoIP = () => {
   const {
     remoteStreams,
     isEncryptionReady,
+    connectedPeers,
     addRemoteStream,
     removeStream,
     registerIncomingConnection,
@@ -136,7 +136,9 @@ const useVoIP = () => {
 
   // ── Core initialisation ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!isAuthenticated || !accessToken || !userId || !username) return;
+    if (!isAuthenticated || !accessToken || !username) return;
+
+    console.log(username);
 
     let cancelled = false;
 
@@ -178,7 +180,7 @@ const useVoIP = () => {
 
     const voipSocket = io(config.SIGNALING_SERVER, {
       path: "/socket.io/",
-      auth: (cb) => cb({ token: accessTokenRef.current }),
+      auth: (cb) => cb({ token: accessTokenRef.current, username: username }),
       transports: ["websocket", "polling"],
       withCredentials: true,
       reconnection: true,
@@ -193,10 +195,10 @@ const useVoIP = () => {
       if (cancelled) return;
       console.log("Socket.IO connected:", voipSocket.id);
       setIsConnected(true);
-      if (!userId) return;
+      if (!username) return;
 
       try {
-        const client = new SignalProtocolClient(userId, voipSocket);
+        const client = new SignalProtocolClient(username, voipSocket);
         signalClientRef.current = client;
 
         client.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
@@ -239,6 +241,10 @@ const useVoIP = () => {
         setCurrentRoomId(null);
         roomPeerIdsRef.current.clear();
       }
+    });
+
+    voipSocket.on("room-list", ({ rooms }) => {
+      if (!cancelled) setRoomList(rooms);
     });
 
     voipSocket.on("rate-limit-exceeded", ({ action, retryAfter }: { action: string; retryAfter: number }) => {
@@ -321,9 +327,8 @@ const useVoIP = () => {
       setIsConnected(false);
       setCurrentRoomId(null);
     };
-  }, [isAuthenticated, accessToken, userId, username, addRemoteStream, removeStream, registerIncomingConnection]);
+  }, [isAuthenticated, accessToken, username, addRemoteStream, removeStream, registerIncomingConnection]);
 
-  // ── Room actions ────────────────────────────────────────────────────────
   const joinRoom = useCallback(async (roomId: string): Promise<void> => {
     const voipSocket = socketRef.current;
     const client = signalClientRef.current;
@@ -343,7 +348,7 @@ const useVoIP = () => {
 
     closeAllConnections();
     roomPeerIdsRef.current.clear();
-    voipSocket.emit("join-room", { roomId, alias: username });
+    voipSocket.emit("join-room", { roomId, alias: username, userId: username });
     setCurrentRoomId(roomId);
   }, [myPeerId, username, closeAllConnections]);
 
@@ -372,7 +377,6 @@ const useVoIP = () => {
     }
   }, [message, username]);
 
-  // ── Return ──────────────────────────────────────────────────────────────
   return {
     myPeerId,
     chatMessages,
@@ -397,6 +401,8 @@ const useVoIP = () => {
     startScreenShare,
     stopScreenShare,
     dismissScreenShare,
+    roomList,
+    connectedPeers,
   };
 };
 
