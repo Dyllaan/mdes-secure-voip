@@ -1,6 +1,5 @@
 import { Lock, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import Section from '@/components/layout/Section';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -51,11 +50,14 @@ export default function ChangePasswordPage() {
     }
 
     return (
-        <Section 
-            icon={Lock} 
-            title="Change Password" 
-            description="Update your password to keep your account secure."
-        >
+        <div title="Change Password">
+            <div className="flex items-center gap-2 mb-4">
+                <Lock className="w-5 h-5 text-muted-foreground" />
+                <h2 className="text-lg font-semibold">Change Password</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+                Update your password to keep your account secure.
+            </p>
             <form onSubmit={handlePasswordChange} className="space-y-4 pt-4">
                 <div className="space-y-2">
                     <label htmlFor="current-password" className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -129,6 +131,6 @@ export default function ChangePasswordPage() {
                     {isLoadingPassword ? 'Updating...' : 'Update Password'}
                 </Button>
             </form>
-        </Section>
+        </div>
     );
 }

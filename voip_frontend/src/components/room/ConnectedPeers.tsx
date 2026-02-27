@@ -31,6 +31,11 @@ const ConnectedPeers = ({ setPeerVolumes, connectedPeers }: ConnectedPeersProps)
         });
     };
 
+    const handleSetVolume = (peerId: string, value: number) => {
+        console.log(`Setting volume for ${peerId} to ${value}`);
+        setPeerVolumes((prev) => ({ ...prev, [peerId]: value }));
+    }
+
     return (
         <div className="p-4 border rounded-lg">
             {connectedPeers.length > 0 ? (
@@ -53,7 +58,7 @@ const ConnectedPeers = ({ setPeerVolumes, connectedPeers }: ConnectedPeersProps)
                                         step={1}
                                         onValueChange={(value) => {
                                             const percentageValue = value[0] / 100;
-                                            setPeerVolumes((prev) => ({ ...prev, [peerId]: percentageValue }));
+                                            handleSetVolume(peerId, percentageValue);
                                         }}
                                         className="w-full"
                                     />

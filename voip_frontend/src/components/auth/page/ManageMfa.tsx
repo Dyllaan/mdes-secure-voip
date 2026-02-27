@@ -1,5 +1,4 @@
-import Section from '@/components/layout/Section';
-import UnifiedItem from '@/components/layout/section/UnifiedItem';
+import UnifiedItem from '@/components/layout/UnifiedItem';
 import { Shield } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
@@ -19,7 +18,7 @@ export default function ManageMfa() {
     }, [mfaEnabled, user]);
 
     return (
-        <Section title="Multi-Factor Authentication" icon={Shield}>
+        <div title="Multi-Factor Authentication">
             <UnifiedItem 
                 label={mfaEnabled ? "MFA is Enabled" : "MFA is Disabled"} 
                 description={mfaEnabled ? "Multi-factor authentication is currently enabled on your account." : "Please enable MFA for added security."}
@@ -37,6 +36,6 @@ export default function ManageMfa() {
                     onOpenChange={setShowMfaDisable}
                     onComplete={() => setShowMfaDisable(false)}
                 />
-        </Section>
+        </div>
     );
 }

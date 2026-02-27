@@ -1,9 +1,5 @@
 import type { RoomInfo } from "../../hooks/useRoomManager";
 import {
-    SidebarMenuButton,
-    SidebarMenuItem,
-} from "@/components/ui/sidebar";
-import {
     Trash2,
     Users,
     LogIn,

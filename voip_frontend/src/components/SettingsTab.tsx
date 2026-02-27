@@ -8,21 +8,19 @@ import {
     SheetContent,
     SheetHeader,
     SheetTitle,
-    SheetTrigger,
 } from "@/components/ui/sheet";
-import { Settings } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function SettingsTab({ noiseGate }: { noiseGate: SimpleNoiseGate | null }) {
-    const { logout } = useAuth();
+interface SettingsTabProps {
+    noiseGate: SimpleNoiseGate | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}
 
+export default function SettingsTab({ noiseGate, open, onOpenChange }: SettingsTabProps) {
+    const { logout } = useAuth();
     return (
-        <Sheet>
-            <SheetTrigger asChild>
-                <Button variant="ghost" size="icon">
-                    <Settings className="h-5 w-5" />
-                </Button>
-            </SheetTrigger>
+        <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent>
                 <SheetHeader>
                     <SheetTitle>Settings</SheetTitle>

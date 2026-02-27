@@ -212,7 +212,7 @@ export default function RoomManager({
                 {!isConnected && (
                     <p className="text-[11px] text-sidebar-foreground/40 px-1">Connect to manage rooms.</p>
                 )}
-                <button
+                 <button
                     onClick={onOpenSettings}
                     className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group"
                 >

@@ -3,11 +3,11 @@ import { useState } from "react";
 import Header from "@/components/layout/Header";
 import RoomManager from "@/components/room/RoomManager";
 import ScreenShareVideo from "@/components/room/screenshare/ScreenshareVideo";
-import Page from "@/components/layout/Page";
 import ChatTab from "@/components/chat/ChatTab";
 import { Button } from "@/components/ui/button";
 import { Hash, Monitor, MonitorOff, X } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import SettingsTab from "../components/SettingsTab";
 
 const Dashboard = () => {
     const {
@@ -38,7 +38,7 @@ const Dashboard = () => {
     const isMobile = useIsMobile();
 
     return (
-        <Page className="flex">
+        <div className="h-screen overflow-hidden flex">
             {/* RoomManager - desktop sidebar or mobile drawer */}
             <RoomManager
                 socket={socket}
@@ -128,9 +128,11 @@ const Dashboard = () => {
                             sendMessage={sendMessage}
                         />
                     </div>
+
+                    <SettingsTab noiseGate={noiseGate} open={settingsOpen} onOpenChange={setSettingsOpen} />
                 </div>
             </div>
-        </Page>
+        </div>
     );
 };
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'; // Add useEffect
+import { useState } from 'react';
 import { Shield, Copy, Check, Download } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import axios from 'axios';
@@ -21,15 +21,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import type { MfaSetupResponse } from '@/types/dto/MfaResponses';
 import MfaCodeInput from '../MfaCodeInput';
-import config from '@/config/config';
 
 interface MfaSetupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete?: () => void;
 }
-
-const BASE_URL = config.AUTH_URL;
 
 export default function MfaSetupDialog({ 
   open, 

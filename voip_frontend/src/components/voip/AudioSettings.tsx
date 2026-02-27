@@ -12,7 +12,6 @@ const AudioSettings = ({ noiseGate }: AudioSettingsProps) => {
     const [threshold, setThreshold] = useState(10); // Default 0.01
     const [audioLevel, setAudioLevel] = useState(0);
 
-    // Monitor audio level for visual feedback
     useEffect(() => {
         if (!noiseGate) return;
 
