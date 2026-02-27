@@ -1,8 +1,8 @@
 import Dashboard from '@/page/Dashboard';
-import { Login } from '@/page/Login';
+import AuthPage from '@/page/AuthPage';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function LoginOrDash() {
-  const { isAuthenticated } = useAuth();
-    return isAuthenticated ? <Dashboard /> : <Login />;
+  const { signedIn } = useAuth();
+    return signedIn ? <Dashboard /> : <AuthPage />;
 }

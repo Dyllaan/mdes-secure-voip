@@ -1,61 +1,83 @@
 services:
-  # API Gateway
-  gateway:
-    build:
-      context: ../services/gateway
+  p2p-voip-gateway:
+    image: dflouis/p2p-voip-gateway:latest
     container_name: voip-gateway
     ports:
+      - "9000:9000"
       - "3000:3000"
-    env_file:
-      - ../services/gateway/.env.docker
-    depends_on:
-      - auth-service
-      - realtime-service
-    networks:
-      - voip-network
-    restart: unless-stopped
-
-  # Auth Service
-  auth-service:
-    build:
-      context: ../services/auth
-    container_name: voip-auth
     expose:
-      - "3003"
-    env_file:
-      - ../services/auth/.env.docker
+      - "9000"
+    environment:
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://voip-auth-service:8010
+      - REALTIME_SERVICE_URL=http://voip-realtime:9001
+      - PEER_SERVICE_URL=http://voip-realtime:9000
+    depends_on:
+      - p2p-voip-realtime-service
     networks:
       - voip-network
     restart: unless-stopped
 
-  # Realtime Service
-  realtime-service:
-    build:
-      context: ../services/Real-time-Comms
+  p2p-auth-service:
+    image: dflouis/dedicate-auth-service:latest
+    container_name: voip-auth-service
+    expose:
+      - "8010"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+      - SECRET_KEY=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - TEMP_MFA_SECRET_KEY=vpNPLT3iXxaRXOY0SSvdnUCeXucbF3JqmdCvFExRvUs23RDeCoEYC6rz8zTqxPWjaAjUjYQn7uST6ZUf86SlHB
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+    restart: always
+    networks:
+      - voip-network
+
+  p2p-voip-realtime-service:
+    image: dflouis/p2p-voip-realtime:latest
     container_name: voip-realtime
     expose:
-      - "3001"
+      - "9001"
       - "9000"
-    env_file:
-      - ../services/Real-time-Comms/.env
+    environment:
+      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - REALTIME_PORT=9001
+      - PEER_PORT=9000
     networks:
       - voip-network
     restart: unless-stopped
 
-  # Frontend
-  
-  frontend:
-    build:
-      context: ../voip_frontend
-      dockerfile: Dockerfile
-    container_name: voip-frontend
+  p2p-auth-db:
+    image: postgres:latest
+    container_name: auth-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
+      - POSTGRES_DB=postgres
     ports:
-      - "80:80"
-    depends_on:
-      - gateway
+      - "5432:5432"
+    restart: always
     networks:
       - voip-network
-    restart: unless-stopped
+  #p2p-voip-frontend:
+  #  image: dflouis/p2p-voip-frontend:latest
+  #  container_name: p2p-voip-frontend
+  #  ports:
+  #    - "5001:80"
+  #    # handle in caddy - "443:443"
+  #  environment:
+  #    - VITE_AUTH_URL=/auth
+  #    - VITE_SOCKET_URL=
+  #    - VITE_PEER_HOST=
+  #    - VITE_PEER_PORT=443
+  #    - VITE_PEER_SECURE=true
+  #  restart: always
+  #  networks:
+  #    - voip-network
+  #    - central_network
 
 networks:
   voip-network:

@@ -4,6 +4,7 @@ import Header from "@/components/layout/Header";
 import RoomManager from "@/components/room/RoomManager";
 import ScreenShareVideo from "@/components/room/screenshare/ScreenshareVideo";
 import { SidebarInset } from "@/components/ui/sidebar";
+import Page from "@/components/layout/Page";
 import ChatTab from "@/components/chat/ChatTab";
 import { Button } from "@/components/ui/button";
 import { Hash, Monitor, MonitorOff, X } from "lucide-react";
@@ -37,7 +38,7 @@ const Dashboard = () => {
     const isMobile = useIsMobile();
 
     return (
-        <div className="h-screen overflow-hidden flex">
+        <Page>
             {/* RoomManager — desktop sidebar or mobile drawer */}
             <RoomManager
                 socket={socket}
@@ -129,7 +130,7 @@ const Dashboard = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </Page>
     );
 };
 

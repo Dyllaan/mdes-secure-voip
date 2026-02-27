@@ -84,7 +84,7 @@ const useScreenshare = ({
             });
 
             screenPeer.on("call", (incomingCall: MediaConnection) => {
-                // ── Room gate for screen calls ──────────────────────────────
+                // Room gate for screen calls
                 if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
                     console.warn("Rejecting screen call from unknown peer:", incomingCall.peer);
                     incomingCall.close();
@@ -192,7 +192,7 @@ const useScreenshare = ({
         });
     }, [callPeerWithScreen]);
 
-    // Server tells us a peer started sharing — register their screen peer ID
+    // Server tells us a peer started sharing and register their screen peer ID
     // so our screen Peer allows their incoming call
     const handlePeerScreenshareStarted = useCallback((
         audioPeerId: string,
@@ -205,7 +205,7 @@ const useScreenshare = ({
         allowedScreenPeerIds.current.add(screenPeerId);
     }, []);
 
-    // Server tells sharer that a new user joined — call them with the screen stream
+    // Server tells sharer that a new user joined and call them with the screen stream
     const handleNewScreenPeer = useCallback(({
         screenPeerId,
         alias,

@@ -22,7 +22,6 @@ interface RoomManagerProps {
     onLeaveRoom: () => void;
     isConnected: boolean;
     onOpenSettings: () => void;
-    // Mobile drawer controls — provided by Dashboard
     mobileOpen?: boolean;
     onMobileClose?: () => void;
 }
@@ -44,7 +43,7 @@ export default function RoomManager({
 
     const isMobile = useIsMobile();
 
-    // ── Resize logic (desktop only)
+    // desktop only
     const [width, setWidth] = useState(DEFAULT_WIDTH);
     const isResizing = useRef(false);
     const startX = useRef(0);
@@ -99,7 +98,6 @@ export default function RoomManager({
         onMobileClose?.();
     };
 
-    // ── Shared panel content ──────────────────────────────────────────────────
     const panelContent = (
         <div className="flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
 
@@ -224,9 +222,7 @@ export default function RoomManager({
             </div>
         </div>
     );
-    // ─────────────────────────────────────────────────────────────────────────
 
-    // ── Mobile: overlay drawer ────────────────────────────────────────────────
     if (isMobile) {
         return (
             <>
@@ -251,7 +247,6 @@ export default function RoomManager({
         );
     }
 
-    // ── Desktop: resizable sidebar ────────────────────────────────────────────
     return (
         <div
             className="relative flex h-full shrink-0 flex-col"
