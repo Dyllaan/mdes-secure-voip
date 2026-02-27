@@ -47,7 +47,6 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Build and Push Gateway
-        if: needs.detect-changes.outputs.gateway == 'true'
         run: |
           docker build \
             --build-arg PORT=3000 \
@@ -57,7 +56,6 @@ jobs:
           docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
 
       - name: Build and Push Realtime Service
-        if: needs.detect-changes.outputs.realtime == 'true'
         run: |
           docker build \
             -f Dockerfile.realtime \
