@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       gateway: ${{ steps.changes.outputs.gateway }}
-      auth: ${{ steps.changes.outputs.auth }}
       realtime: ${{ steps.changes.outputs.realtime }}
       frontend: ${{ steps.changes.outputs.frontend }}
     steps:
@@ -26,9 +25,6 @@ jobs:
             gateway:
               - 'services/gateway/**'
               - 'Dockerfile.gateway'
-            auth:
-              - 'services/auth/**'
-              - 'Dockerfile.auth-service'
             realtime:
               - 'services/realtime/**'
               - 'Dockerfile.realtime'
@@ -59,15 +55,6 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-voip-gateway:latest \
             ./services/gateway
           docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
-
-      - name: Build and Push Auth Service
-        if: needs.detect-changes.outputs.auth == 'true'
-        run: |
-          docker build \
-            -f Dockerfile.auth-service \
-            -t ${{ env.REGISTRY }}/p2p-voip-auth-service:latest \
-            ./services/auth
-          docker push ${{ env.REGISTRY }}/p2p-voip-auth-service:latest
 
       - name: Build and Push Realtime Service
         if: needs.detect-changes.outputs.realtime == 'true'
