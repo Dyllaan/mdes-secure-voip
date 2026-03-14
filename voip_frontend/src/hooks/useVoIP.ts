@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
-import { io } from "socket.io-client";
-import type { Socket } from "socket.io-client";
 import config from "../config/config";
 import { SimpleNoiseGate } from "../utils/SimpleNoiseGate";
 import { useAuth } from "@/hooks/useAuth";
-import { SignalProtocolClient } from "../utils/SignalProtocolClient";
+import { useConnection } from "@/components/providers/ConnectionProvider";
 import type { DecryptedMessage } from "../utils/SignalProtocolClient";
 import useRoom from "./useRoom";
 import useScreenShare from "./useScreenshare";
+import { optimiseBitrate } from '@/utils/OptimiseBitrate';
 import type { RoomInfo } from "./useRoomManager";
 
 export interface ChatMessage {
@@ -31,34 +30,25 @@ const PEER_PATH = config.PEER_PATH;
 
 const useVoIP = () => {
   const { user, signedIn } = useAuth();
-  const isAuthenticated = signedIn;
-  const accessToken = user?.accessToken ?? null;
+  const { socket, signalClient, isConnected, assignedPeerId } = useConnection();
   const username = user?.username ?? null;
 
   const [roomList, setRoomList] = useState<RoomInfo[]>([]);
   const [myPeerId, setMyPeerId] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [message, setMessage] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const processedStreamRef = useRef<MediaStream | null>(null);
   const noiseGateRef = useRef<SimpleNoiseGate | null>(null);
   const peerRef = useRef<Peer | null>(null);
-  const socketRef = useRef<Socket | null>(null);
-  const signalClientRef = useRef<SignalProtocolClient | null>(null);
-  const accessTokenRef = useRef(accessToken);
   const roomPeerIdsRef = useRef<Set<string>>(new Set());
+  const voiceInitializedRef = useRef(false);
 
-  useEffect(() => {
-    accessTokenRef.current = accessToken;
-  }, [accessToken]);
-
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [peer, setPeer] = useState<Peer | null>(null);
-  const [signalClient, setSignalClient] = useState<SignalProtocolClient | null>(null);
   const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
 
   const addRoomPeer = useCallback((peerId: string) => { roomPeerIdsRef.current.add(peerId); }, []);
@@ -134,213 +124,211 @@ const useVoIP = () => {
     };
   }, [socket, handleRoomScreenPeerIds, handlePeerScreenshareStarted, handleRemoteScreenShareStopped, handleNewScreenPeer]);
 
-  // ── Core initialisation ─────────────────────────────────────────────────
+  // ── Set up signal client callbacks ──────────────────────────────────────
   useEffect(() => {
-    if (!isAuthenticated || !accessToken || !username) return;
+    if (!signalClient) return;
 
-    console.log(username);
+    signalClient.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
+      setChatMessages(prev => [...prev, {
+        sender: decryptedMsg.senderUserId,
+        message: decryptedMsg.message,
+        alias: decryptedMsg.senderAlias,
+        timestamp: decryptedMsg.timestamp,
+      }]);
+    };
+  }, [signalClient]);
 
-    let cancelled = false;
+  // ── Lightweight socket listeners (bound eagerly, no mic needed) ─────────
+  useEffect(() => {
+    if (!socket || !isConnected) return;
 
-    const initializeAudio = async (): Promise<void> => {
-      try {
-        const rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            sampleRate: 48000,
-          },
-        });
+    const handleJoinError = ({ message: errMsg }: { message: string }) =>
+        console.error("Join room error:", errMsg);
 
-        if (cancelled) { rawStream.getTracks().forEach(t => t.stop()); return; }
-
-        localStreamRef.current = rawStream;
-        if (localAudioRef.current) localAudioRef.current.srcObject = rawStream;
-
-        const noiseGate = new SimpleNoiseGate();
-        noiseGateRef.current = noiseGate;
-        const processed = await noiseGate.processStream(rawStream);
-
-        if (cancelled) {
-          rawStream.getTracks().forEach(t => t.stop());
-          processed.getTracks().forEach(t => t.stop());
-          noiseGate.cleanup();
-          return;
-        }
-
-        processedStreamRef.current = processed;
-        setProcessedStream(processed);
-      } catch (err) {
-        console.error("Failed to get local stream", err);
-      }
+    const handleRoomClosed = () => {
+      setCurrentRoomId(null);
+      roomPeerIdsRef.current.clear();
+      cleanupVoice();
     };
 
-    initializeAudio();
+    const handleRoomList = ({ rooms }: { rooms: RoomInfo[] }) => {
+      setRoomList(rooms);
+    };
 
-    const voipSocket = io(config.SIGNALING_SERVER, {
-      path: "/socket.io/",
-      auth: (cb) => cb({ token: accessTokenRef.current, username: username }),
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-    });
-
-    socketRef.current = voipSocket;
-    setSocket(voipSocket);
-
-    voipSocket.on("connect", async () => {
-      if (cancelled) return;
-      console.log("Socket.IO connected:", voipSocket.id);
-      setIsConnected(true);
-      if (!username) return;
-
-      try {
-        const client = new SignalProtocolClient(username, voipSocket);
-        signalClientRef.current = client;
-
-        client.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
-          if (cancelled) return;
-          setChatMessages(prev => [...prev, {
-            sender: decryptedMsg.senderUserId,
-            message: decryptedMsg.message,
-            alias: decryptedMsg.senderAlias,
-            timestamp: decryptedMsg.timestamp,
-          }]);
-        };
-
-        await client.initialize();
-        if (!cancelled) setSignalClient(client);
-      } catch (error) {
-        console.error("Failed to initialize encryption:", error);
-      }
-    });
-
-    voipSocket.on("connect_error", (error) => {
-      console.error("Socket.IO connection error:", error.message);
-      if (!cancelled) setIsConnected(false);
-    });
-
-    voipSocket.on("disconnect", (reason) => {
-      console.log("Socket.IO disconnected:", reason);
-      if (!cancelled) {
-        setIsConnected(false);
-        setCurrentRoomId(null);
-        roomPeerIdsRef.current.clear();
-      }
-    });
-
-    voipSocket.on("join-error", ({ message: errMsg }: { message: string }) =>
-      console.error("Join room error:", errMsg)
-    );
-
-    voipSocket.on("room-closed", () => {
-      if (!cancelled) {
-        setCurrentRoomId(null);
-        roomPeerIdsRef.current.clear();
-      }
-    });
-
-    voipSocket.on("room-list", ({ rooms }) => {
-      if (!cancelled) setRoomList(rooms);
-    });
-
-    voipSocket.on("rate-limit-exceeded", ({ action, retryAfter }: { action: string; retryAfter: number }) => {
+    const handleRateLimit = ({ action, retryAfter }: { action: string; retryAfter: number }) => {
       console.warn("Rate limit exceeded:", action, "retry after:", retryAfter);
-    });
+    };
 
-    voipSocket.on("peer-assigned", ({ peerId }: { peerId: string }) => {
-      if (cancelled) return;
-
-      const newPeer = new Peer(peerId, {
-        host: PEER_HOST,
-        secure: PEER_SECURE,
-        port: PEER_PORT,
-        path: PEER_PATH,
-        debug: 3,
-      });
-
-      peerRef.current = newPeer;
-      setPeer(newPeer);
-
-      newPeer.on("open", (id: string) => {
-        if (cancelled) return;
-        setMyPeerId(id);
-      });
-
-      newPeer.on("call", (incomingCall: MediaConnection) => {
-        if (cancelled) return;
-
-        if (!roomPeerIdsRef.current.has(incomingCall.peer)) {
-          console.warn(`Rejecting call from peer not in room: ${incomingCall.peer}`);
-          incomingCall.close();
-          return;
-        }
-
-        console.log("Incoming audio call from:", incomingCall.peer);
-        registerIncomingConnection(incomingCall.peer, incomingCall);
-
-        const waitForStream = (): void => {
-          if (cancelled) return;
-          if (processedStreamRef.current) {
-            incomingCall.answer(processedStreamRef.current);
-          } else {
-            setTimeout(waitForStream, 100);
-          }
-        };
-        waitForStream();
-
-        incomingCall.on("stream", (remoteStream: MediaStream) => {
-          if (cancelled) return;
-          addRemoteStream(incomingCall.peer, remoteStream);
-        });
-        incomingCall.on("close", () => removeStream(incomingCall.peer));
-        incomingCall.on("error", () => removeStream(incomingCall.peer));
-      });
-
-      newPeer.on("error", (error) => console.error("PeerJS error:", error));
-    });
+    socket.on("join-error", handleJoinError);
+    socket.on("room-closed", handleRoomClosed);
+    socket.on("room-list", handleRoomList);
+    socket.on("rate-limit-exceeded", handleRateLimit);
 
     return () => {
-      cancelled = true;
-      localStreamRef.current?.getTracks().forEach(t => t.stop());
-      processedStreamRef.current?.getTracks().forEach(t => t.stop());
-      noiseGateRef.current?.cleanup();
-      signalClientRef.current?.cleanup();
-      peerRef.current?.destroy();
-      voipSocket.disconnect();
-
-      localStreamRef.current = null;
-      processedStreamRef.current = null;
-      noiseGateRef.current = null;
-      signalClientRef.current = null;
-      peerRef.current = null;
-      socketRef.current = null;
-      roomPeerIdsRef.current.clear();
-
-      setSocket(null);
-      setPeer(null);
-      setSignalClient(null);
-      setProcessedStream(null);
-      setIsConnected(false);
-      setCurrentRoomId(null);
+      socket.off("join-error", handleJoinError);
+      socket.off("room-closed", handleRoomClosed);
+      socket.off("room-list", handleRoomList);
+      socket.off("rate-limit-exceeded", handleRateLimit);
     };
-  }, [isAuthenticated, accessToken, username, addRemoteStream, removeStream, registerIncomingConnection]);
+  }, [socket, isConnected]);
 
+  // ── Helper: create PeerJS instance with a given peer ID ─────────────────
+  const createPeerInstance = useCallback((peerId: string) => {
+    // Destroy any existing peer first
+    if (peerRef.current) {
+      peerRef.current.destroy();
+      peerRef.current = null;
+    }
+
+    const newPeer = new Peer(peerId, {
+      host: PEER_HOST,
+      secure: PEER_SECURE,
+      port: PEER_PORT,
+      path: PEER_PATH,
+      debug: 3,
+    });
+
+    peerRef.current = newPeer;
+    setPeer(newPeer);
+
+    newPeer.on("open", (id: string) => {
+      setMyPeerId(id);
+      console.log("PeerJS connected with ID:", id);
+    });
+
+    newPeer.on("call", (incomingCall: MediaConnection) => {
+      if (!roomPeerIdsRef.current.has(incomingCall.peer)) {
+        console.warn(`Rejecting call from peer not in room: ${incomingCall.peer}`);
+        incomingCall.close();
+        return;
+      }
+
+      console.log("Incoming audio call from:", incomingCall.peer);
+      registerIncomingConnection(incomingCall.peer, incomingCall);
+
+      const waitForStream = (): void => {
+        if (processedStreamRef.current) {
+          incomingCall.answer(processedStreamRef.current,{sdpTransform: optimiseBitrate,});
+        } else {
+          setTimeout(waitForStream, 100);
+        }
+      };
+      waitForStream();
+
+      incomingCall.on("stream", (remoteStream: MediaStream) => {
+        addRemoteStream(incomingCall.peer, remoteStream);
+      });
+      incomingCall.on("close", () => removeStream(incomingCall.peer));
+      incomingCall.on("error", () => removeStream(incomingCall.peer));
+    });
+
+    newPeer.on("error", (error) => console.error("PeerJS error:", error));
+
+    return newPeer;
+  }, [addRemoteStream, removeStream, registerIncomingConnection]);
+
+  // ── Lazy voice initialization (mic + noise gate + PeerJS) ───────────────
+  const initializeVoice = useCallback(async (): Promise<boolean> => {
+    if (voiceInitializedRef.current) return true;
+
+    if (!assignedPeerId) {
+      console.error("No peer ID assigned by server yet");
+      return false;
+    }
+
+    try {
+      const rawStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 48000,
+        },
+      });
+
+      localStreamRef.current = rawStream;
+      if (localAudioRef.current) localAudioRef.current.srcObject = rawStream;
+
+      // const noiseGate = new SimpleNoiseGate();
+      // noiseGateRef.current = noiseGate;
+      // const processed = await noiseGate.processStream(rawStream);
+
+      // processedStreamRef.current = processed;
+      // setProcessedStream(processed);
+
+      processedStreamRef.current = rawStream;
+      setProcessedStream(rawStream);
+
+      // Now create the PeerJS instance with the server-assigned ID
+      createPeerInstance(assignedPeerId);
+
+      voiceInitializedRef.current = true;
+      setIsVoiceActive(true);
+      return true;
+    } catch (err) {
+      console.error("Failed to get local stream:", err);
+      return false;
+    }
+  }, [createPeerInstance, assignedPeerId]);
+
+  // ── Voice cleanup (mic + PeerJS teardown) ───────────────────────────────
+  const cleanupVoice = useCallback(() => {
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    processedStreamRef.current?.getTracks().forEach(t => t.stop());
+    noiseGateRef.current?.cleanup();
+    peerRef.current?.destroy();
+
+    localStreamRef.current = null;
+    processedStreamRef.current = null;
+    noiseGateRef.current = null;
+    peerRef.current = null;
+    roomPeerIdsRef.current.clear();
+
+    setPeer(null);
+    setProcessedStream(null);
+    setMyPeerId("");
+
+    voiceInitializedRef.current = false;
+    setIsVoiceActive(false);
+  }, []);
+
+  // ── Cleanup on unmount ──────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      cleanupVoice();
+    };
+  }, [cleanupVoice]);
+
+  // ── Join room (initializes voice lazily, then waits for PeerJS open) ────
   const joinRoom = useCallback(async (roomId: string): Promise<void> => {
-    const voipSocket = socketRef.current;
-    const client = signalClientRef.current;
-
-    if (!voipSocket || !myPeerId) {
+    if (!socket || !isConnected) {
       console.error("Not connected");
       return;
     }
 
-    if (client && !client.isReady()) {
+    // Initialize voice if not already active
+    const success = await initializeVoice();
+    if (!success) {
+      console.error("Failed to initialize voice — mic access denied?");
+      return;
+    }
+
+    // Wait for PeerJS to be ready (open event)
+    if (!peerRef.current?.open) {
       let attempts = 0;
-      while (!client.isReady() && attempts < 40) {
+      while (!peerRef.current?.open && attempts < 40) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        attempts++;
+      }
+      if (!peerRef.current?.open) {
+        console.error("PeerJS failed to connect");
+        return;
+      }
+    }
+
+    if (signalClient && !signalClient.isReady()) {
+      let attempts = 0;
+      while (!signalClient.isReady() && attempts < 40) {
         await new Promise(resolve => setTimeout(resolve, 250));
         attempts++;
       }
@@ -348,34 +336,33 @@ const useVoIP = () => {
 
     closeAllConnections();
     roomPeerIdsRef.current.clear();
-    voipSocket.emit("join-room", { roomId, alias: username, userId: username });
+    socket.emit("join-room", { roomId, alias: username, userId: username });
     setCurrentRoomId(roomId);
-  }, [myPeerId, username, closeAllConnections]);
+  }, [socket, signalClient, isConnected, username, closeAllConnections, initializeVoice]);
 
+  // ── Leave room (cleans up voice) ────────────────────────────────────────
   const leaveRoom = useCallback((): void => {
-    const voipSocket = socketRef.current;
-    if (voipSocket && currentRoomId) {
-      voipSocket.emit("leave-room", { roomId: currentRoomId });
+    if (socket && currentRoomId) {
+      socket.emit("leave-room", { roomId: currentRoomId });
     }
     closeAllConnections();
-    roomPeerIdsRef.current.clear();
     setCurrentRoomId(null);
-  }, [currentRoomId, closeAllConnections]);
+    cleanupVoice();
+  }, [socket, currentRoomId, closeAllConnections, cleanupVoice]);
 
   const sendMessage = useCallback(async (): Promise<void> => {
-    const client = signalClientRef.current;
-    if (!client) { console.error("Signal client not ready"); return; }
-    if (!client.isRoomReady()) { console.error("Room encryption not ready"); return; }
+    if (!signalClient) { console.error("Signal client not ready"); return; }
+    if (!signalClient.isRoomReady()) { console.error("Room encryption not ready"); return; }
     if (!message.trim()) return;
 
     try {
-      await client.sendRoomMessage(message);
+      await signalClient.sendRoomMessage(message);
       setChatMessages(prev => [...prev, { sender: "me", message, alias: username ?? "Me" }]);
       setMessage("");
     } catch (error) {
       console.error("Failed to send encrypted message:", error);
     }
-  }, [message, username]);
+  }, [signalClient, message, username]);
 
   return {
     myPeerId,
@@ -385,16 +372,16 @@ const useVoIP = () => {
     sendMessage,
     remoteStreams,
     localAudioRef,
-    socket: socketRef.current,
+    socket,
     noiseGate: noiseGateRef.current,
     isConnected,
-    isAuthenticated,
+    isAuthenticated: signedIn,
     isEncryptionReady,
     currentRoomId,
     joinRoom,
     leaveRoom,
     user,
-    signalClient: signalClientRef.current,
+    signalClient,
     isSharing,
     localScreenStream,
     remoteScreenStreams,
@@ -403,6 +390,9 @@ const useVoIP = () => {
     dismissScreenShare,
     roomList,
     connectedPeers,
+    isVoiceActive,
+    initializeVoice,
+    cleanupVoice,
   };
 };
 

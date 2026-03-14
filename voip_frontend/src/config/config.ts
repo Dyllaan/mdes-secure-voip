@@ -1,5 +1,6 @@
 const config = {
   AUTH_URL: import.meta.env.VITE_AUTH_URL || '/auth',
+  SERVER_API_URL: import.meta.env.VITE_SERVER_API_URL || 'http://localhost:8080/api',
   SIGNALING_SERVER: import.meta.env.VITE_SOCKET_URL || window.location.origin,
   PEER_HOST: import.meta.env.VITE_PEER_HOST || window.location.hostname,
   PEER_PORT: import.meta.env.VITE_PEER_PORT || (window.location.port || '80'),

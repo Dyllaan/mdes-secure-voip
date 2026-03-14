@@ -1,6 +1,7 @@
 import type {
   SignedPreKeyPairType,
   PreKeyPairType,
+  KeyPairType,
 } from '@privacyresearch/libsignal-protocol-typescript';
 import {
   SignalProtocolAddress,
@@ -60,6 +61,7 @@ export class SignalProtocolClient {
   private store: SignalProtocolStore;
   private sessions: Map<string, SessionCipher>;
   private isInitialized: boolean = false;
+  private mode: 'ephemeral' | 'persistent' = 'ephemeral';
   
   // Room-based encryption (for group chat)
   private roomKeys: Map<string, RoomKey> = new Map();
@@ -86,56 +88,98 @@ export class SignalProtocolClient {
   /**
    * Initialize Signal Protocol - generate keys and register with server
    */
-  async initialize(): Promise<void> {
+  async initialize(mode: 'ephemeral' | 'persistent' = 'ephemeral'): Promise<void> {
     if (this.isInitialized) {
-      console.log('️ Signal Protocol already initialized');
+      console.log('Signal Protocol already initialized');
       return;
     }
 
     try {
-      console.log(' Initializing Signal Protocol...');
+      console.log(`Initializing Signal Protocol in ${mode} mode...`);
 
-      // Generate RSA keypair for room key exchange
-      await this.generateRSAKeyPair();
+      let identityKeyPair: KeyPairType;
+      let registrationId: number;
+      let signedPreKey: SignedPreKeyPairType;
+      let preKeys: PreKeyPairType[];
+      let isRestoredIdentity = false;
 
-      // Generate identity key pair
-      const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
-      
-      // Generate registration ID (0-16383)
-      const registrationId = KeyHelper.generateRegistrationId();
+      if (mode === 'persistent') {
+        const existingIdentity = await this.store.getIdentityKeyPair();
+        const existingRegId = await this.store.getLocalRegistrationId();
 
-      // Initialize the store with identity and registration ID
-      await this.store.initialize(identityKeyPair, registrationId);
+        if (existingIdentity && existingRegId) {
+          console.log('Restoring existing Signal identity from IndexedDB...');
+          identityKeyPair = existingIdentity;
+          registrationId = existingRegId;
+          isRestoredIdentity = true;
 
-      // Generate signed pre-key
-      const signedPreKey = await KeyHelper.generateSignedPreKey(
-        identityKeyPair,
-        1 // keyId
-      );
+          const existingSignedPreKey = await this.store.loadSignedPreKey(1);
+          if (existingSignedPreKey) {
+            signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, 1);
+            await this.store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+          } else {
+            signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, 1);
+            await this.store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+          }
 
-      // Store signed pre-key locally (store the keyPair part)
-      await this.store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+          preKeys = await this.generatePreKeys(this.PREKEY_BATCH_SIZE);
+          for (const preKey of preKeys) {
+            await this.store.storePreKey(preKey.keyId, preKey.keyPair);
+          }
 
-      // Generate batch of one-time pre-keys
-      const preKeys = await this.generatePreKeys(this.PREKEY_BATCH_SIZE);
+        } else {
+          // No existing identity — first time setup for persistent mode
+          console.log('No existing identity found, generating new persistent identity...');
+          identityKeyPair = await KeyHelper.generateIdentityKeyPair();
+          registrationId = KeyHelper.generateRegistrationId();
+          await this.store.initialize(identityKeyPair, registrationId);
 
-      // Store pre-keys locally (store the keyPair part from each)
-      for (const preKey of preKeys) {
-        await this.store.storePreKey(preKey.keyId, preKey.keyPair);
+          signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, 1);
+          await this.store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+
+          preKeys = await this.generatePreKeys(this.PREKEY_BATCH_SIZE);
+          for (const preKey of preKeys) {
+            await this.store.storePreKey(preKey.keyId, preKey.keyPair);
+          }
+        }
+      } else {
+        console.log('Generating fresh ephemeral identity...');
+        identityKeyPair = await KeyHelper.generateIdentityKeyPair();
+        registrationId = KeyHelper.generateRegistrationId();
+        await this.store.initialize(identityKeyPair, registrationId);
+
+        signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, 1);
+        await this.store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+
+        preKeys = await this.generatePreKeys(this.PREKEY_BATCH_SIZE);
+        for (const preKey of preKeys) {
+          await this.store.storePreKey(preKey.keyId, preKey.keyPair);
+        }
       }
 
+      // RSA keypair for room key exchange — always regenerate
+      // (room keys are renegotiated on join anyway)
+      await this.generateRSAKeyPair();
+
       // Register keys with server
+      // Even on restore, the server's store is in-memory and may have restarted
       await this.registerKeysWithServer(
-        identityKeyPair.pubKey,
-        signedPreKey,
-        preKeys
+          identityKeyPair.pubKey,
+          signedPreKey,
+          preKeys
       );
 
-      // Set up socket listeners for Signal Protocol events
+      // Set up socket listeners
       this.setupSocketListeners();
 
       this.isInitialized = true;
-      console.log('Signal Protocol initialized successfully');
+      this.mode = mode;
+
+      if (isRestoredIdentity) {
+        console.log('Signal Protocol initialized (restored persistent identity)');
+      } else {
+        console.log(`Signal Protocol initialized (new ${mode} identity)`);
+      }
     } catch (error) {
       console.error('Failed to initialize Signal Protocol:', error);
       throw error;
@@ -893,7 +937,10 @@ export class SignalProtocolClient {
     this.roomKeys.clear();
     this.currentRoomId = null;
     this.isInitialized = false;
-    console.log('Signal Protocol client cleaned up');
+
+    if (this.mode === 'ephemeral') {
+      this.store.clearAll();
+    }
   }
 
   // Helper methods for encoding/decoding

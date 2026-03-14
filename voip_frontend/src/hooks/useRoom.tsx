@@ -73,14 +73,17 @@ const useRoom = ({
     const callPeer = useCallback((peerId: string): void => {
         const waitAndCall = (): void => {
             if (!processedStreamRef.current || !peerRef.current) {
+                console.log(`callPeer waiting — stream: ${!!processedStreamRef.current}, peer: ${!!peerRef.current}`);
                 setTimeout(waitAndCall, 100);
                 return;
             }
 
+            console.log(`Calling peer ${peerId} with PeerJS`);
             const outgoingCall = peerRef.current.call(peerId, processedStreamRef.current);
             openConnectionsRef.current.set(peerId, outgoingCall);
 
             outgoingCall.on("stream", (remoteStream: MediaStream) => {
+                console.log(`Got remote stream from ${peerId}, tracks: ${remoteStream.getAudioTracks().length}`);
                 addRemoteStream(peerId, remoteStream);
             });
 

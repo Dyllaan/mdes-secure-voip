@@ -1,4 +1,4 @@
-import useVoIP from "@/hooks/useVoIP";
+import { useVoIPContext } from '@/components/providers/VoIPProvider';
 import { useState } from "react";
 import Header from "@/components/layout/Header";
 import RoomManager from "@/components/room/RoomManager";
@@ -29,7 +29,7 @@ const Dashboard = () => {
         stopScreenShare,
         dismissScreenShare,
         connectedPeers,
-    } = useVoIP();
+    } = useVoIPContext();
 
     const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
     const [mobileRoomOpen, setMobileRoomOpen] = useState(false);
