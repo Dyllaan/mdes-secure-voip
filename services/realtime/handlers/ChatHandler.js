@@ -7,7 +7,7 @@ class ChatHandler {
         this.messageQueues = parent.messageQueues;
         this.roomManager = parent.roomManager;
         this.findSocketByUserId = parent.findSocketByUserId.bind(parent);
-    }
+    }d
 
     handleEncryptedMessage(socket, data) {
         const { recipientUserId, ciphertext, type, registrationId } = data;

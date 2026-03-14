@@ -24,7 +24,7 @@ const config = {
       security: {
         maxMessageLength: 500,
         maxAliasLength: 50,
-        maxRoomIdLength: 20,
+        maxRoomIdLength: 50,
         socketRateLimitWindow: 60000, // 1 minute
         socketRateLimitMax: 100, // 100 actions per minute
         apiRateLimitWindow: 15 * 60 * 1000, // 15 minutes

@@ -5,7 +5,7 @@ class SignalProtocolHandler {
         this.signalKeys = parent.signalKeys;
         this.findSocketByUserId = parent.findSocketByUserId.bind(parent);
     }
-
+w
     handleRegisterKeys(socket, data) {
         const { identityKey, signedPreKey, preKeys, registrationId } = data;
 

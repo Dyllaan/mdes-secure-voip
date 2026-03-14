@@ -92,6 +92,13 @@ class SocketEventHandlers {
             socket.on('encrypted-chat-message',  (d) => rl('encrypted-chat-message', 10, 10000) && this.chat.handleEncryptedMessage(socket, d));
             socket.on('room-chat-message',       (d) => rl('room-chat-message', 10, 10000)       && this.chat.handleRoomMessage(socket, d));
 
+            // Persistent channel socket events
+            socket.on('channel-message-sent', (d) => rl('channel-message-sent', 30, 10000) && socket.broadcast.emit('channel-message-sent', d));
+
+            // Channel key rotation notification — tells all connected members to sync new key bundles
+            // Payload: { serverId, channelId, newVersion }
+            socket.on('channel-key-rotated', (d) => rl('channel-key-rotated', 5, 60000) && socket.broadcast.emit('channel-key-rotated', d));
+
             socket.on('disconnect', () => this.handleDisconnect(socket));
         });
     }

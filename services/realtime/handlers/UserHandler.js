@@ -14,6 +14,9 @@ class UserHandler {
     handleJoinRoom(socket, data) {
         const { roomId, alias } = data;
 
+        // temporary debug
+        console.log('join-room received:', { roomId, alias, username: socket.username });
+
         if (!roomId || !isValidRoomId(roomId, this.config.security.maxRoomIdLength)) {
             return socket.emit('join-error', { message: 'Invalid room ID' });
         }
