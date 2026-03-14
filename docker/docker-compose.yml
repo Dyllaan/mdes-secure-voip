@@ -36,20 +36,6 @@ services:
     networks:
       - voip-network
 
-  #p2p-voip-realtime-service:
-  #  image: dflouis/p2p-voip-realtime:latest
-  #  container_name: voip-realtime
-  #  expose:
-  #    - "9001"
-  #    - "9000"
-  #  environment:
-  #    - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
-  #    - REALTIME_PORT=9001
-  #    - PEER_PORT=9000
-  #  networks:
-  #    - voip-network
-  #  restart: unless-stopped
-
   p2p-voip-realtime-service:
     build:
       context: ../services/realtime
@@ -62,6 +48,36 @@ services:
       - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
       - REALTIME_PORT=9001
       - PEER_PORT=9000
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  p2p-voip-server:
+    build:
+      context: ../services/VoIPServer
+      dockerfile: ../../Dockerfile.voip-server
+    container_name: voip-server
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@voip-server-db:5432/server_service?sslmode=disable
+      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - PORT=8080
+    depends_on:
+      - p2p-voip-server-db
+    networks:
+      - voip-network
+    restart: unless-stopped
+
+  p2p-voip-server-db:
+    image: postgres:16-alpine
+    container_name: voip-server-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=server_service
+    volumes:
+      - voip-server-db-data:/var/lib/postgresql/data
     networks:
       - voip-network
     restart: unless-stopped
@@ -80,25 +96,10 @@ services:
     restart: always
     networks:
       - voip-network
-  #p2p-voip-frontend:
-  #  image: dflouis/p2p-voip-frontend:latest
-  #  container_name: p2p-voip-frontend
-  #  ports:
-  #    - "5001:80"
-  #    # handle in caddy - "443:443"
-  #  environment:
-  #    - VITE_AUTH_URL=/auth
-  #    - VITE_SOCKET_URL=
-  #    - VITE_PEER_HOST=
-  #    - VITE_PEER_PORT=443
-  #    - VITE_PEER_SECURE=true
-  #  restart: always
-  #  networks:
-  #    - voip-network
-  #    - central_network
 
 volumes:
   auth-db-data:
+  voip-server-db-data:
 
 networks:
   voip-network:
