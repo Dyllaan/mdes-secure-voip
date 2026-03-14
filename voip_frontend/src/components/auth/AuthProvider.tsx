@@ -2,6 +2,7 @@ import { createContext, useState, useEffect } from 'react';
 import { toast } from "sonner";
 import useLocalStorage from '@/hooks/useLocalStorage';
 import axios from 'axios';
+import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
 import config from '@/config/config';
@@ -135,6 +136,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       if (response.status === 200) {
         const userData = response.data as User;
+        const payload = decodeJwt(userData.accessToken);
+        userData.sub = payload?.sub as string;
         setUser(userData);
         setSignedIn(true);
         setMfaRequired(false);
@@ -177,6 +180,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       if (response.status === 200) {
         const userData = response.data as User;
+        const payload = decodeJwt(userData.accessToken);
+        userData.sub = payload?.sub as string;
         setUser(userData);
         setSignedIn(true);
         setMfaRequired(false);

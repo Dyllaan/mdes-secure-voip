@@ -1,4 +1,5 @@
 export type User = {
+  sub?: string;
   username: string;
   accessToken: string;
   refreshToken: string;
