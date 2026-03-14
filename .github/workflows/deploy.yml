@@ -32,6 +32,9 @@ jobs:
               - 'voip_frontend/**'
               - 'Dockerfile.frontend'
               - 'nginx.conf'
+            voipserver:
+              - 'services/VoIPServer/**'
+              - 'Dockerfile.voip-server'
 
   build-and-push:
     needs: detect-changes
@@ -64,10 +67,18 @@ jobs:
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
 
           # Build Frontend only if changed
+      - name: Build and Push VoIP Server
+        run: |
+          docker build \
+            -f Dockerfile.voip-server \
+            -t ${{ env.REGISTRY }}/p2p-voip-server:latest \
+            .
+          docker push ${{ env.REGISTRY }}/p2p-voip-server:latest
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
           
       - name: Build Frontend
         working-directory: ./voip_frontend
