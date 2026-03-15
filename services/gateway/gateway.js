@@ -99,12 +99,22 @@ const peerJsProxy = createProxyMiddleware({
 
 app.use('/peerjs', peerJsProxy);
 
+app.use('/server', createProxyMiddleware({
+  target: process.env.VOIP_SERVER_URL || 'http://localhost:8080',
+  changeOrigin: true,
+  pathRewrite: { '^/server': '/api' },
+  onError: (err, req, res) => {
+    console.error('Error proxying to VoIP server:', err.message);
+    res.status(503).json({ error: 'VoIP server unavailable' });
+  },
+}));
+
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Route not found',
     path: req.path,
-    availableRoutes: ['/auth', '/api/realtime', '/realtime/health', '/socket.io', '/peerjs', '/health']
+    availableRoutes: ['/auth', '/api/realtime', '/realtime/health', '/socket.io', '/peerjs', '/server', '/health']
   });
 });
 
