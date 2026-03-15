@@ -148,7 +148,6 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 			existing.SenderEphemeralPub = payload.SenderEphemeralPub
 			existing.Ciphertext = payload.Ciphertext
 			existing.IV = payload.IV
-			existing.DistributorID = userID
 			existing.CreatedAt = now
 			if err := db.DB.Save(&existing).Error; err != nil {
 				writeError(w, http.StatusInternalServerError, "Failed to update key bundle")
@@ -166,7 +165,6 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 				SenderEphemeralPub: payload.SenderEphemeralPub,
 				Ciphertext:         payload.Ciphertext,
 				IV:                 payload.IV,
-				DistributorID:      userID,
 				CreatedAt:          now,
 			}
 			if err := db.DB.Create(&bundle).Error; err != nil {
@@ -223,17 +221,11 @@ func SetRotationNeeded(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		RemovedUserID string `json:"removedUserId"`
-	}
-	json.NewDecoder(r.Body).Decode(&body) // body is optional
-
 	now := time.Now()
 	flag := structs.ChannelKeyRotationFlag{
 		ChannelID:           channelID,
 		RotationNeeded:      true,
 		RotationNeededSince: now,
-		RemovedUserID:       body.RemovedUserID,
 	}
 
 	if err := db.DB.Save(&flag).Error; err != nil {

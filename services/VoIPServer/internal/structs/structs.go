@@ -70,7 +70,7 @@ type MemberDeviceKey struct {
 }
 
 // ChannelKeyBundle stores an ECIES-encrypted AES-256-GCM channel key for one recipient device.
-// The distributor creates one bundle per device key per member per key version.
+// One bundle is created per device key per member per key version.
 // senderEphemeralPub is a fresh P-256 keypair generated for this bundle only (never reused).
 type ChannelKeyBundle struct {
 	ID                  string    `json:"id" gorm:"primaryKey"`
@@ -82,17 +82,15 @@ type ChannelKeyBundle struct {
 	SenderEphemeralPub  string    `json:"senderEphemeralPub" gorm:"not null"` // P-256 SPKI base64
 	Ciphertext          string    `json:"ciphertext" gorm:"not null"`          // base64 AES-GCM encrypted raw key bytes
 	IV                  string    `json:"iv" gorm:"not null"`                  // base64 12-byte IV
-	DistributorID       string    `json:"distributorId" gorm:"not null"`
 	CreatedAt           time.Time `json:"createdAt"`
 }
 
 // ChannelKeyRotationFlag signals that a channel's key needs to be rotated.
 // Any member coming online can pick this up and perform the rotation.
 type ChannelKeyRotationFlag struct {
-	ChannelID          string    `json:"channelId" gorm:"primaryKey"`
-	RotationNeeded     bool      `json:"rotationNeeded" gorm:"not null;default:false"`
+	ChannelID           string    `json:"channelId" gorm:"primaryKey"`
+	RotationNeeded      bool      `json:"rotationNeeded" gorm:"not null;default:false"`
 	RotationNeededSince time.Time `json:"rotationNeededSince"`
-	RemovedUserID      string    `json:"removedUserId"` // who was removed, triggering rotation
 }
 
 // Request types
