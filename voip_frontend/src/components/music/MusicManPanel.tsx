@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Music2, Play, Square, Loader2, ChevronDown, ChevronUp, Youtube } from 'lucide-react';
+import { Music2, Play, Square, Loader2, ChevronUp, Youtube } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import useMusicMan from '@/hooks/musicman/useMusicMan';

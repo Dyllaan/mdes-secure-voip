@@ -1,4 +1,4 @@
-import type { RoomInfo } from "../../hooks/useRoomManager";
+import type { RoomInfo } from "@/hooks/realtime/useRoomManager";
 import {
     Trash2,
     Users,
