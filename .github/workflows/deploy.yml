@@ -65,13 +65,6 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
             .
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
-      - name: Build and Push VoIP Server
-        run: |
-          docker build \
-            -f Dockerfile.voip-server \
-            -t ${{ env.REGISTRY }}/p2p-voip-server:latest \
-            .
-          docker push ${{ env.REGISTRY }}/p2p-voip-server:latest
       - name: Build and Push Hub Service
         run: |
           docker build \
