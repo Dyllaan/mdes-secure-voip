@@ -88,9 +88,9 @@ export class AudioPipeline extends EventEmitter {
     const ytdlpArgs = [
       '--no-playlist',
       '--no-warnings',
-      '--js-runtimes', 'nodejs',
       '-f', 'bestaudio',
       '-o', '-',
+      '--extractor-args', `youtubepot-bgutilhttp:base_url=${process.env.YTDLP_POT_BASE_URL ?? 'http://localhost:4416'}`,
     ];
 
     if (process.env.YTDLP_COOKIES_PATH) {
