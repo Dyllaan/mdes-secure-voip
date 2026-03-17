@@ -4,14 +4,14 @@
  */
 
 import { bufToBase64, base64ToBuf } from '@/crypto/base64';
-import type { ChannelKeyBundle } from '@/types/server.types';
+import type { ChannelKeyBundle } from '@/types/hub.types';
 
 export const HKDF_INFO = new TextEncoder().encode('channel-key-wrap');
 export const HKDF_SALT = new Uint8Array(32);
 
 /** Build AAD bytes: `"{channelId}:{version}:{senderId}"` for AES-GCM binding. */
-export function buildAAD(channelId: string, version: number, senderId: string): Uint8Array {
-    return new TextEncoder().encode(`${channelId}:${version}:${senderId}`);
+export function buildAAD(channelId: string, version: number, senderId: string): Uint8Array<ArrayBuffer> {
+    return new TextEncoder().encode(`${channelId}:${version}:${senderId}`) as Uint8Array<ArrayBuffer>;
 }
 
 /** Generate a fresh extractable AES-256-GCM key for channel messages. */

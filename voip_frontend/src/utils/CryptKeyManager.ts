@@ -8,7 +8,7 @@ import type {
     MemberDeviceKey,
     ChannelKeyBundle,
     PostKeyBundlesPayload,
-} from '@/types/server.types';
+} from '@/types/hub.types';
 import { bufToBase64, base64ToBuf } from '@/crypto/base64';
 import {
     buildAAD,
@@ -25,12 +25,12 @@ export interface EncryptedPayload {
     keyVersion: string;
 }
 
-type ServerAPI = {
-    registerDeviceKey(serverId: string, deviceId: string, publicKey: string): Promise<unknown>;
-    getDeviceKeys(serverId: string): Promise<MemberDeviceKey[]>;
-    postKeyBundles(serverId: string, payload: PostKeyBundlesPayload): Promise<unknown>;
-    getKeyBundles(serverId: string, channelId?: string): Promise<ChannelKeyBundle[]>;
-    clearRotationNeeded(serverId: string, channelId: string): Promise<unknown>;
+type HubAPI = {
+    registerDeviceKey(hubId: string, deviceId: string, publicKey: string): Promise<unknown>;
+    getDeviceKeys(hubId: string): Promise<MemberDeviceKey[]>;
+    postKeyBundles(hubId: string, payload: PostKeyBundlesPayload): Promise<unknown>;
+    getKeyBundles(hubId: string, channelId?: string): Promise<ChannelKeyBundle[]>;
+    clearRotationNeeded(hubId: string, channelId: string): Promise<unknown>;
 };
 
 export class CryptKeyManager {
@@ -51,7 +51,7 @@ export class CryptKeyManager {
         this.ecdhPublicKeySpki = ecdhPublicKeySpki;
     }
 
-    static async create(serverAPI: ServerAPI, serverIds: string[]): Promise<CryptKeyManager> {
+    static async create(hubAPI: HubAPI, hubIds: string[]): Promise<CryptKeyManager> {
         const storage = await CryptKeyStorage.open();
         const deviceId = await storage.getOrCreateDeviceId();
         const { keyPair, publicKeySpki } = await storage.getOrCreateEcdhKeyPair();
@@ -59,9 +59,9 @@ export class CryptKeyManager {
         const manager = new CryptKeyManager(storage, deviceId, keyPair, publicKeySpki);
 
         await Promise.all(
-            serverIds.map(sid =>
-                serverAPI.registerDeviceKey(sid, deviceId, publicKeySpki).catch(err =>
-                    console.warn(`[CryptKeyManager] Failed to register device key for server ${sid}:`, err)
+            hubIds.map(hubId =>
+                hubAPI.registerDeviceKey(hubId, deviceId, publicKeySpki).catch(err =>
+                    console.warn(`[CryptKeyManager] Failed to register device key for hub ${hubId}:`, err)
                 )
             )
         );
@@ -77,21 +77,21 @@ export class CryptKeyManager {
         return this.ecdhPublicKeySpki;
     }
 
-    async registerWithServer(serverAPI: ServerAPI, serverId: string): Promise<void> {
-        await serverAPI.registerDeviceKey(serverId, this.deviceId, this.ecdhPublicKeySpki);
+    async registerWithHub(hubAPI: HubAPI, hubId: string): Promise<void> {
+        await hubAPI.registerDeviceKey(hubId, this.deviceId, this.ecdhPublicKeySpki);
     }
 
     async encrypt(
         channelId: string,
-        serverId: string,
+        hubId: string,
         senderId: string,
         plaintext: string,
-        serverAPI: ServerAPI,
+        hubAPI: HubAPI,
     ): Promise<EncryptedPayload> {
         let version = await this.storage.getCurrentVersion(channelId);
 
         if (version === null) {
-            version = await this.generateAndDistributeKey(channelId, serverId, serverAPI);
+            version = await this.generateAndDistributeKey(channelId, hubId, hubAPI);
         }
 
         const channelKey = await this.storage.loadChannelKey(channelId, version);
@@ -118,8 +118,8 @@ export class CryptKeyManager {
         channelId: string,
         senderId: string,
         payload: EncryptedPayload,
-        serverId: string,
-        serverAPI: ServerAPI,
+        hubId: string,
+        hubAPI: HubAPI,
     ): Promise<string | null> {
         const version = parseInt(payload.keyVersion, 10);
         if (isNaN(version)) return null;
@@ -127,7 +127,7 @@ export class CryptKeyManager {
         let channelKey = await this.storage.loadChannelKey(channelId, version);
 
         if (!channelKey) {
-            await this.syncKeyBundles(serverId, channelId, serverAPI).catch(() => {});
+            await this.syncKeyBundles(hubId, channelId, hubAPI).catch(() => {});
             channelKey = await this.storage.loadChannelKey(channelId, version);
         }
 
@@ -151,11 +151,11 @@ export class CryptKeyManager {
     }
 
     async syncKeyBundles(
-        serverId: string,
+        hubId: string,
         channelId: string | undefined,
-        serverAPI: ServerAPI,
+        hubAPI: HubAPI,
     ): Promise<void> {
-        const bundles: ChannelKeyBundle[] = await serverAPI.getKeyBundles(serverId, channelId);
+        const bundles: ChannelKeyBundle[] = await hubAPI.getKeyBundles(hubId, channelId);
 
         for (const bundle of bundles) {
             const existing = await this.storage.loadChannelKey(bundle.channelId, bundle.keyVersion);
@@ -180,8 +180,8 @@ export class CryptKeyManager {
 
     async rotateChannelKey(
         channelId: string,
-        serverId: string,
-        serverAPI: ServerAPI,
+        hubId: string,
+        hubAPI: HubAPI,
     ): Promise<void> {
         const currentVersion = await this.storage.getCurrentVersion(channelId);
         const newVersion = (currentVersion ?? 0) + 1;
@@ -190,34 +190,34 @@ export class CryptKeyManager {
         await this.storage.storeChannelKey(channelId, newVersion, newKey);
         await this.storage.setCurrentVersion(channelId, newVersion);
 
-        const deviceKeys: MemberDeviceKey[] = await serverAPI.getDeviceKeys(serverId);
-        await this.distributeKey(channelId, serverId, newVersion, newKey, deviceKeys, serverAPI);
-        await serverAPI.clearRotationNeeded(serverId, channelId).catch(() => {});
+        const deviceKeys: MemberDeviceKey[] = await hubAPI.getDeviceKeys(hubId);
+        await this.distributeKey(channelId, hubId, newVersion, newKey, deviceKeys, hubAPI);
+        await hubAPI.clearRotationNeeded(hubId, channelId).catch(() => {});
     }
 
     private async generateAndDistributeKey(
         channelId: string,
-        serverId: string,
-        serverAPI: ServerAPI,
+        hubId: string,
+        hubAPI: HubAPI,
     ): Promise<number> {
         const version = 1;
         const channelKey = await generateAesKey();
         await this.storage.storeChannelKey(channelId, version, channelKey);
         await this.storage.setCurrentVersion(channelId, version);
 
-        const deviceKeys: MemberDeviceKey[] = await serverAPI.getDeviceKeys(serverId);
-        await this.distributeKey(channelId, serverId, version, channelKey, deviceKeys, serverAPI);
+        const deviceKeys: MemberDeviceKey[] = await hubAPI.getDeviceKeys(hubId);
+        await this.distributeKey(channelId, hubId, version, channelKey, deviceKeys, hubAPI);
 
         return version;
     }
 
     private async distributeKey(
         channelId: string,
-        serverId: string,
+        hubId: string,
         version: number,
         channelKey: CryptoKey,
         deviceKeys: MemberDeviceKey[],
-        serverAPI: ServerAPI,
+        hubAPI: HubAPI,
     ): Promise<void> {
         const rawKey = await crypto.subtle.exportKey('raw', channelKey);
 
@@ -248,6 +248,6 @@ export class CryptKeyManager {
             bundles: validBundles,
         };
 
-        await serverAPI.postKeyBundles(serverId, payload);
+        await hubAPI.postKeyBundles(hubId, payload);
     }
 }

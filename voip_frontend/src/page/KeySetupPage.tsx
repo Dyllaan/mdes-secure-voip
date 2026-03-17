@@ -147,7 +147,7 @@ function ImportTab() {
     const handleImport = useCallback(async () => {
         const phrase = words.join(' ');
         if (!isMnemonicValid(phrase)) {
-            setError('Invalid recovery phrase — check that all 24 words are spelled correctly and try again.');
+            setError('Invalid recovery phrase - check that all 24 words are spelled correctly and try again.');
             return;
         }
         setLoading(true);

@@ -40,13 +40,23 @@ app.use('/auth', createProxyMiddleware({
 }));
 
 // Realtime Service HTTP endpoints
-app.use('/api/realtime', createProxyMiddleware({
+app.use('/realtime', createProxyMiddleware({
   target: process.env.REALTIME_SERVICE_URL || 'http://localhost:3001',
   changeOrigin: true,
-  pathRewrite: { '^/api/realtime': '/api' },
   onError: (err, req, res) => {
     console.error('Error proxying to realtime service:', err.message);
     res.status(503).json({ error: 'Realtime service unavailable' });
+  },
+}));
+
+// MusicMan Service
+app.use('/musicman', createProxyMiddleware({
+  target: process.env.MUSICMAN_URL || 'http://localhost:4000',
+  changeOrigin: true,
+  pathRewrite: { '^/musicman': '' },
+  onError: (err, req, res) => {
+    console.error('Error proxying to MusicMan service:', err.message);
+    res.status(503).json({ error: 'MusicMan service unavailable' });
   },
 }));
 
@@ -99,13 +109,13 @@ const peerJsProxy = createProxyMiddleware({
 
 app.use('/peerjs', peerJsProxy);
 
-app.use('/server', createProxyMiddleware({
-  target: process.env.VOIP_SERVER_URL || 'http://localhost:8080',
+app.use('/hub', createProxyMiddleware({
+  target: process.env.HUB_SERVICE_URL || 'http://localhost:8080',
   changeOrigin: true,
-  pathRewrite: { '^/server': '/api' },
+  pathRewrite: { '^/hub': '/api' },
   onError: (err, req, res) => {
-    console.error('Error proxying to VoIP server:', err.message);
-    res.status(503).json({ error: 'VoIP server unavailable' });
+    console.error('Error proxying to Hub Service:', err.message);
+    res.status(503).json({ error: 'Hub service unavailable' });
   },
 }));
 
@@ -114,7 +124,7 @@ app.use((req, res) => {
   res.status(404).json({
     error: 'Route not found',
     path: req.path,
-    availableRoutes: ['/auth', '/api/realtime', '/realtime/health', '/socket.io', '/peerjs', '/server', '/health']
+    availableRoutes: ['/auth', '/realtime', '/realtime/health', '/socket.io', '/peerjs', '/hub', '/health']
   });
 });
 
@@ -143,6 +153,7 @@ server.listen(PORT, () => {
   console.log(` Auth Service: ${process.env.AUTH_SERVICE_URL || 'http://localhost:3003'}`);
   console.log(` Realtime Service: ${process.env.REALTIME_SERVICE_URL || 'http://localhost:3001'}`);
   console.log(` Peer Service: ${process.env.PEER_SERVICE_URL || 'http://localhost:9000'}`);
+  console.log(` Hub Service: ${process.env.HUB_SERVICE_URL || 'http://localhost:8080'}`);
 });
 
 module.exports = server;

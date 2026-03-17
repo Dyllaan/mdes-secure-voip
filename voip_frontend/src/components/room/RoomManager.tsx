@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import useRoomManager from "../../hooks/useRoomManager";
+import useRoomManager from "@/hooks/realtime/useRoomManager";
 import type { Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

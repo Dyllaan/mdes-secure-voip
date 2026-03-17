@@ -11,8 +11,22 @@ class UserHandler {
         this.io = parent.io;
     }
 
-    handleJoinRoom(socket, data) {
+    async handleJoinRoom(socket, data) {
         const { roomId, alias } = data;
+
+        const userInfo = {
+            socketId: socket.id,
+            peerId: socket.peerId,
+            alias: sanitizeInput(alias),
+            username: socket.username,
+            joinedAt: Date.now()
+        };
+
+        const joined = await this.roomManager.joinRoom(socket, roomId, userInfo);
+
+        if (!joined) {
+            return;
+        }
 
         // temporary debug
         console.log('join-room received:', { roomId, alias, username: socket.username });
@@ -43,16 +57,6 @@ class UserHandler {
         socket.join(roomId);
         socket.roomId = roomId;
         socket.alias = sanitizeInput(alias);
-
-        const userInfo = {
-            socketId: socket.id,
-            peerId,
-            alias: socket.alias,
-            username: socket.username,
-            joinedAt: Date.now()
-        };
-
-        this.roomManager.joinRoom(socket, roomId, userInfo);
 
         const existingUsers = Array.from(room.users.values())
             .filter(user => user.socketId !== socket.id)
@@ -107,6 +111,7 @@ class UserHandler {
         }
 
         console.log(`User ${socket.username} joined room ${roomId} with alias: ${socket.alias}`);
+        return true;
     }
 
     handleUserUpdate(socket, data) {

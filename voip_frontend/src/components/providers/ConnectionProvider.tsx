@@ -5,7 +5,7 @@ import config from '@/config/config';
 import { useAuth } from '@/hooks/useAuth';
 import { SignalProtocolClient } from '@/utils/SignalProtocolClient';
 import { CryptKeyManager } from '@/utils/CryptKeyManager';
-import { useServerAPI } from '@/hooks/useServer';
+import useHubAPI from '@/hooks/hub/useHubAPI';
 
 interface ConnectionContextType {
     socket: Socket | null;
@@ -32,7 +32,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     const username = user?.username ?? null;
     const accessToken = user?.accessToken ?? null;
 
-    const serverAPI = useServerAPI();
+    const hubAPI = useHubAPI();
 
     const [socket, setSocket] = useState<Socket | null>(null);
     const [signalClient, setSignalClient] = useState<SignalProtocolClient | null>(null);
@@ -44,16 +44,16 @@ export default function ConnectionProvider({ children }: { children: React.React
     const signalClientRef = useRef<SignalProtocolClient | null>(null);
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
-    // Keep serverAPI ref so the connect handler can always access latest tokens
-    const serverAPIRef = useRef(serverAPI);
+    // Keep hubAPI ref so the connect handler can always access latest tokens
+    const hubAPIRef = useRef(hubAPI);
 
     useEffect(() => {
         accessTokenRef.current = accessToken;
     }, [accessToken]);
 
     useEffect(() => {
-        serverAPIRef.current = serverAPI;
-    }, [serverAPI]);
+        hubAPIRef.current = hubAPI;
+    }, [hubAPI]);
 
     useEffect(() => {
         if (!signedIn || !accessToken || !username) return;
@@ -73,7 +73,7 @@ export default function ConnectionProvider({ children }: { children: React.React
         socketRef.current = voipSocket;
         setSocket(voipSocket);
 
-        // Capture peer-assigned immediately — this fires right on connect
+        // Capture peer-assigned immediately - this fires right on connect
         // before any child components have mounted their listeners
         voipSocket.on('peer-assigned', ({ peerId }: { peerId: string }) => {
             if (!cancelled) {
@@ -101,23 +101,23 @@ export default function ConnectionProvider({ children }: { children: React.React
 
             // 2. Initialize CryptKeyManager (persistent channel encryption)
             try {
-                const api = serverAPIRef.current;
+                const api = hubAPIRef.current;
 
-                // Fetch all servers this user belongs to so we can register our device key
-                const servers: Array<{ id: string }> = await api.listServers();
-                const serverIds = servers.map((s) => s.id);
+                // Fetch all hubs this user belongs to so we can register our device key
+                const hubs: Array<{ id: string }> = await api.listHubs();
+                const hubIds = hubs.map((h) => h.id);
 
-                const manager = await CryptKeyManager.create(api, serverIds);
+                const manager = await CryptKeyManager.create(api, hubIds);
                 channelKeyManagerRef.current = manager;
 
                 if (!cancelled) {
                     setChannelKeyManager(manager);
 
                     // Eagerly sync any key bundles that were distributed while we were offline
-                    for (const sid of serverIds) {
+                    for (const sid of hubIds) {
                         manager.syncKeyBundles(sid, undefined, api).catch((err) =>
                             console.warn(
-                                `[CryptKeyManager] Background bundle sync failed for server ${sid}:`,
+                                `[CryptKeyManager] Background bundle sync failed for hub ${sid}:`,
                                 err
                             )
                         );

@@ -1,8 +1,8 @@
 import { createContext, useContext, useCallback, useState } from "react";
 import type { ReactNode } from "react";
-import useVoIP from "@/hooks/useVoIP";
-import type { ChatMessage, RemoteStream } from "@/hooks/useVoIP";
-import type { RoomInfo } from "@/hooks/useRoomManager";
+import useVoIP from "@/hooks/realtime/useVoIP";
+import type { ChatMessage, RemoteStream } from "@/hooks/realtime/useVoIP";
+import type { RoomInfo } from "@/hooks/realtime/useRoomManager";
 import type { SimpleNoiseGate } from "@/utils/SimpleNoiseGate";
 import type { Socket } from "socket.io-client";
 import type { SignalProtocolClient } from "@/utils/SignalProtocolClient";
@@ -33,7 +33,7 @@ interface VoIPContextValue {
     signalClient: SignalProtocolClient | null;
     user: ReturnType<typeof useVoIP>["user"];
 
-    // Chat (for ephemeral VoIP page — kept for backward compat)
+    // Chat (for ephemeral VoIP page - kept for backward compat)
     chatMessages: ChatMessage[];
     message: string;
     setMessage: (msg: string) => void;
@@ -72,9 +72,7 @@ export function VoIPProvider({ children }: { children: ReactNode }) {
             voip.leaveRoom();
         }
 
-        // Use a deterministic room ID so all users in the same channel join the same room
-        const roomId = `vc-${channelId}`;
-        await voip.joinRoom(roomId);
+        await voip.joinRoom(channelId);
 
         setVoiceChannel({ serverId, channelId, channelName });
     }, [voip.joinRoom, voip.leaveRoom, voiceChannel]);
