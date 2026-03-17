@@ -90,7 +90,7 @@ export class AudioPipeline extends EventEmitter {
     const ytdlpArgs = [
       '--no-playlist',
       '--no-warnings',
-      '--js-runtimes', 'qjs:/usr/bin/qjs',
+      '--js-runtimes', 'quickjs:/usr/bin/qjs',
       '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
       '-f', 'bestaudio/best',
       '-o', '-',
