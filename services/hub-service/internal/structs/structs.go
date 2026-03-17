@@ -82,7 +82,6 @@ type ChannelKeyBundle struct {
 	SenderEphemeralPub string    `json:"senderEphemeralPub" gorm:"not null"` // P-256 SPKI base64
 	Ciphertext         string    `json:"ciphertext" gorm:"not null"`         // base64 AES-GCM encrypted raw key bytes
 	IV                 string    `json:"iv" gorm:"not null"`                 // base64 12-byte IV
-	DistributorID      string    `json:"distributorId" gorm:"not null"`
 	CreatedAt          time.Time `json:"createdAt"`
 }
 
@@ -92,7 +91,6 @@ type ChannelKeyRotationFlag struct {
 	ChannelID           string    `json:"channelId" gorm:"primaryKey"`
 	RotationNeeded      bool      `json:"rotationNeeded" gorm:"not null;default:false"`
 	RotationNeededSince time.Time `json:"rotationNeededSince"`
-	RemovedUserID       string    `json:"removedUserId"` // who was removed, triggering rotation
 }
 
 // Request types
