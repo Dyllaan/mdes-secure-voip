@@ -85,13 +85,20 @@ export class AudioPipeline extends EventEmitter {
 
     console.log('[AudioPipeline] Starting yt-dlp | ffmpeg pipeline');
 
-    this.ytdlp = spawn('yt-dlp', [
+    const ytdlpArgs = [
       '--no-playlist',
       '--no-warnings',
       '-f', '251',
       '-o', '-',
-      this.youtubeUrl,
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ];
+
+    if (process.env.YTDLP_COOKIES_PATH) {
+      ytdlpArgs.push('--cookies', process.env.YTDLP_COOKIES_PATH);
+    }
+
+    ytdlpArgs.push(this.youtubeUrl);
+
+    this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     this.ffmpeg = spawn('ffmpeg', [
       '-loglevel',       'error',
