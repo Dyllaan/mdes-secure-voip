@@ -128,7 +128,7 @@ export class SignalProtocolClient {
           }
 
         } else {
-          // No existing identity — first time setup for persistent mode
+          // No existing identity - first time setup for persistent mode
           console.log('No existing identity found, generating new persistent identity...');
           identityKeyPair = await KeyHelper.generateIdentityKeyPair();
           registrationId = KeyHelper.generateRegistrationId();
@@ -157,7 +157,7 @@ export class SignalProtocolClient {
         }
       }
 
-      // RSA keypair for room key exchange — always regenerate
+      // RSA keypair for room key exchange - always regenerate
       // (room keys are renegotiated on join anyway)
       await this.generateRSAKeyPair();
 

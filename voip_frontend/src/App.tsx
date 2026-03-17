@@ -4,8 +4,8 @@ import AuthProvider from '@/components/auth/AuthProvider';
 import ConnectionProvider from '@/components/providers/ConnectionProvider';
 import { VoIPProvider } from "@/components/providers/VoIPProvider";
 import Dashboard from "@/page/Dashboard";
-import ServerList from '@/page/ServerList';
-import ServerView from '@/page/ServerView';
+import HubList from '@/page/HubList';
+import HubView from '@/page/HubView';
 import KeySetupPage from '@/page/KeySetupPage';
 import { Routes, Route, BrowserRouter, Outlet } from 'react-router-dom';
 import NotFound from './page/NotFound';
@@ -15,6 +15,7 @@ import PublicRoute from '@/components/auth/routes/PublicRoute';
 import KeysRequired from '@/components/auth/routes/KeysRequired';
 import { Toaster } from "./components/ui/sonner";
 import { useTheme } from 'next-themes';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 
 function App() {
@@ -22,8 +23,20 @@ function App() {
   const { theme } = useTheme();
   const toasterTheme = theme as "light" | "dark" | "system" | undefined;
 
+  const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 5, // fresh for 5 minutes
+      retry: 1, // Only retry failed requests once
+      refetchOnWindowFocus: false, // Don't refetch when user comes back to tab
+      refetchOnMount: false,
+    },
+  },
+});
+
   return (
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
             <Routes>
@@ -36,10 +49,10 @@ function App() {
               {/* Protected routes - only accessible when authenticated */}
               <Route element={<ProtectedRoute />}>
 
-                {/* Key setup — inside auth guard but before ConnectionProvider */}
+                {/* Key setup - inside auth guard but before ConnectionProvider */}
                 <Route path="/keys" element={<KeySetupPage />} />
 
-                {/* All app routes — gated by IDB keypair check */}
+                {/* All app routes - gated by IDB keypair check */}
                 <Route element={<KeysRequired />}>
                   <Route element={
                     <ConnectionProvider>
@@ -48,9 +61,9 @@ function App() {
                       </VoIPProvider>
                     </ConnectionProvider>
                   }>
-                    <Route path="/" element={<ServerList />} />
-                    <Route path="/servers/:serverId" element={<ServerView />} />
-                    <Route path="/servers/:serverId/channels/:channelId" element={<ServerView />} />
+                    <Route path="/" element={<HubList />} />
+                    <Route path="/hubs/:hubId" element={<HubView />} />
+                    <Route path="/hubs/:hubId/channels/:channelId" element={<HubView />} />
                     <Route path="/call" element={<Dashboard />} />
                   </Route>
                 </Route>
@@ -63,6 +76,7 @@ function App() {
             <Toaster theme={toasterTheme} position="top-right"/>
           </AuthProvider>
         </BrowserRouter>
+        </QueryClientProvider>
       </ThemeProvider>
   )
 }

@@ -16,7 +16,12 @@ class RoomManager {
         console.log(`Room created: ${roomId} by user ${createdBy}`);
     }
 
-    joinRoom(socket, roomId, userInfo) {
+    async joinRoom(socket, roomId, userInfo) {
+        const allowed = await this.checkChannelAccess(roomId, socket.token);
+        if (!allowed) {
+            socket.emit('join-error', { message: 'Access denied to this channel' });
+            return false;
+        }
         if (!this.rooms.has(roomId)) {
             this.createRoom(roomId, userInfo.userId);
         }
@@ -27,6 +32,7 @@ class RoomManager {
         this.users.set(socket.id, { ...userInfo, roomId });
         console.log(`User ${userInfo.username} joined room ${roomId}`);
         this.broadcastRoomList();
+        return true;
     }
 
     leaveRoom(socket, roomId) {
@@ -71,12 +77,29 @@ class RoomManager {
     }
 
     broadcastRoomList() {
-    const rooms = Array.from(this.rooms.entries()).map(([id, room]) => ({
-        id,
-        userCount: room.users.size,
-        createdBy: room.createdBy,
-    }));
-    this.io.emit('room-list', { rooms });
+        const rooms = Array.from(this.rooms.entries()).map(([id, room]) => ({
+            id,
+            userCount: room.users.size,
+            createdBy: room.createdBy,
+        }));
+        this.io.emit('room-list', { rooms });
+    }
+
+    async checkChannelAccess(channelId, token) {
+        console.log('checkChannelAccess:', { channelId, token: token ? 'present' : 'MISSING' });
+        try {
+            const res = await fetch(
+                `${process.env.HUB_SERVICE_URL}/channels/${channelId}/access`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            console.log('hub service response:', res.status);
+            const body = await res.json();
+            console.log('hub service body:', body);
+            return res.ok;
+        } catch (err) {
+            console.error('Channel access check failed:', err);
+            return false;
+        }
     }
 }
 

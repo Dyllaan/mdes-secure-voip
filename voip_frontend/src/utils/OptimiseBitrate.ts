@@ -1,7 +1,7 @@
 /**
  * Modifies SDP to optimize Opus codec for higher audio quality.
  *
- * Default WebRTC Opus: ~32kbps, narrowband, mono — optimized for intelligibility.
+ * Default WebRTC Opus: ~32kbps, narrowband, mono - optimized for intelligibility.
  * This pushes it to: 128kbps, fullband (48kHz), stereo-capable, with FEC.
  *
  */

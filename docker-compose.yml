@@ -1,46 +1,157 @@
 services:
-  # API Gateway
-  gateway:
+  p2p-voip-gateway:
     build:
       context: ./services/gateway
       dockerfile: ../../Dockerfile.gateway
     container_name: voip-gateway
     ports:
-      - "3000:3000"
-    env_file:
-      - ./services/gateway/.env.docker
-    depends_on:
-      - auth-service
-    networks:
-      - voip-network
-    restart: unless-stopped
-  # Auth Service
-  realtime-service:
-    build:
-      context: ./services/realtime
-      dockerfile: ../../Dockerfile.realtime
-    container_name: voip-realtime
-    ports:
-      - "3001:3001"
       - "9000:9000"
-    env_file:
-      - ./services/realtime/.env
-    networks:
-      - voip-network
-    restart: unless-stopped
-  auth-service:
-    build:
-      context: ./services/auth
-      dockerfile: ../../Dockerfile.auth-service
-    container_name: voip-auth
+      - "3000:3000"
     expose:
-      - "3003"
-    env_file:
-      - ./services/auth/.env.docker
+      - "9000"
+    environment:
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://voip-auth-service:8010
+      - REALTIME_SERVICE_URL=http://voip-realtime:9001
+      - PEER_SERVICE_URL=http://voip-realtime:9000
+      - HUB_SERVICE_URL=http://hub-service:8080
+      - MUSICMAN_URL=http://musicman-service:4000
+    depends_on:
+      - p2p-voip-realtime-service
     networks:
       - voip-network
     restart: unless-stopped
-  # Realtime Service
+  p2p-auth-service:
+    image: dflouis/dedicate-auth-service:latest
+    container_name: voip-auth-service
+    expose:
+      - "8010"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+      - SECRET_KEY=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - TEMP_MFA_SECRET_KEY=vpNPLT3iXxaRXOY0SSvdnUCeXucbF3JqmdCvFExRvUs23RDeCoEYC6rz8zTqxPWjaAjUjYQn7uST6ZUf86SlHB
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+    restart: always
+    networks:
+      - voip-network
+  p2p-voip-realtime-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.realtime
+    container_name: voip-realtime
+    expose:
+      - "9001"
+      - "9000"
+    environment:
+      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - REALTIME_PORT=9001
+      - PEER_PORT=9000
+      - HUB_SERVICE_URL=http://voip-gateway:3000/hub
+    networks:
+      - voip-network
+    restart: unless-stopped
+  p2p-hub-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.hub-service
+    container_name: hub-service
+    expose:
+      - "8080"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@hub-service-db:5432/hub-service?sslmode=disable
+      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - PORT=8080
+      - BOT_SECRET=CzMilzBBD9SkKNYSXOVzYofgj1GbOF3Q069fZfS2MMn
+    depends_on:
+      - p2p-hub-service-db
+    networks:
+      - voip-network
+    restart: unless-stopped
+  p2p-hub-service-db:
+    image: postgres:16-alpine
+    container_name: hub-service-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=hub-service
+    volumes:
+      - hub-service-db-data:/var/lib/postgresql/data
+    networks:
+      - voip-network
+    restart: unless-stopped
+  p2p-auth-db:
+    image: postgres:latest
+    container_name: auth-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
+      - POSTGRES_DB=postgres
+    volumes:
+      - auth-db-data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    restart: always
+    networks:
+      - voip-network
+  p2p-musicman-service:
+    build:
+      context: ./services/musicman-service
+      dockerfile: ../../Dockerfile.musicman-service
+    container_name: musicman-service
+    expose:
+      - "4000"
+    environment:
+      - SIGNALING_URL=http://voip-gateway:3000
+      - AUTH_URL=http://voip-gateway:3000/auth
+      - HUB_SERVICE_URL=http://voip-gateway:3000/hub
+      - BOT_SECRET=CzMilzBBD9SkKNYSXOVzYofgj1GbOF3Q069fZfS2MMn
+      - PEER_HOST=voip-gateway
+      - PEER_PORT=3000
+      - PEER_PATH=/peerjs
+      - PEER_SECURE=false
+      - BOT_USERNAME=musicman
+      - BOT_PASSWORD=Xde^4P*FuuWnKHH
+      - PORT=4000
+      - PEER_ID_EVENT=peer-assigned
+      - PEER_ID_KEY=peerId
+    depends_on:
+      - p2p-voip-gateway
+      - p2p-auth-service
+      - p2p-voip-realtime-service
+    networks:
+      - voip-network
+  p2p-coturn:
+    image: coturn/coturn:latest
+    container_name: coturn
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+    command: >
+      -n
+      --log-file=stdout
+      --lt-cred-mech
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+      --no-tls
+      --no-dtls
+      --realm=talk.local
+      --user=talk:talkpass
+      --allow-loopback-peers
+    networks:
+      voip-network:
+        ipv4_address: 10.10.10.10
+    restart: unless-stopped
+volumes:
+  auth-db-data:
+  hub-service-db-data:
 networks:
   voip-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
