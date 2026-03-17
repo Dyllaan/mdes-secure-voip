@@ -88,7 +88,8 @@ export class AudioPipeline extends EventEmitter {
     const ytdlpArgs = [
       '--no-playlist',
       '--no-warnings',
-      '-f', 'bestaudio[ext=webm]/bestaudio',
+      '--js-runtimes', 'nodejs',
+      '-f', 'bestaudio',
       '-o', '-',
     ];
 

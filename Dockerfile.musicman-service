@@ -14,7 +14,7 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-# ── Runtime stage ─────────────────────────────────────────────────────────────
+# Runtime stage
 FROM node:20-alpine
 
 RUN apk add --no-cache ffmpeg python3 ca-certificates
