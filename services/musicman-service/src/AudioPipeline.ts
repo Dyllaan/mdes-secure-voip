@@ -85,12 +85,14 @@ export class AudioPipeline extends EventEmitter {
 
     console.log('[AudioPipeline] Starting yt-dlp | ffmpeg pipeline');
 
+    const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
+
     const ytdlpArgs = [
       '--no-playlist',
       '--no-warnings',
-      '-f', 'bestaudio',
+      '--extractor-args', `youtube:player_client=web;youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
+      '-f', 'bestaudio/best',
       '-o', '-',
-      '--extractor-args', `youtubepot-bgutilhttp:base_url=${process.env.YTDLP_POT_BASE_URL ?? 'http://localhost:4416'}`,
     ];
 
     if (process.env.YTDLP_COOKIES_PATH) {
