@@ -63,7 +63,7 @@ jobs:
           docker build \
             -f Dockerfile.realtime \
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
-            ./services/realtime
+            .
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
       - name: Build and Push VoIP Server
         run: |
