@@ -2,12 +2,35 @@
   "name": "voip_frontend",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "dist": "vite build --mode electron && npm run build:electron && electron-builder"
+  },
+  "build": {
+    "appId": "com.voip.frontend",
+    "productName": "VoIP Frontend",
+    "files": [
+      "dist/**/*",
+      "electron/dist/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -61,6 +84,9 @@
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.23",
     "babel-plugin-react-compiler": "^1.0.0",
+    "concurrently": "^9.2.1",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.25.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
@@ -72,6 +98,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.4.1",
-    "vite-plugin-pwa": "^1.1.0"
+    "vite-plugin-pwa": "^1.1.0",
+    "wait-on": "^9.0.4"
   }
 }
