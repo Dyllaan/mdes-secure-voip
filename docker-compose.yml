@@ -30,10 +30,10 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
       - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
       - SPRING_DATASOURCE_USERNAME=postgres
-      - SPRING_DATASOURCE_PASSWORD=RPA8Ze0gjO2kh5/m((j7](bbh^\]0|X7K{Y'=<a=g0VEwC#Ti
+      - SPRING_DATASOURCE_PASSWORD=
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - SECRET_KEY=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
-      - TEMP_MFA_SECRET_KEY=vpNPLT3iXxaRXOY0SSvdnUCeXucbF3JqmdCvFExRvUs23RDeCoEYC6rz8zTqxPWjaAjUjYQn7uST6ZUf86SlHB
+      - SECRET_KEY=
+      - TEMP_MFA_SECRET_KEY=
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     restart: always
     networks:
@@ -47,7 +47,7 @@ services:
       - "9001"
       - "9000"
     environment:
-      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - JWT_SECRET=
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
@@ -62,10 +62,10 @@ services:
     expose:
       - "8080"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@hub-service-db:5432/hub-service?sslmode=disable
-      - JWT_SECRET=muna4fQehgByYhRtwKx64deWiTVZR67U81yAdDDqq7p6CYaUCvcJXs0a1w38QTL887sN7VsixBjHlHRv7WWvKO
+      - DATABASE_URL=
+      - JWT_SECRET=
       - PORT=8080
-      - BOT_SECRET=CzMilzBBD9SkKNYSXOVzYofgj1GbOF3Q069fZfS2MMn
+      - BOT_SECRET=
     depends_on:
       - p2p-hub-service-db
     networks:
@@ -76,7 +76,7 @@ services:
     container_name: hub-service-db
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=
       - POSTGRES_DB=hub-service
     volumes:
       - hub-service-db-data:/var/lib/postgresql/data
@@ -108,13 +108,13 @@ services:
       - SIGNALING_URL=http://voip-gateway:3000
       - AUTH_URL=http://voip-gateway:3000/auth
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
-      - BOT_SECRET=CzMilzBBD9SkKNYSXOVzYofgj1GbOF3Q069fZfS2MMn
+      - BOT_SECRET=
       - PEER_HOST=voip-gateway
       - PEER_PORT=3000
       - PEER_PATH=/peerjs
       - PEER_SECURE=false
       - BOT_USERNAME=musicman
-      - BOT_PASSWORD=Xde^4P*FuuWnKHH
+      - BOT_PASSWORD=
       - PORT=4000
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
