@@ -92,7 +92,7 @@ export class AudioPipeline extends EventEmitter {
       '--no-warnings',
       '--js-runtimes', 'quickjs:/usr/bin/qjs',
       '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
-      '-f', 'bestaudio/best',
+      '-f', 'ba/b',
       '-o', '-',
     ];
 
