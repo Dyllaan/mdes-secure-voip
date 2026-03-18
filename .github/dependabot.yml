@@ -1,8 +1,3 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
 version: 2
 updates:
   - package-ecosystem: "npm"
@@ -10,27 +5,28 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-
+    target-branch: "staging"
   - package-ecosystem: "npm"
     directory: "/services/gateway"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-
+    target-branch: "staging"
   - package-ecosystem: "gomod"
     directory: "/services/hub-service"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-
+    target-branch: "staging"
   - package-ecosystem: "npm"
     directory: "/services/musicman-service"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
-
+    target-branch: "staging"
   - package-ecosystem: "npm"
     directory: "/services/realtime"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    target-branch: "staging"
