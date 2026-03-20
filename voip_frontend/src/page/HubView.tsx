@@ -19,7 +19,7 @@ export default function HubView() {
     const { hubId, channelId } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
-    const { isConnected } = useConnection();
+    const { socket, isConnected } = useConnection();
     const { createChannel, createInvite } = useHubAPI();
     const { voiceChannel, joinVoiceChannel } = useVoIPContext();
 
@@ -43,10 +43,13 @@ export default function HubView() {
     const handleCreateChannel = async () => {
         if (!hubId || !newChannelName.trim()) return;
         try {
-            await createChannel(hubId, newChannelName.trim(), newChannelType);
+            const created = await createChannel(hubId, newChannelName.trim(), newChannelType);
             setNewChannelName('');
             setNewChannelType('text');
             await refreshChannels();
+            if (created?.id) {
+                socket?.emit('channel-created', { hubId, channelId: created.id });
+            }
         } catch (err) {
             console.error('Failed to create channel:', err);
         }

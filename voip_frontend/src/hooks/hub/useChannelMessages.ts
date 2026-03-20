@@ -177,6 +177,9 @@ export function useChannelMessages(
             user.sub,
             text,
             hubAPIRef.current,
+            (event) => {
+                socket?.emit('channel-key-rotated', event);
+            },
         );
 
         await apiSendMessage(hubId, channelId, payload);
