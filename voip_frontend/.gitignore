@@ -9,9 +9,10 @@ lerna-debug.log*
 
 node_modules
 dist
+release
+electron
 dist-ssr
 *.local
-
 .env.development
 .env.production
 
