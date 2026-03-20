@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import useHubAPI from '@/hooks/hub/useHubAPI';
 import { useAuth } from '@/hooks/auth/useAuth';
+import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { Hub, Channel, Member } from '@/types/hub.types';
 
 interface UseHubDataReturn {
@@ -18,7 +19,9 @@ interface UseHubDataReturn {
 
 export default function useHubData(hubId: string | undefined): UseHubDataReturn {
     const { user } = useAuth();
-    const { getHub, listChannels, listMembers, kickMember } = useHubAPI();
+    const { socket, channelKeyManager } = useConnection();
+    const hubAPI = useHubAPI();
+    const { getHub, listChannels, listMembers, kickMember } = hubAPI;
 
     const [hub, setHub] = useState<Hub | null>(null);
     const [channels, setChannels] = useState<Channel[]>([]);
@@ -67,6 +70,65 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
         const updated = await listMembers(hubId);
         setMembers(updated);
     }, [hubId, listMembers]);
+
+    // ------------------------------------------------------------------
+    // Real-time: join the hub's socket room so server can scope broadcasts
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        if (!socket || !hubId) return;
+        socket.emit('hub:join', hubId);
+        return () => { socket.emit('hub:leave', hubId); };
+    }, [socket, hubId]);
+
+    // ------------------------------------------------------------------
+    // Real-time: channel lifecycle events
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        if (!socket || !hubId) return;
+
+        const onChannelChanged = (data: { hubId: string }) => {
+            if (data.hubId !== hubId) return;
+            listChannels(hubId)
+                .then(setChannels)
+                .catch(err => console.warn('[useHubData] Failed to refresh channels:', err));
+        };
+
+        socket.on('channel-created', onChannelChanged);
+        socket.on('channel-deleted', onChannelChanged);
+        return () => {
+            socket.off('channel-created', onChannelChanged);
+            socket.off('channel-deleted', onChannelChanged);
+        };
+    }, [socket, hubId, listChannels]);
+
+    // ------------------------------------------------------------------
+    // Real-time: member lifecycle events
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        if (!socket || !hubId) return;
+
+        const onMemberJoined = (data: { hubId: string }) => {
+            if (data.hubId !== hubId) return;
+            listMembers(hubId)
+                .then(setMembers)
+                .catch(err => console.warn('[useHubData] Failed to refresh members after member-joined:', err));
+
+            // Top up key distribution for all channels so the new member's devices
+            // can receive encrypted messages going forward
+            if (channelKeyManager) {
+                for (const ch of channels) {
+                    channelKeyManager.topUpChannelKey(ch.id, hubId, hubAPI, (event) => {
+                        socket?.emit('channel-key-rotated', event);
+                    }).catch(err =>
+                        console.warn('[useHubData] Key top-up failed for channel', ch.id, ':', err)
+                    );
+                }
+            }
+        };
+
+        socket.on('member-joined', onMemberJoined);
+        return () => { socket.off('member-joined', onMemberJoined); };
+    }, [socket, hubId, listMembers, channels, channelKeyManager]);
 
     const isOwner = hub != null && hub.ownerId === user?.sub;
     const hasMusicman = members.some(m => m.role === 'bot');

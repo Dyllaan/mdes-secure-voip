@@ -96,9 +96,28 @@ class SocketEventHandlers {
             // Persistent channel socket events
             socket.on('channel-message-sent', (d) => rl('channel-message-sent', 30, 10000) && socket.broadcast.emit('channel-message-sent', d));
 
+            // Hub room membership — client calls these when entering/leaving a hub view
+            socket.on('hub:join', (hubId) => {
+                if (typeof hubId !== 'string' || !hubId) return;
+                socket.join(`hub:${hubId}`);
+            });
+            socket.on('hub:leave', (hubId) => {
+                if (typeof hubId !== 'string' || !hubId) return;
+                socket.leave(`hub:${hubId}`);
+            });
+
+            // Channel lifecycle notifications - tells all connected members to refresh their channel list
+            // Payload: { hubId, channelId, channelName?, channelType? }
+            socket.on('channel-created', (d) => rl('channel-created', 5, 60000) && socket.to(`hub:${d.hubId}`).emit('channel-created', d));
+            socket.on('channel-deleted', (d) => rl('channel-deleted', 5, 60000) && socket.to(`hub:${d.hubId}`).emit('channel-deleted', d));
+
+            // Member lifecycle notifications - tells all connected members to refresh member list
+            // Payload: { hubId, userId? }
+            socket.on('member-joined',   (d) => rl('member-joined',   5, 60000) && socket.to(`hub:${d.hubId}`).emit('member-joined', d));
+
             // Channel key rotation notification - tells all connected members to sync new key bundles
-            // Payload: { serverId, channelId, newVersion }
-            socket.on('channel-key-rotated', (d) => rl('channel-key-rotated', 5, 60000) && socket.broadcast.emit('channel-key-rotated', d));
+            // Payload: { hubId, channelId, newVersion }
+            socket.on('channel-key-rotated', (d) => rl('channel-key-rotated', 5, 60000) && socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', d));
 
             socket.on('disconnect', () => this.handleDisconnect(socket));
         });

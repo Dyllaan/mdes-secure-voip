@@ -25,6 +25,12 @@ export interface EncryptedPayload {
     keyVersion: string;
 }
 
+export interface KeyDistributedEvent {
+    hubId: string;
+    channelId: string;
+    newVersion: number;
+}
+
 type HubAPI = {
     registerDeviceKey(hubId: string, deviceId: string, publicKey: string): Promise<unknown>;
     getDeviceKeys(hubId: string): Promise<MemberDeviceKey[]>;
@@ -87,11 +93,13 @@ export class CryptKeyManager {
         senderId: string,
         plaintext: string,
         hubAPI: HubAPI,
+        onKeyDistributed?: (event: KeyDistributedEvent) => void,
     ): Promise<EncryptedPayload> {
         let version = await this.storage.getCurrentVersion(channelId);
 
         if (version === null) {
             version = await this.generateAndDistributeKey(channelId, hubId, hubAPI);
+            onKeyDistributed?.({ hubId, channelId, newVersion: version });
         }
 
         const channelKey = await this.storage.loadChannelKey(channelId, version);
@@ -249,5 +257,60 @@ export class CryptKeyManager {
         };
 
         await hubAPI.postKeyBundles(hubId, payload);
+    }
+
+    /**
+     * Call this when a new member joins the hub to distribute the current channel
+     * key to any of their devices that don't have a bundle yet.
+     * Returns true if new bundles were created.
+     */
+    async topUpChannelKey(
+        channelId: string,
+        hubId: string,
+        hubAPI: HubAPI,
+        onKeyDistributed?: (event: KeyDistributedEvent) => void,
+    ): Promise<void> {
+        const version = await this.storage.getCurrentVersion(channelId);
+        if (version === null) return; // key not yet generated for this channel
+        const channelKey = await this.storage.loadChannelKey(channelId, version);
+        if (!channelKey) return;
+        const topped = await this.topUpDistribution(channelId, hubId, version, channelKey, hubAPI);
+        if (topped) onKeyDistributed?.({ hubId, channelId, newVersion: version });
+    }
+
+    /**
+     * Checks if there are hub member devices that don't have a key bundle for
+     * the given channel version, and distributes the key to them.
+     * Returns true if new bundles were created.
+     */
+    private async topUpDistribution(
+        channelId: string,
+        hubId: string,
+        version: number,
+        channelKey: CryptoKey,
+        hubAPI: HubAPI,
+    ): Promise<boolean> {
+        const [deviceKeys, existingBundles] = await Promise.all([
+            hubAPI.getDeviceKeys(hubId),
+            hubAPI.getKeyBundles(hubId, channelId),
+        ]);
+
+        // Find devices that already have a bundle for this channel+version
+        const coveredDeviceIds = new Set(
+            existingBundles
+                .filter(b => b.keyVersion === version)
+                .map(b => `${b.recipientUserId}:${b.recipientDeviceId}`)
+        );
+
+        // Filter to only devices missing a bundle
+        const missingDevices = deviceKeys.filter(
+            dk => !coveredDeviceIds.has(`${dk.userId}:${dk.deviceId}`)
+        );
+
+        if (missingDevices.length === 0) return false;
+
+        console.log(`[CryptKeyManager] Top-up: distributing key to ${missingDevices.length} new device(s) for channel ${channelId}`);
+        await this.distributeKey(channelId, hubId, version, channelKey, missingDevices, hubAPI);
+        return true;
     }
 }

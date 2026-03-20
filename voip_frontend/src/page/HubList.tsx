@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useHubAPI from '@/hooks/hub/useHubAPI';
+import { useConnection } from '@/components/providers/ConnectionProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, Server, ArrowRight, Phone } from 'lucide-react';
@@ -8,7 +9,9 @@ import type { Hub } from '@/types/hub.types';
 
 export default function HubList() {
     const navigate = useNavigate();
-    const { listHubs, createHub, redeemInvite } = useHubAPI();
+    const hubAPI = useHubAPI();
+    const { listHubs, createHub, redeemInvite } = hubAPI;
+    const { socket, channelKeyManager } = useConnection();
 
     const [inviteInput, setInviteInput] = useState('');
     const [redeeming, setRedeeming] = useState(false);
@@ -56,6 +59,19 @@ export default function HubList() {
             const data = await redeemInvite(inviteInput.trim());
             setInviteInput('');
             await fetchHubs();
+
+            // Register our device key with the new hub so existing members can
+            // distribute channel keys to us
+            if (channelKeyManager && data.hub?.id) {
+                channelKeyManager.registerWithHub(hubAPI, data.hub.id)
+                    .catch(err => console.warn('[HubList] Failed to register device key with new hub:', err));
+            }
+
+            // Notify existing hub members that a new member joined
+            if (data.hub?.id) {
+                socket?.emit('member-joined', { hubId: data.hub.id });
+            }
+
             navigate(`/hubs/${data.hub.id}`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Invalid invite code');
