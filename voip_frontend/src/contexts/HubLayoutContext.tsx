@@ -34,6 +34,14 @@ interface HubLayoutContextValue {
     isConnected: boolean;
     onBotJoined: () => void;
     kickMember: (memberId: string) => void;
+    remoteScreenStreams: Array<{ peerId: string; stream: MediaStream; alias: string }>;
+    localScreenStream: MediaStream | null;
+    isSharing: boolean;
+    startScreenShare: () => void;
+    stopScreenShare: () => void;
+    dismissScreenShare: (peerId: string) => void;
+    dismissedPeerIds: Set<string>;
+    restoreScreenShare: (peerId: string) => void;
 }
 
 const HubLayoutContext = createContext<HubLayoutContextValue | null>(null);

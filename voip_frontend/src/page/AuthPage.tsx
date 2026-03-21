@@ -19,7 +19,6 @@ export default function AuthPage({ mode = 'login' }: { mode?: 'login' | 'registe
     navigate('/');
   }
 
-  // Show MFA form if required
   if (mfaRequired) {
     return (
       <div className="bg-background flex items-center justify-center p-6">
@@ -31,18 +30,18 @@ export default function AuthPage({ mode = 'login' }: { mode?: 'login' | 'registe
   }
 
   return (
-    <Page>
-          {isLogin ? (
-            <LoginForm 
-              onSuccess={handleAuthSuccess}
-              onToggleMode={toggleAuthMode}
-            />
-          ) : (
-            <RegisterForm 
-              onSuccess={handleAuthSuccess}
-              onToggleMode={toggleAuthMode}
-            />
-          )}
+    <Page title={isLogin ? "Login" : "Register"} subtitle="Access your account or create a new one to get started.">
+      {isLogin ? (
+        <LoginForm 
+          onSuccess={handleAuthSuccess}
+          onToggleMode={toggleAuthMode}
+        />
+      ) : (
+        <RegisterForm 
+          onSuccess={handleAuthSuccess}
+          onToggleMode={toggleAuthMode}
+        />
+      )}
     </Page>
   );
 }

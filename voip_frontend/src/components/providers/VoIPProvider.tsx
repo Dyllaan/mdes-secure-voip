@@ -51,7 +51,8 @@ interface VoIPContextValue {
     roomList: RoomInfo[];
     joinRoom: (roomId: string) => Promise<void>;
     leaveRoom: () => void;
-
+    dismissedPeerIds: Set<string>;
+    restoreScreenShare: (peerId: string) => void;
     // Audio ref
     localAudioRef: React.RefObject<HTMLAudioElement | null>;
 }
@@ -119,6 +120,8 @@ export function VoIPProvider({ children }: { children: ReactNode }) {
         leaveRoom: voip.leaveRoom,
 
         localAudioRef: voip.localAudioRef,
+        dismissedPeerIds: voip.dismissedPeerIds,
+        restoreScreenShare: voip.restoreScreenShare,
     };
 
     return (

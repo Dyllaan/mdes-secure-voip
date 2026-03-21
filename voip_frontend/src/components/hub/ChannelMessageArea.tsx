@@ -1,8 +1,10 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Hash, Send } from 'lucide-react';
+import { Hash, Send, X } from 'lucide-react';
 import MessageBubble from '@/components/hub/MessageBubble';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
+import ScreenshareVideo from '../room/screenshare/ScreenshareVideo';
+import { ScreenshareManager } from '../room/screenshare/ScreenshareManager';
 
 export default function ChannelMessageArea() {
 
@@ -20,7 +22,8 @@ export default function ChannelMessageArea() {
                         <span className="font-medium">{channelName}</span>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">         
+                    
                         {hasMore && (
                             <button
                                 className="text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto block"
@@ -36,7 +39,8 @@ export default function ChannelMessageArea() {
                                 </p>
                             </div>
                         ) : (
-                            messages.map((msg) => (
+                            <div className="flex flex-col gap-4">
+                            {(messages.map((msg) => (
                                 <MessageBubble
                                     key={msg.id}
                                     msg={msg}
@@ -44,6 +48,8 @@ export default function ChannelMessageArea() {
                                     plaintext={msg.id in decryptedMessages ? decryptedMessages[msg.id] : undefined}
                                 />
                             ))
+                        )}
+                        </div>
                         )}
                     </div>
 

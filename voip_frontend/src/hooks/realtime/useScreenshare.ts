@@ -29,6 +29,8 @@ const useScreenshare = ({
     const [isSharing,           setIsSharing]           = useState(false);
     const [localScreenStream,   setLocalScreenStream]   = useState<MediaStream | null>(null);
     const [remoteScreenStreams, setRemoteScreenStreams] = useState<RemoteScreenStream[]>([]);
+    // Peers the user has dismissed from the UI — stream is still live
+    const [dismissedPeerIds,   setDismissedPeerIds]    = useState<Set<string>>(new Set());
 
     const screenPeerRef     = useRef<Peer | null>(null);
     const screenPeerIdRef   = useRef<string | null>(null);
@@ -36,29 +38,43 @@ const useScreenshare = ({
     const localStreamRef    = useRef<MediaStream | null>(null);
     const currentRoomIdRef  = useRef<string | null>(currentRoomId);
 
-    // Track audio peerId -> screen peerId for room-scoping incoming calls
     const allowedScreenPeerIds = useRef<Set<string>>(new Set());
-    // audio peerId -> screen peerId mapping for cleanup
     const peerScreenPeerIds    = useRef<Map<string, string>>(new Map());
-    // screen peerId -> alias for labelling
     const pendingAliasRef      = useRef<Map<string, string>>(new Map());
 
     useEffect(() => { currentRoomIdRef.current = currentRoomId; }, [currentRoomId]);
 
-    // Clear room-scoped state when leaving a room
     useEffect(() => {
         if (!currentRoomId) {
             allowedScreenPeerIds.current.clear();
             peerScreenPeerIds.current.clear();
             pendingAliasRef.current.clear();
             setRemoteScreenStreams([]);
+            setDismissedPeerIds(new Set());
         }
     }, [currentRoomId]);
 
-    const removeRemoteScreenStream = useCallback((screenPeerId: string) => {
+    // Fully removes a stream — used internally when the remote peer actually stops
+    const closeRemoteScreenStream = useCallback((screenPeerId: string) => {
         setRemoteScreenStreams(prev => prev.filter(rs => rs.peerId !== screenPeerId));
+        setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
         pendingAliasRef.current.delete(screenPeerId);
         allowedScreenPeerIds.current.delete(screenPeerId);
+        const call = screenCallsRef.current.get(screenPeerId);
+        if (call) {
+            try { call.close(); } catch {}
+            screenCallsRef.current.delete(screenPeerId);
+        }
+    }, []);
+
+    // UI-only dismiss — hides from the manager but keeps the call alive
+    const dismissScreenShare = useCallback((screenPeerId: string) => {
+        setDismissedPeerIds(prev => new Set([...prev, screenPeerId]));
+    }, []);
+
+    // Undo a dismiss — called when the user wants to tune back in
+    const restoreScreenShare = useCallback((screenPeerId: string) => {
+        setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
     }, []);
 
     // Create the dedicated screen Peer instance once socket is ready
@@ -84,7 +100,6 @@ const useScreenshare = ({
             });
 
             screenPeer.on("call", (incomingCall: MediaConnection) => {
-                // Room gate for screen calls
                 if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
                     console.warn("Rejecting screen call from unknown peer:", incomingCall.peer);
                     incomingCall.close();
@@ -102,14 +117,15 @@ const useScreenshare = ({
                             ? prev.map(rs => rs.peerId === incomingCall.peer ? { ...rs, stream: remoteStream } : rs)
                             : [...prev, { peerId: incomingCall.peer, alias, stream: remoteStream }]
                     );
+                    // If they were previously dismissed and re-share, un-dismiss them
+                    setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(incomingCall.peer); return next; });
                 });
 
-                incomingCall.on("close", () => removeRemoteScreenStream(incomingCall.peer));
-                incomingCall.on("error", () => removeRemoteScreenStream(incomingCall.peer));
+                incomingCall.on("close", () => closeRemoteScreenStream(incomingCall.peer));
+                incomingCall.on("error", () => closeRemoteScreenStream(incomingCall.peer));
             });
 
             screenPeer.on("error", (err) => console.error("Screen share peer error:", err));
-
             screenPeerRef.current = screenPeer;
         };
 
@@ -121,31 +137,25 @@ const useScreenshare = ({
             screenPeerRef.current = null;
             screenPeerIdRef.current = null;
         };
-    }, [socket, peerHost, peerPort, peerPath, peerSecure, removeRemoteScreenStream]);
+    }, [socket, peerHost, peerPort, peerPath, peerSecure, closeRemoteScreenStream]);
 
     const callPeerWithScreen = useCallback((screenPeerIdOfTarget: string, stream: MediaStream) => {
         const screenPeer = screenPeerRef.current;
         if (!screenPeer) return;
-
         console.log("Calling screen peer:", screenPeerIdOfTarget);
         const call = screenPeer.call(screenPeerIdOfTarget, stream);
         screenCallsRef.current.set(screenPeerIdOfTarget, call);
-
         call.on("error", (err) => console.error("Screenshare call error to", screenPeerIdOfTarget, err));
     }, []);
 
     const stopScreenShare = useCallback(() => {
         if (!socket || !currentRoomIdRef.current) return;
-
         localStreamRef.current?.getTracks().forEach(t => t.stop());
         localStreamRef.current = null;
-
         screenCallsRef.current.forEach(call => { try { call.close(); } catch {} });
         screenCallsRef.current.clear();
-
         setLocalScreenStream(null);
         setIsSharing(false);
-
         socket.emit("screenshare-stopped", { roomId: currentRoomIdRef.current });
         console.log("Screen share stopped");
     }, [socket]);
@@ -155,22 +165,18 @@ const useScreenshare = ({
             console.error("Cannot start screenshare - not ready");
             return;
         }
-
         try {
             const screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { frameRate: 30 },
                 audio: false,
             });
-
             localStreamRef.current = screenStream;
             setLocalScreenStream(screenStream);
             setIsSharing(true);
-
             socket.emit("screenshare-started", {
                 roomId: currentRoomIdRef.current,
                 screenPeerId: screenPeerIdRef.current,
             });
-
             screenStream.getVideoTracks()[0].onended = () => stopScreenShare();
             console.log("Screen share started");
         } catch (err: any) {
@@ -180,7 +186,6 @@ const useScreenshare = ({
         }
     }, [socket, stopScreenShare]);
 
-    // Server sends us the screen peer IDs of everyone in the room after we start sharing
     const handleRoomScreenPeerIds = useCallback((
         peers: Array<{ screenPeerId: string; alias: string }>
     ) => {
@@ -192,8 +197,6 @@ const useScreenshare = ({
         });
     }, [callPeerWithScreen]);
 
-    // Server tells us a peer started sharing and register their screen peer ID
-    // so our screen Peer allows their incoming call
     const handlePeerScreenshareStarted = useCallback((
         audioPeerId: string,
         alias: string,
@@ -205,7 +208,6 @@ const useScreenshare = ({
         allowedScreenPeerIds.current.add(screenPeerId);
     }, []);
 
-    // Server tells sharer that a new user joined and call them with the screen stream
     const handleNewScreenPeer = useCallback(({
         screenPeerId,
         alias,
@@ -219,28 +221,20 @@ const useScreenshare = ({
     const handleRemoteScreenShareStopped = useCallback((audioPeerId: string) => {
         const screenPeerId = peerScreenPeerIds.current.get(audioPeerId);
         if (screenPeerId) {
-            removeRemoteScreenStream(screenPeerId);
+            closeRemoteScreenStream(screenPeerId);
             peerScreenPeerIds.current.delete(audioPeerId);
         }
-    }, [removeRemoteScreenStream]);
-
-    const dismissScreenShare = useCallback((screenPeerId: string) => {
-        removeRemoteScreenStream(screenPeerId);
-        // Close the incoming call so the stream stops
-        const call = screenCallsRef.current.get(screenPeerId);
-        if (call) {
-            try { call.close(); } catch {}
-            screenCallsRef.current.delete(screenPeerId);
-        }
-    }, [removeRemoteScreenStream]);
+    }, [closeRemoteScreenStream]);
 
     return {
         isSharing,
         localScreenStream,
         remoteScreenStreams,
+        dismissedPeerIds,
         startScreenShare,
         stopScreenShare,
         dismissScreenShare,
+        restoreScreenShare,
         handleRoomScreenPeerIds,
         handlePeerScreenshareStarted,
         handleRemoteScreenShareStopped,

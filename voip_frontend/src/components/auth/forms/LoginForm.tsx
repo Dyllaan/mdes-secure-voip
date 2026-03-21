@@ -42,7 +42,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 pt-4 w-96 mx-auto border p-6 rounded-lg shadow-md bg-card">
+    <form onSubmit={handleSubmit} className="space-y-4 pt-4 w-96 mx-auto p-6">
       {/* Username Field */}
       <div className="space-y-2">
         <Label htmlFor="username" className="flex items-center gap-2">

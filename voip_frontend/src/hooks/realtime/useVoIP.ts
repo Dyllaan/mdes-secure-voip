@@ -85,6 +85,8 @@ const useVoIP = () => {
     handlePeerScreenshareStarted,
     handleRemoteScreenShareStopped,
     handleNewScreenPeer,
+    dismissedPeerIds,
+    restoreScreenShare,
   } = useScreenShare({
     socket,
     currentRoomId,
@@ -398,6 +400,10 @@ const useVoIP = () => {
     isVoiceActive,
     initializeVoice,
     cleanupVoice,
+      handleRoomScreenPeerIds,
+      dismissedPeerIds,
+      restoreScreenShare
+
   };
 };
 

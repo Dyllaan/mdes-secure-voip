@@ -30,11 +30,11 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=docker
       - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
-      - SPRING_DATASOURCE_USERNAME=${AUTH_DB_USER}
-      - SPRING_DATASOURCE_PASSWORD=${AUTH_DB_PASSWORD}
+      - SPRING_DATASOURCE_USERNAME=nanny
+      - SPRING_DATASOURCE_PASSWORD=nannybox
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - SECRET_KEY=${JWT_SECRET}
-      - TEMP_MFA_SECRET_KEY=${MFA_SECRET_KEY}
+      - SECRET_KEY=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
+      - TEMP_MFA_SECRET_KEY=6j8zCi35bHRUm8ZwiU6VqHLiE9K6kYRHuvyeWYmoHPu
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     restart: always
     networks:
@@ -49,7 +49,7 @@ services:
       - "9001"
       - "9000"
     environment:
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
@@ -65,10 +65,10 @@ services:
     expose:
       - "8080"
     environment:
-      - DATABASE_URL=postgres://${HUB_DB_USER}:${HUB_DB_PASSWORD}@hub-service-db:5432/hub-service?sslmode=disable
-      - JWT_SECRET=${JWT_SECRET}
+      - DATABASE_URL=postgres://postgres:jimmyneutron@hub-service-db:5432/hub-service?sslmode=disable
+      - JWT_SECRET=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
       - PORT=8080
-      - BOT_SECRET=${BOT_SECRET}
+      - BOT_SECRET=ZHJpxkPrHvEtyBCmF8OK5w2qloCAXJNweVCzJDqjRIG
     depends_on:
       - p2p-hub-service-db
     networks:
@@ -79,8 +79,8 @@ services:
     image: postgres:16-alpine
     container_name: hub-service-db
     environment:
-      - POSTGRES_USER=${HUB_DB_USER}
-      - POSTGRES_PASSWORD=${HUB_DB_PASSWORD}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=jimmyneutron
       - POSTGRES_DB=hub-service
     volumes:
       - hub-service-db-data:/var/lib/postgresql/data
@@ -92,8 +92,8 @@ services:
     image: postgres:latest
     container_name: auth-db
     environment:
-      - POSTGRES_USER=${AUTH_DB_USER}
-      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
+      - POSTGRES_USER=nanny
+      - POSTGRES_PASSWORD=nannybox
       - POSTGRES_DB=postgres
     volumes:
       - auth-db-data:/var/lib/postgresql
@@ -114,13 +114,13 @@ services:
       - SIGNALING_URL=http://voip-gateway:3000
       - AUTH_URL=http://voip-gateway:3000/auth
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
-      - BOT_SECRET=${BOT_SECRET}
+      - BOT_SECRET=ZHJpxkPrHvEtyBCmF8OK5w2qloCAXJNweVCzJDqjRIG
       - PEER_HOST=voip-gateway
       - PEER_PORT=3000
       - PEER_PATH=/peerjs
-      - PEER_SECURE=${PEER_SECURE}
+      - PEER_SECURE=false
       - BOT_USERNAME=musicman
-      - BOT_PASSWORD=${BOT_PASSWORD}
+      - BOT_PASSWORD=wefrikjonhf12@L
       - PORT=4000
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
@@ -146,8 +146,8 @@ services:
       --no-cli
       --no-tls
       --no-dtls
-      --realm=${COTURN_REALM}
-      --user=${COTURN_USER}:${COTURN_PASS}
+      --realm=talkpass
+      --user=talk:talkpass
       --allow-loopback-peers
     networks:
       voip-network:

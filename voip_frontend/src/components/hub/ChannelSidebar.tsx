@@ -94,18 +94,6 @@ export default function ChannelSidebar() {
                                 }
                                 <span className="truncate">{channel.name}</span>
                             </button>
-
-                            {/* Music bot panel - shown under the active voice channel */}
-                            {channel.type === 'voice' && activeVoiceChannelId === channel.id && (
-                                <div className="mx-2 mt-1 mb-1">
-                                    <MusicmanPanel
-                                        roomId={activeVoiceChannelId}
-                                        hubId={hub?.id ?? ''}
-                                        hasMusicman={hasMusicman}
-                                        onBotJoined={onBotJoined}
-                                    />
-                                </div>
-                            )}
                         </div>
                     ))
                 )}

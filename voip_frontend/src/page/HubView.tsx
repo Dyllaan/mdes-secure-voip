@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useVoIPContext } from '@/components/providers/VoIPProvider';
 import { useAuth } from '@/hooks/useAuth';
@@ -14,6 +14,8 @@ import { useEphemeralChat } from '@/hooks/hub/useEphemeralChat';
 import { useChannelMessages } from '@/hooks/hub/useChannelMessages';
 import useHubAPI from '@/hooks/hub/useHubAPI';
 import HubLayoutContext from '@/contexts/HubLayoutContext';
+import ActionsSidebar from '@/components/hub/ActionsSidebar';
+import { ScreenshareManager } from '@/components/room/screenshare/ScreenshareManager';
 
 export default function HubView() {
     const { hubId, channelId } = useParams();
@@ -21,7 +23,12 @@ export default function HubView() {
     const { user } = useAuth();
     const { socket, isConnected } = useConnection();
     const { createChannel, createInvite } = useHubAPI();
-    const { voiceChannel, joinVoiceChannel } = useVoIPContext();
+    const {
+        voiceChannel, joinVoiceChannel,
+        remoteScreenStreams, localScreenStream, isSharing,
+        startScreenShare, stopScreenShare, dismissScreenShare,
+        dismissedPeerIds, restoreScreenShare,
+    } = useVoIPContext();
 
     const { hub, channels, members, loading, error, isOwner, refreshChannels, hasMusicman, refreshMembers, kickMember } = useHubData(hubId);
     const { messages, hasMore, decryptedMessages, loadOlderMessages, sendMessage: sendChannelMessage } = useChannelMessages(hubId, channelId);
@@ -31,6 +38,15 @@ export default function HubView() {
     const [newChannelName, setNewChannelName] = useState('');
     const [newChannelType, setNewChannelType] = useState<'text' | 'voice'>('text');
     const [inviteCode, setInviteCode] = useState<string | null>(null);
+    const [screenshareVisible, setScreenshareVisible] = useState(true);
+
+    // Any streams exist at all (including dismissed ones — they're still live)
+    const hasScreens = remoteScreenStreams.length > 0 || (isSharing && !!localScreenStream);
+
+    // Auto-open panel when new streams arrive
+    useEffect(() => {
+        if (hasScreens) setScreenshareVisible(true);
+    }, [hasScreens]);
 
     const handleChannelClick = (channel: Channel) => {
         if (channel.type === 'voice') {
@@ -131,12 +147,29 @@ export default function HubView() {
             onSend: handleSendMessage,
             ephem,
             isConnected,
-            onBotJoined: refreshMembers, kickMember
+            onBotJoined: refreshMembers, kickMember,
+            remoteScreenStreams,
+            localScreenStream,
+            isSharing,
+            startScreenShare,
+            stopScreenShare,
+            dismissScreenShare,
+            dismissedPeerIds,
+            restoreScreenShare,
         }}>
             <div className="h-screen flex relative">
                 <ChannelSidebar />
-                <ChannelMessageArea />
-                <EphemeralChatPanel />
+                <div className="flex flex-col w-full">
+                    {hasScreens && screenshareVisible && (
+                        <ScreenshareManager onHide={() => setScreenshareVisible(false)} />
+                    )}
+                    <ChannelMessageArea />
+                    <EphemeralChatPanel />
+                </div>
+                <ActionsSidebar
+                    screenshareVisible={screenshareVisible}
+                    onShowScreenshare={() => setScreenshareVisible(true)}
+                />
             </div>
         </HubLayoutContext.Provider>
     );
