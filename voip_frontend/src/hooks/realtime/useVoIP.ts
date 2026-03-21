@@ -40,6 +40,9 @@ const useVoIP = () => {
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
 
+  const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
+  const [muted, setMuted] = useState(false);
+
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const processedStreamRef = useRef<MediaStream | null>(null);
@@ -50,6 +53,8 @@ const useVoIP = () => {
 
   const [peer, setPeer] = useState<Peer | null>(null);
   const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
+
+  const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>({});
 
   const addRoomPeer = useCallback((peerId: string) => { roomPeerIdsRef.current.add(peerId); }, []);
   const removeRoomPeer = useCallback((peerId: string) => { roomPeerIdsRef.current.delete(peerId); }, []);
@@ -95,6 +100,16 @@ const useVoIP = () => {
     peerPath: PEER_PATH,
     peerSecure: PEER_SECURE,
   });
+
+  const peerVolumeRef = useRef<Record<string, number>>({});
+
+
+  const setPeerVolume = useCallback((peerId: string, volume: number) => {
+      setPeerVolumes(prev => ({ ...prev, [peerId]: volume }));
+      // Find the audio element for this peer and apply directly
+      // VoicePanel's audioElementsRef isn't accessible here, so we use a shared ref
+      peerVolumeRef.current[peerId] = volume;
+  }, []);
 
   // ── Screenshare signalling ──────────────────────────────────────────────
   useEffect(() => {
@@ -371,6 +386,15 @@ const useVoIP = () => {
     }
   }, [signalClient, message, username]);
 
+  const toggleMute = useCallback(() => {
+    if (processedStreamRef.current) {
+        processedStreamRef.current.getAudioTracks().forEach(track => {
+            track.enabled = muted; // flip: if muted, re-enable
+        });
+    }
+    setMuted(prev => !prev);
+}, [muted]);
+
   return {
     myPeerId,
     chatMessages,
@@ -400,10 +424,15 @@ const useVoIP = () => {
     isVoiceActive,
     initializeVoice,
     cleanupVoice,
-      handleRoomScreenPeerIds,
-      dismissedPeerIds,
-      restoreScreenShare
-
+    handleRoomScreenPeerIds,
+    dismissedPeerIds,
+    restoreScreenShare,
+    mutedPeerIds,
+    muted,
+    toggleMute,
+    peerVolumes,
+    setPeerVolume,
+    peerVolumeRef,
   };
 };
 

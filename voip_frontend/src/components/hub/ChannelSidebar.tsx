@@ -5,6 +5,7 @@ import MusicmanPanel from '@/components/music/MusicManPanel';
 import { ArrowLeft, Hash, Plus, Users, MessageSquare, Volume2 } from 'lucide-react';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
 import { HubMembersDrawer } from './HubMembersDrawer';
+import MembersList from '../room/MembersList';
 export default function ChannelSidebar() {
 
     const {
@@ -94,6 +95,11 @@ export default function ChannelSidebar() {
                                 }
                                 <span className="truncate">{channel.name}</span>
                             </button>
+                            {channel.type === 'voice' && activeVoiceChannelId === channel.id && (
+                                <div className="ml-6 mt-1">
+                                    <MembersList muted={false} />
+                                </div>
+                            )}
                         </div>
                     ))
                 )}

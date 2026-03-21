@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
     Music2, Monitor, MonitorOff, Eye, EyeOff,
-    ListMusic, X,
+    ListMusic
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {

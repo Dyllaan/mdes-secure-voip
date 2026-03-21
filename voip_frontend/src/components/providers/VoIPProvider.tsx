@@ -55,6 +55,16 @@ interface VoIPContextValue {
     restoreScreenShare: (peerId: string) => void;
     // Audio ref
     localAudioRef: React.RefObject<HTMLAudioElement | null>;
+
+    // Muting
+    mutedPeerIds: Set<string>;
+    muted: boolean;
+    toggleMute: () => void;
+
+    // Volume control
+    peerVolumes: Record<string, number>;
+    setPeerVolume: (peerId: string, volume: number) => void;
+    peerVolumeRef: React.MutableRefObject<Record<string, number>>;
 }
 
 const VoIPContext = createContext<VoIPContextValue | null>(null);
@@ -122,6 +132,12 @@ export function VoIPProvider({ children }: { children: ReactNode }) {
         localAudioRef: voip.localAudioRef,
         dismissedPeerIds: voip.dismissedPeerIds,
         restoreScreenShare: voip.restoreScreenShare,
+        mutedPeerIds: voip.mutedPeerIds,
+        muted: voip.muted,
+        toggleMute: voip.toggleMute,
+        peerVolumes: voip.peerVolumes,
+        setPeerVolume: voip.setPeerVolume,
+        peerVolumeRef: voip.peerVolumeRef,
     };
 
     return (

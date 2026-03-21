@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
     Music2, Play, Square, Loader2, Youtube,
-    ListMusic, Plus, ChevronDown, ChevronUp, Shuffle,
+    ListMusic, Plus, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
