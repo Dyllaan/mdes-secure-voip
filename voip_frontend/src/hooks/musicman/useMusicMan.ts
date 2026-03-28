@@ -15,6 +15,14 @@ export interface PlaybackStatus {
   youtubeUrl: string;
 }
 
+export interface ResolvedItem {
+  id:         string;
+  title:      string;
+  channel:    string;
+  duration:   string;
+  durationMs: number;
+}
+
 const useMusicman = () => {
   const { user } = useAuth();
   const [activeRooms, setActiveRooms] = useState<Map<string, string>>(new Map());
@@ -211,6 +219,18 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
+  /**
+   * Resolve a YouTube URL (single video or playlist) to individual video items.
+   * Uses yt-dlp on the server so playlists expand into their constituent tracks.
+   */
+  const resolve = useCallback(async (url: string): Promise<ResolvedItem[]> => {
+    const data: { items: ResolvedItem[] } = await fetchMusicman('/resolve', {
+      method: 'POST',
+      body:   JSON.stringify({ url }),
+    });
+    return data.items;
+  }, [fetchMusicman]);
+
   const isActive = useCallback(
     (roomId: string) => activeRooms.has(roomId),
     [activeRooms],
@@ -236,6 +256,7 @@ const useMusicman = () => {
     seek,
     syncRooms,
     getStatus,
+    resolve,
     activeRooms,
     pausedRooms,
     loading,
