@@ -52,15 +52,6 @@ function isYoutubeUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(url.trim());
 }
 
-function isPlaylistUrl(url: string) {
-    try {
-        const u = new URL(url.trim());
-        return u.searchParams.has('list');
-    } catch {
-        return false;
-    }
-}
-
 function extractVideoId(url: string): string | null {
     try {
         const u = new URL(url.trim());
@@ -94,73 +85,6 @@ function formatMs(ms: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-async function fetchTitle(url: string): Promise<string> {
-    const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
-    const res = await fetch(endpoint);
-    if (!res.ok) throw new Error('noembed failed');
-    const data = await res.json();
-    if (data.title) return data.title;
-    throw new Error('no title');
-}
-
-async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
-    const url = rawUrl.trim();
-    const playlistId = extractPlaylistId(url);
-    const videoId = extractVideoId(url);
-
-    if (playlistId && !videoId) {
-        const title = await fetchTitle(`https://www.youtube.com/playlist?list=${playlistId}`)
-            .catch(() => `Playlist ${playlistId.slice(-6)}`);
-        return [{
-            id: `playlist-${playlistId}`,
-            title,
-            channel: 'YouTube Playlist',
-            duration: '—',
-            durationMs: 0,
-            source: 'youtube' as const,
-        }];
-    }
-
-    if (videoId) {
-        const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-        const title = await fetchTitle(watchUrl).catch(() => videoLabel(url));
-        const item: PlaylistItem = {
-            id: videoId,
-            title,
-            channel: 'YouTube',
-            duration: '—',
-            durationMs: 0,
-            source: 'youtube' as const,
-        };
-
-        if (playlistId) {
-            const pTitle = await fetchTitle(`https://www.youtube.com/playlist?list=${playlistId}`)
-                .catch(() => `Playlist ${playlistId.slice(-6)}`);
-            return [
-                item,
-                {
-                    id: `playlist-${playlistId}`,
-                    title: pTitle,
-                    channel: 'YouTube Playlist',
-                    duration: '—',
-                    durationMs: 0,
-                    source: 'youtube' as const,
-                },
-            ];
-        }
-
-        return [item];
-    }
-
-    return [{
-        id: `url-${Date.now()}`,
-        title: videoLabel(url),
-        channel: 'YouTube',
-        duration: '—',
-        durationMs: 0,
-        source: 'youtube' as const,
-    }];
-}
 
 // ─── Local queue persistence ──────────────────────────────────────────────────
 
@@ -185,7 +109,7 @@ function saveQueue(roomId: string, items: PlaylistItem[]) {
 
 export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined }: MusicmanPanelProps) {
     const {
-        play, leave, pause, resume, seek, getStatus,
+        play, leave, pause, resume, seek, getStatus, resolve,
         isActive, isPaused, nowPlaying, loading, error, joinHub,
     } = useMusicMan();
 
@@ -346,19 +270,31 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
         setResolving(true);
         try {
-            const items = await resolveUrlToItems(url);
+            // Resolve via the backend (yt-dlp) so playlists expand into individual tracks
+            const resolved = await resolve(url);
+            if (resolved.length === 0) { setInputError('No playable videos found'); return; }
+
+            const items: PlaylistItem[] = resolved.map(r => ({
+                id:         r.id,
+                title:      r.title,
+                channel:    r.channel,
+                duration:   r.duration,
+                durationMs: r.durationMs,
+                source:     'youtube' as const,
+            }));
+
+            const wasEmpty = queue.length === 0;
             addToQueue(items);
             setUrlInput('');
             setQueueOpen(true);
 
             // If nothing is playing, start the first added item immediately
-            if (!active) {
-                const idx = queue.length;
-                setCurrentIndex(idx);
+            if (!active && wasEmpty) {
+                setCurrentIndex(0);
                 await playItem(items[0]);
             }
         } catch {
-            setInputError('Failed to resolve URL');
+            setInputError('Failed to resolve URL — check the bot is running');
         } finally {
             setResolving(false);
         }

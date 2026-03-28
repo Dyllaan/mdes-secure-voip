@@ -1,9 +1,89 @@
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { spawn } from 'child_process';
 import { config } from './config';
 import { login, startTokenRefresh, getToken } from './auth';
 import { BotInstance } from './BotInstance';
 import { HubHandler } from './HubHandler';
+
+// ── Playlist resolver ─────────────────────────────────────────────────────────
+
+interface ResolvedItem {
+  id:         string;
+  title:      string;
+  channel:    string;
+  duration:   string;   // "mm:ss" or "h:mm:ss"
+  durationMs: number;
+}
+
+function secondsToTimestamp(sec: number): string {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Use yt-dlp --flat-playlist -J to resolve a URL to individual video entries.
+ * Works for single videos and playlists.  Times out after 30 seconds.
+ */
+function resolveUrl(url: string): Promise<ResolvedItem[]> {
+  return new Promise((resolve, reject) => {
+    const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
+
+    const args = [
+      '--flat-playlist',
+      '-J',
+      '--no-warnings',
+      '--js-runtimes', 'quickjs:/usr/bin/qjs',
+      '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
+    ];
+
+    if (process.env.YTDLP_COOKIES_PATH) {
+      args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
+    }
+
+    args.push(url);
+
+    const ytdlp = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stdout = '';
+    let stderr = '';
+    ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
+    ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    const timeout = setTimeout(() => {
+      ytdlp.kill('SIGTERM');
+      reject(new Error('yt-dlp resolve timed out'));
+    }, 30_000);
+
+    ytdlp.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+      try {
+        const data = JSON.parse(stdout);
+        // Single video: { _type: 'video', id, title, duration, channel/uploader }
+        // Playlist:     { _type: 'playlist', entries: [...] }
+        const entries: Record<string, unknown>[] = data.entries ?? [data];
+        const items: ResolvedItem[] = entries
+          .filter((e) => e && e.id)
+          .map((e) => ({
+            id:         String(e.id),
+            title:      String(e.title ?? e.id),
+            channel:    String(e.channel ?? e.uploader ?? 'YouTube'),
+            duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '—',
+            durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
+          }));
+        resolve(items);
+      } catch {
+        reject(new Error('Failed to parse yt-dlp output'));
+      }
+    });
+
+    ytdlp.on('error', (err) => { clearTimeout(timeout); reject(err); });
+  });
+}
 
 const app  = express();
 const bots = new Map<string, BotInstance>();
@@ -201,6 +281,26 @@ app.post('/seek', (req: Request, res: Response) => {
 });
 
 /**
+ * POST /resolve
+ * Body: { url: string }
+ * Resolves a YouTube URL (single video or playlist) to individual video items
+ * using yt-dlp --flat-playlist. Used by the frontend to expand playlists.
+ */
+app.post('/resolve', async (req: Request, res: Response) => {
+  const { url } = req.body as { url?: string };
+  if (!url) return res.status(400).json({ error: 'url is required' });
+
+  try {
+    const items = await resolveUrl(url);
+    return res.json({ items });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[/resolve] Failed for "${url}":`, msg);
+    return res.status(500).json({ error: msg });
+  }
+});
+
+/**
  * GET /rooms
  * Returns the list of room IDs where a bot is currently active.
  */
@@ -235,8 +335,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     app.listen(config.PORT, () => {
       console.log(`[Boot] Music bot HTTP server listening on :${config.PORT}`);
       console.log(`[Boot] Endpoints:`);
-      console.log(`[Boot]   POST /hub/join  |  POST /join  |  POST /play  |  POST /leave`);
-      console.log(`[Boot]   POST /pause     |  POST /resume  |  POST /seek`);
+      console.log(`[Boot]   POST /hub/join  |  POST /join   |  POST /play   |  POST /leave`);
+      console.log(`[Boot]   POST /pause     |  POST /resume |  POST /seek   |  POST /resolve`);
       console.log(`[Boot]   GET  /rooms     |  GET  /status/:roomId`);
     });
   } catch (err) {
