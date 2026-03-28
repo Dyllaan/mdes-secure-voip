@@ -9,6 +9,8 @@ export interface PlaylistItem {
     title: string;
     channel: string;
     duration: string; // e.g. "3:45"
+    /** Duration in milliseconds — used for seek bar max. 0 = unknown. */
+    durationMs?: number;
     /** Optional — used to tint the index badge */
     source?: 'youtube' | 'spotify' | 'soundcloud';
 }

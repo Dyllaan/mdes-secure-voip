@@ -41,6 +41,7 @@ export class BotInstance {
   private myPeerId: string | null = null;
 
   private pipeline:   AudioPipeline;
+  private youtubeUrl: string;
   private conns       = new Map<string, PeerConn>();
   private iceBuf      = new Map<string, { candidate: string; sdpMid?: string; sdpMLineIndex?: number }[]>();
   private hbTimer:    NodeJS.Timeout | null = null;
@@ -52,26 +53,45 @@ export class BotInstance {
   readonly roomId: string;
 
   constructor(roomId: string, youtubeUrl: string, private readonly token: string) {
-    this.roomId   = roomId;
-    this.pipeline = new AudioPipeline(youtubeUrl);
+    this.roomId     = roomId;
+    this.youtubeUrl = youtubeUrl;
+    this.pipeline   = new AudioPipeline(youtubeUrl);
   }
 
-  async start(): Promise<void> {
-    this.pipeline.on('frame', (frame: OpusFrame) => {
-      if (this.isConnected) {
-        for (const conn of this.conns.values()) {
-          this.sendOpusFrame(conn, frame);
-        }
-      } else {
-        this.frameQueue.push(frame);
+  // ── Named pipeline listeners (allows de-registration on track change) ─────
+
+  private readonly onFrame = (frame: OpusFrame) => {
+    if (this.isConnected) {
+      for (const conn of this.conns.values()) {
+        this.sendOpusFrame(conn, frame);
       }
-    });
+    } else {
+      this.frameQueue.push(frame);
+    }
+  };
 
-    this.pipeline.on('ended', (code: number | null) =>
-      console.log(`[Bot ${this.roomId}] Audio pipeline ended (exit ${code})`));
-    this.pipeline.on('error', (e: Error) =>
-      console.error(`[Bot ${this.roomId}] Pipeline error:`, e));
+  private readonly onEnded = (code: number | null) =>
+    console.log(`[Bot ${this.roomId}] Audio pipeline ended (exit ${code})`);
 
+  private readonly onPipelineError = (e: Error) =>
+    console.error(`[Bot ${this.roomId}] Pipeline error:`, e);
+
+  private wirePipeline(): void {
+    this.pipeline.on('frame', this.onFrame);
+    this.pipeline.on('ended', this.onEnded);
+    this.pipeline.on('error', this.onPipelineError);
+  }
+
+  private unwirePipeline(): void {
+    this.pipeline.removeListener('frame', this.onFrame);
+    this.pipeline.removeListener('ended', this.onEnded);
+    this.pipeline.removeListener('error', this.onPipelineError);
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+  async start(): Promise<void> {
+    this.wirePipeline();
     await this.connectSignaling();
   }
 
@@ -80,6 +100,7 @@ export class BotInstance {
     this.destroyed = true;
     console.log(`[Bot ${this.roomId}] Destroying`);
 
+    this.unwirePipeline();
     this.pipeline.stop();
     this.frameQueue = [];
 
@@ -94,6 +115,42 @@ export class BotInstance {
 
     this.peerWs?.close();
   }
+
+  // ── Playback controls ─────────────────────────────────────────────────────
+
+  /**
+   * Swap the currently streaming track without tearing down WebRTC or signaling.
+   * Existing peer connections continue uninterrupted — they will hear a brief
+   * silence while the new yt-dlp/ffmpeg pipeline starts.
+   */
+  changeTrack(url: string): void {
+    if (this.destroyed) return;
+    console.log(`[Bot ${this.roomId}] changeTrack → ${url}`);
+    this.unwirePipeline();
+    this.pipeline.stop();
+    this.frameQueue  = [];
+    this.youtubeUrl  = url;
+    this.pipeline    = new AudioPipeline(url);
+    this.wirePipeline();
+    this.pipeline.start();
+  }
+
+  pause(): void  { this.pipeline.pause(); }
+  resume(): void { this.pipeline.resume(); }
+
+  /** Seek to a position (ms). Restarts the pipeline with an ffmpeg output-seek offset. */
+  seek(ms: number): void { this.pipeline.seek(ms); }
+
+  getStatus(): { playing: boolean; paused: boolean; positionMs: number; youtubeUrl: string } {
+    return {
+      playing:    this.pipeline.running,
+      paused:     this.pipeline.isPaused,
+      positionMs: this.pipeline.positionMs,
+      youtubeUrl: this.youtubeUrl,
+    };
+  }
+
+  // ── Signaling ─────────────────────────────────────────────────────────────
 
   private connectSignaling(): Promise<void> {
     return new Promise((resolve, reject) => {

@@ -8,9 +8,17 @@ export interface MusicmanStatus {
   youtubeUrl: string;
 }
 
+export interface PlaybackStatus {
+  playing:    boolean;
+  paused:     boolean;
+  positionMs: number;
+  youtubeUrl: string;
+}
+
 const useMusicman = () => {
   const { user } = useAuth();
   const [activeRooms, setActiveRooms] = useState<Map<string, string>>(new Map());
+  const [pausedRooms, setPausedRooms] = useState<Set<string>>(new Set());
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
 
@@ -51,11 +59,11 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
+  /** Legacy join — returns 409 if bot already in room. Prefer play() for track changes. */
   const join = useCallback(async (
     roomId:     string,
     youtubeUrl: string,
   ): Promise<void> => {
-    if (activeRooms.has(roomId)) return;
     setLoading(true);
     setError(null);
     try {
@@ -64,6 +72,7 @@ const useMusicman = () => {
         body:   JSON.stringify({ roomId, youtubeUrl }),
       });
       setActiveRooms(prev => new Map(prev).set(roomId, youtubeUrl));
+      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -71,7 +80,33 @@ const useMusicman = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchMusicman, activeRooms]);
+  }, [fetchMusicman]);
+
+  /**
+   * Play a YouTube URL in a room. If the bot is not yet in the room it joins first;
+   * if it's already there the track is swapped without disrupting connections.
+   */
+  const play = useCallback(async (
+    roomId:     string,
+    youtubeUrl: string,
+  ): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      await fetchMusicman('/play', {
+        method: 'POST',
+        body:   JSON.stringify({ roomId, youtubeUrl }),
+      });
+      setActiveRooms(prev => new Map(prev).set(roomId, youtubeUrl));
+      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchMusicman]);
 
   const leave = useCallback(async (roomId: string): Promise<void> => {
     if (!activeRooms.has(roomId)) return;
@@ -87,6 +122,7 @@ const useMusicman = () => {
         next.delete(roomId);
         return next;
       });
+      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -95,6 +131,56 @@ const useMusicman = () => {
       setLoading(false);
     }
   }, [fetchMusicman, activeRooms]);
+
+  const pause = useCallback(async (roomId: string): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      await fetchMusicman('/pause', {
+        method: 'POST',
+        body:   JSON.stringify({ roomId }),
+      });
+      setPausedRooms(prev => new Set(prev).add(roomId));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchMusicman]);
+
+  const resume = useCallback(async (roomId: string): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      await fetchMusicman('/resume', {
+        method: 'POST',
+        body:   JSON.stringify({ roomId }),
+      });
+      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchMusicman]);
+
+  /** Seek to a position. Does not set a loading spinner — seek can be called frequently. */
+  const seek = useCallback(async (roomId: string, seconds: number): Promise<void> => {
+    setError(null);
+    try {
+      await fetchMusicman('/seek', {
+        method: 'POST',
+        body:   JSON.stringify({ roomId, seconds }),
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+    }
+  }, [fetchMusicman]);
 
   const syncRooms = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -116,6 +202,15 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
+  /** Fetch current playback status for a room. Returns null on error (e.g. no bot active). */
+  const getStatus = useCallback(async (roomId: string): Promise<PlaybackStatus | null> => {
+    try {
+      return await fetchMusicman(`/status/${encodeURIComponent(roomId)}`);
+    } catch {
+      return null;
+    }
+  }, [fetchMusicman]);
+
   const isActive = useCallback(
     (roomId: string) => activeRooms.has(roomId),
     [activeRooms],
@@ -126,16 +221,28 @@ const useMusicman = () => {
     [activeRooms],
   );
 
+  const isPaused = useCallback(
+    (roomId: string) => pausedRooms.has(roomId),
+    [pausedRooms],
+  );
+
   return {
     joinHub,
     join,
+    play,
     leave,
+    pause,
+    resume,
+    seek,
     syncRooms,
+    getStatus,
     activeRooms,
+    pausedRooms,
     loading,
     error,
     isActive,
     nowPlaying,
+    isPaused,
   };
 };
 
