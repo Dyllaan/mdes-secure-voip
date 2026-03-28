@@ -62,8 +62,11 @@ function extractOggPackets(buf: Buffer, onPacket: (pkt: Buffer) => void): Buffer
 }
 
 /**
- * AudioPipeline manages a yt-dlp | ffmpeg subprocess pipeline to extract Opus audio frames from a YouTube URL
+ * AudioPipeline manages a yt-dlp | ffmpeg subprocess pipeline to extract Opus audio frames from a YouTube URL.
  * It emits 'frame' events with OpusFrame data, and an 'ended' event when the stream finishes.
+ *
+ * Supports pause/resume (stops frame dispatch without killing processes) and seek (restarts
+ * pipeline from an offset using ffmpeg output seek).
  */
 export class AudioPipeline extends EventEmitter {
   private ytdlp:  ChildProcess | null = null;
@@ -71,17 +74,28 @@ export class AudioPipeline extends EventEmitter {
   private buf:    Buffer              = Buffer.alloc(0);
   private timer:  NodeJS.Timeout | null = null;
   private queue:  Buffer[]            = [];
-  private _running = false;
+  private _running      = false;
+  private _paused       = false;
+  private _frameCount   = 0;
+  private _seekOffsetMs = 0;
+  // Stored so stop() can clear it and prevent stale 'ended' emission after seek/changeTrack
+  private _drainCheck: NodeJS.Timeout | null = null;
 
-  get running() { return this._running; }
+  get running()    { return this._running; }
+  get isPaused()   { return this._paused; }
+  /** Elapsed playback position in ms, accounting for any seek offset. */
+  get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
   constructor(private readonly youtubeUrl: string) {
     super();
   }
 
-  start(): void {
+  start(seekMs = 0): void {
     if (this._running) return;
-    this._running = true;
+    this._running      = true;
+    this._paused       = false;
+    this._frameCount   = 0;
+    this._seekOffsetMs = seekMs;
 
     console.log('[AudioPipeline] Starting yt-dlp | ffmpeg pipeline');
 
@@ -104,19 +118,24 @@ export class AudioPipeline extends EventEmitter {
 
     this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    this.ffmpeg = spawn('ffmpeg', [
-      '-loglevel',       'error',
-      '-probesize',      '10M',
-      '-analyzeduration','10M',
-      '-i',              'pipe:0',
+    // When seekMs > 0, use output seek (-ss after -i) so it works on non-seekable piped input.
+    // This decodes and discards frames up to the seek point — slow for large offsets but correct.
+    const ffmpegArgs = [
+      '-loglevel',        'error',
+      '-probesize',       '10M',
+      '-analyzeduration', '10M',
+      '-i',               'pipe:0',
+      ...(seekMs > 0 ? ['-ss', String(seekMs / 1000)] : []),
       '-vn',
-      '-c:a',            'libopus',
-      '-ar',             '48000',
-      '-ac',             '1',
-      '-b:a',            '128k',
-      '-f',              'ogg',
+      '-c:a',             'libopus',
+      '-ar',              '48000',
+      '-ac',              '1',
+      '-b:a',             '128k',
+      '-f',               'ogg',
       'pipe:1',
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    ];
+
+    this.ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     // Suppress broken pipe errors
     this.ytdlp.stdout!.on('error', () => {});
@@ -132,8 +151,7 @@ export class AudioPipeline extends EventEmitter {
     this.ytdlp.stderr!.on('data', (d: Buffer) =>
       process.stderr.write(`[yt-dlp]  ${d}`));
 
-    /** Suppress "Error parsing Opus packet header"
-    // does not affect output */
+    /** Suppress "Error parsing Opus packet header" — does not affect output */
     this.ffmpeg.stderr!.on('data', (d: Buffer) => {
       const msg = d.toString();
       if (!msg.includes('Error parsing Opus packet header')) {
@@ -146,19 +164,22 @@ export class AudioPipeline extends EventEmitter {
 
     this.ffmpeg.on('close', (code) => {
       this._running = false;
-      const exitCode = code;
-      const drainCheck = setInterval(() => {
+      // Use this._drainCheck (not a local var) so stop() can clear it and prevent
+      // a stale 'ended' emission after seek() or changeTrack().
+      this._drainCheck = setInterval(() => {
         if (this.queue.length === 0) {
-          clearInterval(drainCheck);
+          if (this._drainCheck) { clearInterval(this._drainCheck); this._drainCheck = null; }
           if (this.timer) { clearInterval(this.timer); this.timer = null; }
-          this.emit('ended', exitCode);
+          this.emit('ended', code);
         }
       }, OPUS_FRAME_MS);
     });
 
     this.timer = setInterval(() => {
+      if (this._paused) return;   // hold dispatch while paused, keep queue filling
       if (this.queue.length > 0) {
         const frame = this.queue.shift()!;
+        this._frameCount++;
         this.emit('frame', { data: frame, durationMs: OPUS_FRAME_MS } satisfies OpusFrame);
       }
     }, OPUS_FRAME_MS);
@@ -167,7 +188,13 @@ export class AudioPipeline extends EventEmitter {
   stop(): void {
     if (!this._running) return;
     this._running = false;
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+
+    if (this.timer)      { clearInterval(this.timer);      this.timer      = null; }
+    if (this._drainCheck){ clearInterval(this._drainCheck); this._drainCheck = null; }
+
+    this._paused       = false;
+    this._frameCount   = 0;
+    this._seekOffsetMs = 0;
 
     try { this.ffmpeg?.stdin?.end(); } catch { /* already closed */ }
     this.ytdlp?.kill('SIGTERM');
@@ -177,5 +204,24 @@ export class AudioPipeline extends EventEmitter {
     this.ffmpeg = null;
     this.buf    = Buffer.alloc(0);
     this.queue  = [];
+  }
+
+  /** Pause frame dispatch without stopping the underlying yt-dlp/ffmpeg processes. */
+  pause(): void {
+    if (this._running && !this._paused) this._paused = true;
+  }
+
+  /** Resume frame dispatch after a pause(). */
+  resume(): void {
+    if (this._running && this._paused) this._paused = false;
+  }
+
+  /**
+   * Seek to a position by restarting the pipeline with an ffmpeg output-seek offset.
+   * Seek is approximate for variable-bitrate streams due to output-seek decode overhead.
+   */
+  seek(ms: number): void {
+    this.stop();
+    this.start(Math.max(0, ms));
   }
 }

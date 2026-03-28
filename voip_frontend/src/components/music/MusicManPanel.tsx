@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-    Music2, Play, Square, Loader2, Youtube,
-    ListMusic, Plus, ChevronDown, ChevronUp,
+    Music2, Play, Pause, Square, Loader2, Youtube,
+    ListMusic, Plus, ChevronDown, ChevronUp, SkipForward,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,7 +46,7 @@ function Waveform({ active }: { active: boolean }) {
     );
 }
 
-// ─── URL parsing ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isYoutubeUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(url.trim());
@@ -61,20 +61,16 @@ function isPlaylistUrl(url: string) {
     }
 }
 
-/** Extract video ID from a YouTube URL */
 function extractVideoId(url: string): string | null {
     try {
         const u = new URL(url.trim());
-        // youtu.be/ID
         if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
-        // youtube.com/watch?v=ID
         return u.searchParams.get('v');
     } catch {
         return null;
     }
 }
 
-/** Extract playlist ID */
 function extractPlaylistId(url: string): string | null {
     try {
         return new URL(url.trim()).searchParams.get('list');
@@ -83,7 +79,6 @@ function extractPlaylistId(url: string): string | null {
     }
 }
 
-/** Build a display label from a video URL */
 function videoLabel(url: string): string {
     const id = extractVideoId(url);
     if (id) return `youtube.com/…${id.slice(-6)}`;
@@ -92,25 +87,28 @@ function videoLabel(url: string): string {
     return url;
 }
 
-/**
- * Fetch playlist video URLs via the YouTube oEmbed / noembed trick.
- * We use the public `noembed.com` proxy — no API key needed.
- * Returns an array of watch URLs for every video in the playlist.
- *
- * Note: noembed only returns metadata for one video at a time; to get
- * all videos in a playlist without an API key we use the YouTube
- * playlist page scrape approach via a CORS proxy.
- * For simplicity we build playlist items from the list ID directly and
- * let the bot resolve them server-side — we just track them locally.
- */
+function formatMs(ms: number): string {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+async function fetchTitle(url: string): Promise<string> {
+    const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
+    const res = await fetch(endpoint);
+    if (!res.ok) throw new Error('noembed failed');
+    const data = await res.json();
+    if (data.title) return data.title;
+    throw new Error('no title');
+}
+
 async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
     const url = rawUrl.trim();
     const playlistId = extractPlaylistId(url);
     const videoId = extractVideoId(url);
 
     if (playlistId && !videoId) {
-        // Pure playlist URL — fetch titles via noembed for the playlist itself
-        // We create a placeholder item representing the whole playlist
         const title = await fetchTitle(`https://www.youtube.com/playlist?list=${playlistId}`)
             .catch(() => `Playlist ${playlistId.slice(-6)}`);
         return [{
@@ -118,12 +116,12 @@ async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
             title,
             channel: 'YouTube Playlist',
             duration: '—',
+            durationMs: 0,
             source: 'youtube' as const,
         }];
     }
 
     if (videoId) {
-        // Single video — optionally also in a playlist
         const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
         const title = await fetchTitle(watchUrl).catch(() => videoLabel(url));
         const item: PlaylistItem = {
@@ -131,10 +129,10 @@ async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
             title,
             channel: 'YouTube',
             duration: '—',
+            durationMs: 0,
             source: 'youtube' as const,
         };
 
-        // If it's also in a playlist, add a separate playlist entry after
         if (playlistId) {
             const pTitle = await fetchTitle(`https://www.youtube.com/playlist?list=${playlistId}`)
                 .catch(() => `Playlist ${playlistId.slice(-6)}`);
@@ -145,6 +143,7 @@ async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
                     title: pTitle,
                     channel: 'YouTube Playlist',
                     duration: '—',
+                    durationMs: 0,
                     source: 'youtube' as const,
                 },
             ];
@@ -153,23 +152,14 @@ async function resolveUrlToItems(rawUrl: string): Promise<PlaylistItem[]> {
         return [item];
     }
 
-    // Fallback — unknown URL shape
     return [{
         id: `url-${Date.now()}`,
         title: videoLabel(url),
         channel: 'YouTube',
         duration: '—',
+        durationMs: 0,
         source: 'youtube' as const,
     }];
-}
-
-async function fetchTitle(url: string): Promise<string> {
-    const endpoint = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
-    const res = await fetch(endpoint);
-    if (!res.ok) throw new Error('noembed failed');
-    const data = await res.json();
-    if (data.title) return data.title;
-    throw new Error('no title');
 }
 
 // ─── Local queue persistence ──────────────────────────────────────────────────
@@ -194,18 +184,29 @@ function saveQueue(roomId: string, items: PlaylistItem[]) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined }: MusicmanPanelProps) {
-    const { join, leave, isActive, nowPlaying, loading, error, joinHub } = useMusicMan();
+    const {
+        play, leave, pause, resume, seek, getStatus,
+        isActive, isPaused, nowPlaying, loading, error, joinHub,
+    } = useMusicMan();
 
-    const active = isActive(roomId);
+    const active  = isActive(roomId);
+    const paused  = isPaused(roomId);
     const playing = nowPlaying(roomId);
 
-    const [queue, setQueue] = useState<PlaylistItem[]>(() => loadQueue(roomId));
+    const [queue, setQueue]           = useState<PlaylistItem[]>(() => loadQueue(roomId));
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [queueOpen, setQueueOpen] = useState(false);
-    const [urlInput, setUrlInput] = useState('');
+    const [queueOpen, setQueueOpen]   = useState(false);
+    const [urlInput, setUrlInput]     = useState('');
     const [inputError, setInputError] = useState<string | null>(null);
-    const [resolving, setResolving] = useState(false);
+    const [resolving, setResolving]   = useState(false);
+    const [positionMs, setPositionMs] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    // Prevent double auto-advance when two poll ticks land before the track changes
+    const transitioningRef = useRef(false);
+
+    // Always-current reference to handlePlayNext so the polling closure doesn't stale-capture it
+    const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
     // Persist queue to localStorage whenever it changes
     useEffect(() => {
@@ -217,17 +218,13 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const updateQueue = (next: PlaylistItem[]) => setQueue(next);
 
     const addToQueue = (items: PlaylistItem[]) => {
-        setQueue(prev => {
-            const next = [...prev, ...items];
-            return next;
-        });
+        setQueue(prev => [...prev, ...items]);
     };
 
     const removeFromQueue = (id: string) => {
         setQueue(prev => {
             const idx = prev.findIndex(i => i.id === id);
             const next = prev.filter(i => i.id !== id);
-            // Adjust currentIndex if needed
             if (idx < currentIndex) setCurrentIndex(c => Math.max(0, c - 1));
             else if (idx === currentIndex) setCurrentIndex(0);
             return next;
@@ -254,14 +251,14 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // ── Playback ──────────────────────────────────────────────────
 
     const playItem = async (item: PlaylistItem) => {
-        // Build the actual URL back from the item id
         let url: string;
         if (item.id.startsWith('playlist-')) {
             url = `https://www.youtube.com/playlist?list=${item.id.replace('playlist-', '')}`;
         } else {
             url = `https://www.youtube.com/watch?v=${item.id}`;
         }
-        await join(roomId, url);
+        setPositionMs(0);
+        await play(roomId, url);
     };
 
     const handlePlayFromQueue = async (id: string) => {
@@ -271,16 +268,73 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         await playItem(queue[idx]);
     };
 
-    const handlePlayNext = async () => {
+    const handlePlayNext = useCallback(async () => {
         if (queue.length === 0) return;
         const next = (currentIndex + 1) % queue.length;
         setCurrentIndex(next);
         await playItem(queue[next]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [queue, currentIndex]);
+
+    // Keep the ref current so the polling closure always calls the latest version
+    useEffect(() => {
+        handlePlayNextRef.current = handlePlayNext;
+    }, [handlePlayNext]);
+
+    const handlePauseResume = async () => {
+        if (paused) {
+            await resume(roomId);
+        } else {
+            await pause(roomId);
+        }
+    };
+
+    const handleSeek = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const seconds = Number(e.target.value);
+        setPositionMs(seconds * 1000); // optimistic update
+        await seek(roomId, seconds);
     };
 
     const handleStop = async () => {
-        try { await leave(roomId); } catch { }
+        try {
+            await leave(roomId);
+            setPositionMs(0);
+        } catch { }
     };
+
+    // ── Status polling ────────────────────────────────────────────
+
+    useEffect(() => {
+        if (!active) {
+            setPositionMs(0);
+            return;
+        }
+
+        const poll = async () => {
+            const status = await getStatus(roomId);
+            if (!status) return;
+
+            setPositionMs(status.positionMs);
+
+            // Sync paused state if page was refreshed (pausedRooms is in-memory only)
+            // The hook's isPaused() will be correct after the first poll since the hook
+            // state is updated via pause()/resume() calls — this is just informational.
+
+            // Auto-advance when the track ends (pipeline stopped, not paused)
+            if (!status.playing && !status.paused && !transitioningRef.current) {
+                transitioningRef.current = true;
+                try {
+                    await handlePlayNextRef.current();
+                } finally {
+                    transitioningRef.current = false;
+                }
+            }
+        };
+
+        poll();
+        const intervalId = setInterval(poll, 2000);
+        return () => clearInterval(intervalId);
+    }, [active, roomId, getStatus]);
 
     // ── Add URL ───────────────────────────────────────────────────
 
@@ -295,11 +349,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             const items = await resolveUrlToItems(url);
             addToQueue(items);
             setUrlInput('');
-            setQueueOpen(true); // reveal queue so user sees the addition
+            setQueueOpen(true);
 
             // If nothing is playing, start the first added item immediately
             if (!active) {
-                const idx = queue.length; // index of first newly added item
+                const idx = queue.length;
                 setCurrentIndex(idx);
                 await playItem(items[0]);
             }
@@ -316,6 +370,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     };
 
     const isLoading = loading || resolving;
+
+    // Duration of the currently-playing item (for seek bar max)
+    const currentDurationMs = (active && queue[currentIndex]?.durationMs) || 0;
+    const seekMax = currentDurationMs > 0 ? Math.floor(currentDurationMs / 1000) : 3600;
 
     // ── Render ────────────────────────────────────────────────────
 
@@ -335,7 +393,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
                         {active ? (
                             <div className="flex items-center gap-2 min-w-0">
-                                <Waveform active />
+                                <Waveform active={!paused} />
                                 <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={playing ?? ''}>
                                     {playing ? videoLabel(playing) : 'Playing…'}
                                 </span>
@@ -349,6 +407,22 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     <div className="flex items-center gap-1 shrink-0">
                         {active && (
                             <>
+                                {/* Pause / Resume */}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                    onClick={handlePauseResume}
+                                    disabled={isLoading}
+                                    title={paused ? 'Resume' : 'Pause'}
+                                >
+                                    {paused
+                                        ? <Play className="h-3 w-3" />
+                                        : <Pause className="h-3 w-3" />
+                                    }
+                                </Button>
+
+                                {/* Skip to next */}
                                 {queue.length > 1 && (
                                     <Button
                                         variant="ghost"
@@ -358,9 +432,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                         title="Next in queue"
                                         disabled={isLoading}
                                     >
-                                        <Play className="h-3 w-3" />
+                                        <SkipForward className="h-3 w-3" />
                                     </Button>
                                 )}
+
+                                {/* Stop */}
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -390,6 +466,29 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         )}
                     </div>
                 </div>
+
+                {/* Seek bar — shown when active */}
+                {active && (
+                    <div className="flex items-center gap-2 px-3 pb-2">
+                        <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-10 text-right shrink-0">
+                            {formatMs(positionMs)}
+                        </span>
+                        <input
+                            type="range"
+                            min={0}
+                            max={seekMax}
+                            value={Math.min(Math.floor(positionMs / 1000), seekMax)}
+                            onChange={handleSeek}
+                            className="flex-1 h-1 accent-emerald-400 cursor-pointer"
+                            title="Seek"
+                        />
+                        {currentDurationMs > 0 && (
+                            <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-10 shrink-0">
+                                {formatMs(currentDurationMs)}
+                            </span>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* ── URL input ─────────────────────────────────────── */}
