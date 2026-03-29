@@ -53,6 +53,44 @@ function isSupportedUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)/.test(url.trim());
 }
 
+/** True for single-track URLs that can be played immediately without a resolve round-trip. */
+function isSingleTrack(url: string): boolean {
+    try {
+        const u = new URL(url.trim());
+        if (u.hostname === 'youtu.be') return true;
+        if (u.hostname.includes('youtube.com')) return !!u.searchParams.get('v');
+        if (u.hostname.includes('soundcloud.com')) {
+            const parts = u.pathname.split('/').filter(Boolean);
+            return parts.length === 2 && !parts.includes('sets');
+        }
+    } catch { /* ignore */ }
+    return false;
+}
+
+/** Build a lightweight stub item from a URL so playback can start immediately. */
+function stubFromUrl(url: string): PlaylistItem {
+    const stubId = `stub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    try {
+        const u = new URL(url.trim());
+        if (u.hostname.includes('soundcloud.com')) {
+            const parts = u.pathname.split('/').filter(Boolean);
+            return {
+                id: stubId, url,
+                title:   parts.length >= 2 ? parts[parts.length - 1].replace(/-/g, ' ') : 'Loading…',
+                channel: parts[0] ?? 'SoundCloud',
+                duration: '—', durationMs: 0, source: 'soundcloud',
+            };
+        }
+        const vid = u.hostname === 'youtu.be'
+            ? u.pathname.slice(1).split('?')[0]
+            : u.searchParams.get('v');
+        if (vid) {
+            return { id: vid, url, title: 'Loading…', channel: 'YouTube', duration: '—', durationMs: 0, source: 'youtube' };
+        }
+    } catch { /* ignore */ }
+    return { id: stubId, url, title: 'Loading…', channel: '—', duration: '—', durationMs: 0 };
+}
+
 function mediaLabel(url: string): string {
     try {
         const u = new URL(url.trim());
@@ -131,6 +169,27 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     // Always-current reference to handlePlayNext so closures don't stale-capture it
     const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+    // ── Background metadata resolver ──────────────────────────────
+    // Called after adding a stub item — fetches real title/duration and patches
+    // the queue in-place without blocking playback.
+
+    const resolveAndUpdate = useCallback(async (url: string, stubId: string) => {
+        try {
+            const resolved = await resolve(url);
+            if (resolved.length === 0) return;
+            const r = resolved[0];
+            setQueue(prev => {
+                const next = prev.map(item =>
+                    (item.id === stubId || item.url === url)
+                        ? { ...item, id: r.id, url: r.url, title: r.title, channel: r.channel, duration: r.duration, durationMs: r.durationMs }
+                        : item
+                );
+                saveQueue(roomId, next);
+                return next;
+            });
+        } catch { /* stub stays — playback is unaffected */ }
+    }, [resolve, roomId]);
 
     // ── Queue helpers ─────────────────────────────────────────────
     // Save synchronously inside each mutation so localStorage is always up-to-date
@@ -292,9 +351,35 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         if (!url) { setInputError('Paste a YouTube or SoundCloud URL'); return; }
         if (!isSupportedUrl(url)) { setInputError('Must be a YouTube or SoundCloud URL'); return; }
 
+        const available = MAX_QUEUE - queue.length;
+        if (available <= 0) {
+            setInputError(`Queue is full (max ${MAX_QUEUE} tracks) — clear some tracks first`);
+            return;
+        }
+
+        // ── Fast path: single tracks ──────────────────────────────
+        // Add a stub item immediately so playback starts without waiting for metadata.
+        // The real title/duration will fill in via a background resolve call.
+        if (isSingleTrack(url)) {
+            const stub     = stubFromUrl(url);
+            const wasEmpty = queue.length === 0;
+            addToQueue([stub]);
+            setUrlInput('');
+            if (!queueOpen) setQueueOpen(true);
+            if (!active && wasEmpty) {
+                setCurrentIndex(0);
+                await playItem(stub);
+            }
+            resolveAndUpdate(url, stub.id); // fire-and-forget
+            return;
+        }
+
+        // ── Playlist path ─────────────────────────────────────────
+        // Need individual track URLs before we can play, so resolve first.
+        // YouTube uses --flat-playlist (fast); SoundCloud sets also use --flat-playlist
+        // now so the URL list comes back quickly with stub titles.
         setResolving(true);
         try {
-            // Resolve via the backend (yt-dlp) so playlists expand into individual tracks
             const resolved = await resolve(url);
             if (resolved.length === 0) { setInputError('No playable videos found'); return; }
 
@@ -308,12 +393,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 source:     r.url.includes('soundcloud.com') ? 'soundcloud' as const : 'youtube' as const,
             }));
 
-            const available = MAX_QUEUE - queue.length;
-            if (available <= 0) {
-                setInputError(`Queue is full (max ${MAX_QUEUE} tracks) — clear some tracks first`);
-                return;
-            }
-            const toAdd   = items.slice(0, available);
+            const toAdd    = items.slice(0, available);
             const wasEmpty = queue.length === 0;
             addToQueue(toAdd);
             setUrlInput('');
@@ -322,7 +402,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 setInputError(`Added ${toAdd.length} of ${items.length} tracks — queue capped at ${MAX_QUEUE}`);
             }
 
-            // If nothing is playing, start the first added item immediately
             if (!active && wasEmpty) {
                 setCurrentIndex(0);
                 await playItem(items[0]);
