@@ -70,8 +70,10 @@ export class BotInstance {
     }
   };
 
-  private readonly onEnded = (code: number | null) =>
+  private readonly onEnded = (code: number | null) => {
     console.log(`[Bot ${this.roomId}] Audio pipeline ended (exit ${code})`);
+    this.emitToRoom('musicman:track-ended', { roomId: this.roomId });
+  };
 
   private readonly onPipelineError = (e: Error) =>
     console.error(`[Bot ${this.roomId}] Pipeline error:`, e);
@@ -133,10 +135,29 @@ export class BotInstance {
     this.pipeline    = new AudioPipeline(url);
     this.wirePipeline();
     this.pipeline.start();
+    this.emitToRoom('musicman:track-changed', {
+      roomId:     this.roomId,
+      youtubeUrl: url,
+    });
   }
 
-  pause(): void  { this.pipeline.pause(); }
-  resume(): void { this.pipeline.resume(); }
+  pause(): void {
+    this.pipeline.pause();
+    this.emitToRoom('musicman:state-changed', {
+      roomId:  this.roomId,
+      playing: this.pipeline.running,
+      paused:  true,
+    });
+  }
+
+  resume(): void {
+    this.pipeline.resume();
+    this.emitToRoom('musicman:state-changed', {
+      roomId:  this.roomId,
+      playing: this.pipeline.running,
+      paused:  false,
+    });
+  }
 
   /** Seek to a position (ms). Restarts the pipeline with an ffmpeg output-seek offset. */
   seek(ms: number): void { this.pipeline.seek(ms); }
@@ -148,6 +169,15 @@ export class BotInstance {
       positionMs: this.pipeline.positionMs,
       youtubeUrl: this.youtubeUrl,
     };
+  }
+
+  // ── Socket event helpers ─────────────────────────────────────────────────
+
+  /** Emit an event to all other sockets in the room via the signaling relay. */
+  private emitToRoom(event: string, data: Record<string, unknown>): void {
+    if (this.socket?.connected) {
+      this.socket.emit(event, data);
+    }
   }
 
   // ── Signaling ─────────────────────────────────────────────────────────────
