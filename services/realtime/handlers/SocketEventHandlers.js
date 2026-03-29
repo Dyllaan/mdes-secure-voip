@@ -119,6 +119,20 @@ class SocketEventHandlers {
             // Payload: { hubId, channelId, newVersion }
             socket.on('channel-key-rotated', (d) => rl('channel-key-rotated', 5, 60000) && socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', d));
 
+            // ── Musicman bot events ──────────────────────────────────────────────
+            // Relayed to everyone else in the same voice room so frontends can
+            // react to track changes, track endings, and playback state changes
+            // without polling.
+            socket.on('musicman:track-changed', (d) => {
+                if (socket.roomId) socket.to(socket.roomId).emit('musicman:track-changed', d);
+            });
+            socket.on('musicman:track-ended', (d) => {
+                if (socket.roomId) socket.to(socket.roomId).emit('musicman:track-ended', d);
+            });
+            socket.on('musicman:state-changed', (d) => {
+                if (socket.roomId) socket.to(socket.roomId).emit('musicman:state-changed', d);
+            });
+
             socket.on('disconnect', () => this.handleDisconnect(socket));
         });
     }

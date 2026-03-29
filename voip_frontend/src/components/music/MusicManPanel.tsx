@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import useMusicMan from '@/hooks/musicman/useMusicMan';
+import { useConnection } from '@/components/providers/ConnectionProvider';
 import Playlist, { type PlaylistItem } from './Playlist';
 
 interface MusicmanPanelProps {
@@ -115,6 +116,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         play, leave, pause, resume, seek, getStatus, resolve,
         isActive, isPaused, nowPlaying, loading, error, joinHub,
     } = useMusicMan();
+    const { socket } = useConnection();
 
     const active  = isActive(roomId);
     const paused  = isPaused(roomId);
@@ -130,10 +132,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const [positionMs, setPositionMs] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Prevent double auto-advance when two poll ticks land before the track changes
+    // Prevent double auto-advance when two events / poll ticks land before the track changes
     const transitioningRef = useRef(false);
 
-    // Always-current reference to handlePlayNext so the polling closure doesn't stale-capture it
+    // Always-current reference to handlePlayNext so closures don't stale-capture it
     const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
     // ── Queue helpers ─────────────────────────────────────────────
@@ -205,9 +207,14 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const handlePlayNext = useCallback(async () => {
         if (queue.length === 0) return;
-        const next = (currentIndex + 1) % queue.length;
-        setCurrentIndex(next);
-        await playItem(queue[next]);
+        // Remove the track that just finished; the next one slides into index 0
+        const nextQueue = queue.filter((_, i) => i !== currentIndex);
+        updateQueue(nextQueue);
+        setCurrentIndex(0);
+        setPositionMs(0);
+        if (nextQueue.length > 0) {
+            await playItem(nextQueue[0]);
+        }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [queue, currentIndex]);
 
@@ -237,7 +244,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         } catch { }
     };
 
-    // ── Status polling ────────────────────────────────────────────
+    // ── Seek bar position polling (position only — auto-advance via socket events) ──
 
     useEffect(() => {
         if (!active) {
@@ -247,29 +254,43 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
         const poll = async () => {
             const status = await getStatus(roomId);
-            if (!status) return;
-
-            setPositionMs(status.positionMs);
-
-            // Sync paused state if page was refreshed (pausedRooms is in-memory only)
-            // The hook's isPaused() will be correct after the first poll since the hook
-            // state is updated via pause()/resume() calls — this is just informational.
-
-            // Auto-advance when the track ends (pipeline stopped, not paused)
-            if (!status.playing && !status.paused && !transitioningRef.current) {
-                transitioningRef.current = true;
-                try {
-                    await handlePlayNextRef.current();
-                } finally {
-                    transitioningRef.current = false;
-                }
-            }
+            if (status) setPositionMs(status.positionMs);
         };
 
         poll();
         const intervalId = setInterval(poll, 2000);
         return () => clearInterval(intervalId);
     }, [active, roomId, getStatus]);
+
+    // ── Real-time musicman socket events ──────────────────────────
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const onTrackEnded = (d: { roomId: string }) => {
+            if (d.roomId !== roomId) return;
+            if (transitioningRef.current) return;
+            transitioningRef.current = true;
+            handlePlayNextRef.current().finally(() => {
+                transitioningRef.current = false;
+            });
+        };
+
+        const onStateChanged = (d: { roomId: string; paused: boolean }) => {
+            // Handled by the useMusicMan hook via REST calls on the originating client.
+            // For other clients in the room, update positionMs reset on resume.
+            if (d.roomId !== roomId) return;
+            if (!d.paused) setPositionMs(0);
+        };
+
+        socket.on('musicman:track-ended',   onTrackEnded);
+        socket.on('musicman:state-changed', onStateChanged);
+
+        return () => {
+            socket.off('musicman:track-ended',   onTrackEnded);
+            socket.off('musicman:state-changed', onStateChanged);
+        };
+    }, [socket, roomId]);
 
     // ── Add URL ───────────────────────────────────────────────────
 
@@ -350,8 +371,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         {active ? (
                             <div className="flex items-center gap-2 min-w-0">
                                 <Waveform active={!paused} />
-                                <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={playing ?? ''}>
-                                    {playing ? videoLabel(playing) : 'Playing…'}
+                                <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={queue[currentIndex]?.title ?? playing ?? ''}>
+                                    {queue[currentIndex]?.title ?? (playing ? videoLabel(playing) : 'Playing…')}
                                 </span>
                             </div>
                         ) : (
