@@ -17,6 +17,7 @@ export interface PlaybackStatus {
 
 export interface ResolvedItem {
   id:         string;
+  url:        string;
   title:      string;
   channel:    string;
   duration:   string;

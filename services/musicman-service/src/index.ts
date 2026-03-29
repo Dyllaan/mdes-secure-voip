@@ -10,6 +10,7 @@ import { HubHandler } from './HubHandler';
 
 interface ResolvedItem {
   id:         string;
+  url:        string;   // full playable URL (needed for SoundCloud — can't reconstruct from ID)
   title:      string;
   channel:    string;
   duration:   string;   // "mm:ss" or "h:mm:ss"
@@ -70,8 +71,11 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
           .filter((e) => e && e.id)
           .map((e) => ({
             id:         String(e.id),
+            // webpage_url is the canonical page URL; url is the direct stream URL in flat mode.
+            // Fall back to reconstructing a YouTube watch URL when neither is present.
+            url:        String(e.webpage_url ?? e.url ?? `https://www.youtube.com/watch?v=${e.id}`),
             title:      String(e.title ?? e.id),
-            channel:    String(e.channel ?? e.uploader ?? 'YouTube'),
+            channel:    String(e.channel ?? e.uploader ?? 'Unknown'),
             duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '—',
             durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
           }));

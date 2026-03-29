@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-    Music2, Play, Pause, Square, Loader2, Youtube,
+    Music2, Play, Pause, Square, Loader2, Radio,
     ListMusic, Plus, ChevronDown, ChevronUp, SkipForward, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -49,33 +49,27 @@ function Waveform({ active }: { active: boolean }) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function isYoutubeUrl(url: string) {
-    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(url.trim());
+function isSupportedUrl(url: string) {
+    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)/.test(url.trim());
 }
 
-function extractVideoId(url: string): string | null {
+function mediaLabel(url: string): string {
     try {
         const u = new URL(url.trim());
-        if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
-        return u.searchParams.get('v');
-    } catch {
-        return null;
-    }
-}
-
-function extractPlaylistId(url: string): string | null {
-    try {
-        return new URL(url.trim()).searchParams.get('list');
-    } catch {
-        return null;
-    }
-}
-
-function videoLabel(url: string): string {
-    const id = extractVideoId(url);
-    if (id) return `youtube.com/…${id.slice(-6)}`;
-    const pid = extractPlaylistId(url);
-    if (pid) return `Playlist …${pid.slice(-6)}`;
+        if (u.hostname.includes('soundcloud.com')) {
+            const parts = u.pathname.split('/').filter(Boolean);
+            // /artist/track → "artist — track"
+            if (parts.length >= 2) return `${parts[0]} — ${parts[parts.length - 1]}`.replace(/-/g, ' ');
+            return u.hostname + u.pathname;
+        }
+        // YouTube
+        const vid = u.hostname === 'youtu.be'
+            ? u.pathname.slice(1).split('?')[0]
+            : u.searchParams.get('v');
+        if (vid) return `youtube.com/…${vid.slice(-6)}`;
+        const pid = u.searchParams.get('list');
+        if (pid) return `Playlist …${pid.slice(-6)}`;
+    } catch { /* ignore */ }
     return url;
 }
 
@@ -188,12 +182,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // ── Playback ──────────────────────────────────────────────────
 
     const playItem = async (item: PlaylistItem) => {
-        let url: string;
-        if (item.id.startsWith('playlist-')) {
-            url = `https://www.youtube.com/playlist?list=${item.id.replace('playlist-', '')}`;
-        } else {
-            url = `https://www.youtube.com/watch?v=${item.id}`;
-        }
+        // Use the stored URL when available (required for SoundCloud).
+        // Fall back to reconstructing a YouTube watch URL for items saved before
+        // the url field was added.
+        const url = item.url ?? `https://www.youtube.com/watch?v=${item.id}`;
         setPositionMs(0);
         await play(roomId, url);
     };
@@ -297,8 +289,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const handleAdd = async () => {
         setInputError(null);
         const url = urlInput.trim();
-        if (!url) { setInputError('Paste a YouTube URL or playlist'); return; }
-        if (!isYoutubeUrl(url)) { setInputError('Must be a YouTube URL'); return; }
+        if (!url) { setInputError('Paste a YouTube or SoundCloud URL'); return; }
+        if (!isSupportedUrl(url)) { setInputError('Must be a YouTube or SoundCloud URL'); return; }
 
         setResolving(true);
         try {
@@ -308,11 +300,12 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
             const items: PlaylistItem[] = resolved.map(r => ({
                 id:         r.id,
+                url:        r.url,
                 title:      r.title,
                 channel:    r.channel,
                 duration:   r.duration,
                 durationMs: r.durationMs,
-                source:     'youtube' as const,
+                source:     r.url.includes('soundcloud.com') ? 'soundcloud' as const : 'youtube' as const,
             }));
 
             const available = MAX_QUEUE - queue.length;
@@ -372,7 +365,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             <div className="flex items-center gap-2 min-w-0">
                                 <Waveform active={!paused} />
                                 <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={queue[currentIndex]?.title ?? playing ?? ''}>
-                                    {queue[currentIndex]?.title ?? (playing ? videoLabel(playing) : 'Playing…')}
+                                    {queue[currentIndex]?.title ?? (playing ? mediaLabel(playing) : 'Playing…')}
                                 </span>
                             </div>
                         ) : (
@@ -473,13 +466,13 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 <div className="flex flex-col gap-1.5 mt-3">
                     <div className="flex gap-2">
                         <div className="relative flex-1">
-                            <Youtube className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Radio className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                             <Input
                                 ref={inputRef}
                                 value={urlInput}
                                 onChange={e => { setUrlInput(e.target.value); setInputError(null); }}
                                 onKeyDown={handleKeyDown}
-                                placeholder="YouTube URL or playlist…"
+                                placeholder="YouTube or SoundCloud URL…"
                                 className="h-8 text-xs pl-7 bg-background/50"
                             />
                         </div>
