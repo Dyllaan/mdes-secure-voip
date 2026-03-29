@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 
 export interface PlaylistItem {
     id: string;
+    /** Full playable URL — stored so SoundCloud tracks can be played back (ID alone is not enough). */
+    url?: string;
     title: string;
     channel: string;
     duration: string; // e.g. "3:45"
