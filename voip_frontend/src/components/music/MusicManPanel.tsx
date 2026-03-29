@@ -156,7 +156,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const [queue, setQueue]           = useState<PlaylistItem[]>(() => loadQueue(roomId));
     const [currentIndex, setCurrentIndex] = useState(0);
-    // Open by default when items already exist (survives sidebar close/reopen)
     const [queueOpen, setQueueOpen]   = useState(() => loadQueue(roomId).length > 0);
     const [urlInput, setUrlInput]     = useState('');
     const [inputError, setInputError] = useState<string | null>(null);
@@ -164,15 +163,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const [positionMs, setPositionMs] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Prevent double auto-advance when two events / poll ticks land before the track changes
-    const transitioningRef = useRef(false);
-
-    // Always-current reference to handlePlayNext so closures don't stale-capture it
-    const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
-
-    // ── Background metadata resolver ──────────────────────────────
-    // Called after adding a stub item — fetches real title/duration and patches
-    // the queue in-place without blocking playback.
+    const transitioningRef    = useRef(false);
+    const handlePlayNextRef   = useRef<() => Promise<void>>(() => Promise.resolve());
 
     const resolveAndUpdate = useCallback(async (url: string, stubId: string) => {
         try {
@@ -188,12 +180,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 saveQueue(roomId, next);
                 return next;
             });
-        } catch { /* stub stays — playback is unaffected */ }
+        } catch (e) {
+            console.error('[resolveAndUpdate] failed:', e);
+        }
     }, [resolve, roomId]);
-
-    // ── Queue helpers ─────────────────────────────────────────────
-    // Save synchronously inside each mutation so localStorage is always up-to-date
-    // even if the component unmounts before a useEffect would have fired.
 
     const updateQueue = (next: PlaylistItem[]) => {
         setQueue(next);
@@ -295,7 +285,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         } catch { }
     };
 
-    // ── Seek bar position polling (position only — auto-advance via socket events) ──
+    // ── Seek bar position polling ─────────────────────────────────
 
     useEffect(() => {
         if (!active) {
@@ -328,8 +318,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         };
 
         const onStateChanged = (d: { roomId: string; paused: boolean }) => {
-            // Handled by the useMusicMan hook via REST calls on the originating client.
-            // For other clients in the room, update positionMs reset on resume.
             if (d.roomId !== roomId) return;
             if (!d.paused) setPositionMs(0);
         };
@@ -357,9 +345,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             return;
         }
 
-        // ── Fast path: single tracks ──────────────────────────────
-        // Add a stub item immediately so playback starts without waiting for metadata.
-        // The real title/duration will fill in via a background resolve call.
         if (isSingleTrack(url)) {
             const stub     = stubFromUrl(url);
             const wasEmpty = queue.length === 0;
@@ -370,14 +355,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 setCurrentIndex(0);
                 await playItem(stub);
             }
-            resolveAndUpdate(url, stub.id); // fire-and-forget
+            resolveAndUpdate(url, stub.id);
             return;
         }
 
-        // ── Playlist path ─────────────────────────────────────────
-        // Need individual track URLs before we can play, so resolve first.
-        // YouTube uses --flat-playlist (fast); SoundCloud sets also use --flat-playlist
-        // now so the URL list comes back quickly with stub titles.
         setResolving(true);
         try {
             const resolved = await resolve(url);
