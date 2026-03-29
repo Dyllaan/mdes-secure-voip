@@ -198,15 +198,25 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         });
     };
 
-    const removeFromQueue = (id: string) => {
-        setQueue(prev => {
-            const idx = prev.findIndex(i => i.id === id);
-            const next = prev.filter(i => i.id !== id);
-            if (idx < currentIndex) setCurrentIndex(c => Math.max(0, c - 1));
-            else if (idx === currentIndex) setCurrentIndex(0);
-            saveQueue(roomId, next);
-            return next;
-        });
+    const handleRemoveFromQueue = async (id: string) => {
+        const idx = queue.findIndex(i => i.id === id);
+        if (idx === -1) return;
+
+        const next = queue.filter(i => i.id !== id);
+        updateQueue(next);
+
+        if (idx < currentIndex) {
+            setCurrentIndex(c => Math.max(0, c - 1));
+        } else if (idx === currentIndex) {
+            // The currently-playing track was removed — stop or advance
+            setCurrentIndex(0);
+            setPositionMs(0);
+            if (next.length > 0) {
+                await playItem(next[0]);
+            } else if (active) {
+                await handleStop();
+            }
+        }
     };
 
     const shuffleQueue = () => {
@@ -263,6 +273,16 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     useEffect(() => {
         handlePlayNextRef.current = handlePlayNext;
     }, [handlePlayNext]);
+
+    // On mount: clear queue if the bot is not currently running in this room
+    // (handles the case where the service restarted but localStorage still has old queue data)
+    useEffect(() => {
+        if (queue.length === 0) return;
+        getStatus(roomId).then(status => {
+            if (!status) clearQueue();
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handlePauseResume = async () => {
         if (paused) {
@@ -593,7 +613,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             items={queue}
                             currentIndex={active ? currentIndex : -1}
                             onReorder={updateQueue}
-                            onRemove={removeFromQueue}
+                            onRemove={handleRemoveFromQueue}
                             onPlay={handlePlayFromQueue}
                             onShuffle={queue.length > 1 ? shuffleQueue : undefined}
                             onClear={clearQueue}
