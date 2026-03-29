@@ -58,7 +58,7 @@ export class BotInstance {
     this.pipeline   = new AudioPipeline(youtubeUrl);
   }
 
-  // ── Named pipeline listeners (allows de-registration on track change) ─────
+  // ── Pipeline listeners ────────────────────────────────────────────────────
 
   private readonly onFrame = (frame: OpusFrame) => {
     if (this.isConnected) {
@@ -159,7 +159,6 @@ export class BotInstance {
     });
   }
 
-  /** Seek to a position (ms). Restarts the pipeline with an ffmpeg output-seek offset. */
   seek(ms: number): void { this.pipeline.seek(ms); }
 
   getStatus(): { playing: boolean; paused: boolean; positionMs: number; youtubeUrl: string } {
@@ -171,9 +170,6 @@ export class BotInstance {
     };
   }
 
-  // ── Socket event helpers ─────────────────────────────────────────────────
-
-  /** Emit an event to all other sockets in the room via the signaling relay. */
   private emitToRoom(event: string, data: Record<string, unknown>): void {
     if (this.socket?.connected) {
       this.socket.emit(event, data);

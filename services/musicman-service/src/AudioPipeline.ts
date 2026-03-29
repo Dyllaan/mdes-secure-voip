@@ -83,7 +83,6 @@ export class AudioPipeline extends EventEmitter {
 
   get running()    { return this._running; }
   get isPaused()   { return this._paused; }
-  /** Elapsed playback position in ms, accounting for any seek offset. */
   get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
   constructor(private readonly youtubeUrl: string) {
@@ -122,8 +121,8 @@ export class AudioPipeline extends EventEmitter {
     // This decodes and discards frames up to the seek point — slow for large offsets but correct.
     const ffmpegArgs = [
       '-loglevel',        'error',
-      '-probesize',       '10M',
-      '-analyzeduration', '10M',
+      '-probesize',       '32k',
+      '-analyzeduration', '0',
       '-i',               'pipe:0',
       ...(seekMs > 0 ? ['-ss', String(seekMs / 1000)] : []),
       '-vn',
@@ -164,8 +163,6 @@ export class AudioPipeline extends EventEmitter {
 
     this.ffmpeg.on('close', (code) => {
       this._running = false;
-      // Use this._drainCheck (not a local var) so stop() can clear it and prevent
-      // a stale 'ended' emission after seek() or changeTrack().
       this._drainCheck = setInterval(() => {
         if (this.queue.length === 0) {
           if (this._drainCheck) { clearInterval(this._drainCheck); this._drainCheck = null; }
