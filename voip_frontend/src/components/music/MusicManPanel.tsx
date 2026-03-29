@@ -119,7 +119,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const [queue, setQueue]           = useState<PlaylistItem[]>(() => loadQueue(roomId));
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [queueOpen, setQueueOpen]   = useState(false);
+    // Open by default when items already exist (survives sidebar close/reopen)
+    const [queueOpen, setQueueOpen]   = useState(() => loadQueue(roomId).length > 0);
     const [urlInput, setUrlInput]     = useState('');
     const [inputError, setInputError] = useState<string | null>(null);
     const [resolving, setResolving]   = useState(false);
@@ -132,17 +133,21 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // Always-current reference to handlePlayNext so the polling closure doesn't stale-capture it
     const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
-    // Persist queue to localStorage whenever it changes
-    useEffect(() => {
-        saveQueue(roomId, queue);
-    }, [queue, roomId]);
-
     // ── Queue helpers ─────────────────────────────────────────────
+    // Save synchronously inside each mutation so localStorage is always up-to-date
+    // even if the component unmounts before a useEffect would have fired.
 
-    const updateQueue = (next: PlaylistItem[]) => setQueue(next);
+    const updateQueue = (next: PlaylistItem[]) => {
+        setQueue(next);
+        saveQueue(roomId, next);
+    };
 
     const addToQueue = (items: PlaylistItem[]) => {
-        setQueue(prev => [...prev, ...items]);
+        setQueue(prev => {
+            const next = [...prev, ...items];
+            saveQueue(roomId, next);
+            return next;
+        });
     };
 
     const removeFromQueue = (id: string) => {
@@ -151,6 +156,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             const next = prev.filter(i => i.id !== id);
             if (idx < currentIndex) setCurrentIndex(c => Math.max(0, c - 1));
             else if (idx === currentIndex) setCurrentIndex(0);
+            saveQueue(roomId, next);
             return next;
         });
     };
@@ -162,6 +168,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 const j = Math.floor(Math.random() * (i + 1));
                 [next[i], next[j]] = [next[j], next[i]];
             }
+            saveQueue(roomId, next);
             return next;
         });
         setCurrentIndex(0);
@@ -170,6 +177,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const clearQueue = () => {
         setQueue([]);
         setCurrentIndex(0);
+        saveQueue(roomId, []);
     };
 
     // ── Playback ──────────────────────────────────────────────────
@@ -286,7 +294,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             const wasEmpty = queue.length === 0;
             addToQueue(items);
             setUrlInput('');
-            setQueueOpen(true);
+            if (!queueOpen) setQueueOpen(true);
 
             // If nothing is playing, start the first added item immediately
             if (!active && wasEmpty) {
