@@ -33,13 +33,17 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
   return new Promise((resolve, reject) => {
     const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
-    // --flat-playlist is fast for YouTube (metadata comes from the playlist API)
-    // but returns stub entries with no title/artist for SoundCloud.
-    // Drop it for SoundCloud so yt-dlp fetches full track metadata.
     const isSoundCloud = /soundcloud\.com/i.test(url);
+    // SC sets (playlists) can use --flat-playlist to get individual track URLs quickly;
+    // SC single tracks skip it so yt-dlp returns full metadata (title, artist, duration).
+    // YouTube always uses --flat-playlist — titles come from the playlist API for free.
+    const isSCSingle = isSoundCloud && !/\/sets\//.test(url) && (() => {
+      try { return new URL(url).pathname.split('/').filter(Boolean).length === 2; } catch { return false; }
+    })();
+    const useFlatPlaylist = !isSCSingle;
 
     const args = [
-      ...(isSoundCloud ? [] : ['--flat-playlist']),
+      ...(useFlatPlaylist ? ['--flat-playlist'] : []),
       '-J',
       '--no-warnings',
       '--js-runtimes', 'quickjs:/usr/bin/qjs',
@@ -59,11 +63,11 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
     ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
     ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
 
-    // Give SoundCloud more time — full metadata fetch is slower than YouTube flat-playlist
+    // SC single-track resolve (full metadata) can take longer than a flat-playlist call
     const timeout = setTimeout(() => {
       ytdlp.kill('SIGTERM');
       reject(new Error('yt-dlp resolve timed out'));
-    }, isSoundCloud ? 60_000 : 30_000);
+    }, isSCSingle ? 60_000 : 30_000);
 
     ytdlp.on('close', (code) => {
       clearTimeout(timeout);
