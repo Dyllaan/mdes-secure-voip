@@ -57,6 +57,8 @@ function isSupportedUrl(url: string) {
 function isSingleTrack(url: string): boolean {
     try {
         const u = new URL(url.trim());
+        // A playlist param always means multiple tracks, even if a video ID is also present
+        if (u.searchParams.get('list')) return false;
         if (u.hostname === 'youtu.be') return true;
         if (u.hostname.includes('youtube.com')) return !!u.searchParams.get('v');
         if (u.hostname.includes('soundcloud.com')) {
