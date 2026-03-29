@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Music2, Play, Pause, Square, Loader2, Youtube,
-    ListMusic, Plus, ChevronDown, ChevronUp, SkipForward,
+    ListMusic, Plus, ChevronDown, ChevronUp, SkipForward, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -88,12 +88,15 @@ function formatMs(ms: number): string {
 
 // ─── Local queue persistence ──────────────────────────────────────────────────
 
+const MAX_QUEUE   = 27;
 const STORAGE_KEY = (roomId: string) => `talk:queue:${roomId}`;
 
 function loadQueue(roomId: string): PlaylistItem[] {
     try {
-        const raw = localStorage.getItem(STORAGE_KEY(roomId));
-        return raw ? JSON.parse(raw) : [];
+        const raw   = localStorage.getItem(STORAGE_KEY(roomId));
+        const items = raw ? JSON.parse(raw) : [];
+        // Clamp to max in case old data was saved before the limit existed
+        return Array.isArray(items) ? items.slice(0, MAX_QUEUE) : [];
     } catch {
         return [];
     }
@@ -119,7 +122,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const [queue, setQueue]           = useState<PlaylistItem[]>(() => loadQueue(roomId));
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [queueOpen, setQueueOpen]   = useState(false);
+    // Open by default when items already exist (survives sidebar close/reopen)
+    const [queueOpen, setQueueOpen]   = useState(() => loadQueue(roomId).length > 0);
     const [urlInput, setUrlInput]     = useState('');
     const [inputError, setInputError] = useState<string | null>(null);
     const [resolving, setResolving]   = useState(false);
@@ -132,17 +136,21 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // Always-current reference to handlePlayNext so the polling closure doesn't stale-capture it
     const handlePlayNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
-    // Persist queue to localStorage whenever it changes
-    useEffect(() => {
-        saveQueue(roomId, queue);
-    }, [queue, roomId]);
-
     // ── Queue helpers ─────────────────────────────────────────────
+    // Save synchronously inside each mutation so localStorage is always up-to-date
+    // even if the component unmounts before a useEffect would have fired.
 
-    const updateQueue = (next: PlaylistItem[]) => setQueue(next);
+    const updateQueue = (next: PlaylistItem[]) => {
+        setQueue(next);
+        saveQueue(roomId, next);
+    };
 
     const addToQueue = (items: PlaylistItem[]) => {
-        setQueue(prev => [...prev, ...items]);
+        setQueue(prev => {
+            const next = [...prev, ...items];
+            saveQueue(roomId, next);
+            return next;
+        });
     };
 
     const removeFromQueue = (id: string) => {
@@ -151,6 +159,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             const next = prev.filter(i => i.id !== id);
             if (idx < currentIndex) setCurrentIndex(c => Math.max(0, c - 1));
             else if (idx === currentIndex) setCurrentIndex(0);
+            saveQueue(roomId, next);
             return next;
         });
     };
@@ -162,6 +171,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 const j = Math.floor(Math.random() * (i + 1));
                 [next[i], next[j]] = [next[j], next[i]];
             }
+            saveQueue(roomId, next);
             return next;
         });
         setCurrentIndex(0);
@@ -170,6 +180,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const clearQueue = () => {
         setQueue([]);
         setCurrentIndex(0);
+        saveQueue(roomId, []);
     };
 
     // ── Playback ──────────────────────────────────────────────────
@@ -283,10 +294,19 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 source:     'youtube' as const,
             }));
 
+            const available = MAX_QUEUE - queue.length;
+            if (available <= 0) {
+                setInputError(`Queue is full (max ${MAX_QUEUE} tracks) — clear some tracks first`);
+                return;
+            }
+            const toAdd   = items.slice(0, available);
             const wasEmpty = queue.length === 0;
-            addToQueue(items);
+            addToQueue(toAdd);
             setUrlInput('');
-            setQueueOpen(true);
+            if (!queueOpen) setQueueOpen(true);
+            if (toAdd.length < items.length) {
+                setInputError(`Added ${toAdd.length} of ${items.length} tracks — queue capped at ${MAX_QUEUE}`);
+            }
 
             // If nothing is playing, start the first added item immediately
             if (!active && wasEmpty) {
@@ -467,22 +487,32 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     <Separator className="mb-3" />
 
                     {/* Queue toggle header */}
-                    <button
-                        onClick={() => setQueueOpen(o => !o)}
-                        className="flex items-center gap-2 w-full text-left mb-2 group"
-                    >
-                        <ListMusic className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors flex-1">
-                            Queue
-                        </span>
-                        <Badge variant="secondary" className="font-mono text-[9px] px-1.5 py-0">
-                            {queue.length}
-                        </Badge>
-                        {queueOpen
-                            ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
-                            : <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                        }
-                    </button>
+                    <div className="flex items-center gap-2 mb-2">
+                        <button
+                            onClick={() => setQueueOpen(o => !o)}
+                            className="flex items-center gap-2 flex-1 text-left group"
+                        >
+                            <ListMusic className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors flex-1">
+                                Queue
+                            </span>
+                            <Badge variant="secondary" className="font-mono text-[9px] px-1.5 py-0">
+                                {queue.length}/{MAX_QUEUE}
+                            </Badge>
+                            {queueOpen
+                                ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
+                                : <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                            }
+                        </button>
+                        {/* Clear button — always visible so queue can be wiped even when collapsed */}
+                        <button
+                            onClick={clearQueue}
+                            className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"
+                            title="Clear queue"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                        </button>
+                    </div>
 
                     {queueOpen && (
                         <Playlist
