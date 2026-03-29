@@ -33,8 +33,13 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
   return new Promise((resolve, reject) => {
     const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
+    // --flat-playlist is fast for YouTube (metadata comes from the playlist API)
+    // but returns stub entries with no title/artist for SoundCloud.
+    // Drop it for SoundCloud so yt-dlp fetches full track metadata.
+    const isSoundCloud = /soundcloud\.com/i.test(url);
+
     const args = [
-      '--flat-playlist',
+      ...(isSoundCloud ? [] : ['--flat-playlist']),
       '-J',
       '--no-warnings',
       '--js-runtimes', 'quickjs:/usr/bin/qjs',
@@ -54,10 +59,11 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
     ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
     ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
 
+    // Give SoundCloud more time — full metadata fetch is slower than YouTube flat-playlist
     const timeout = setTimeout(() => {
       ytdlp.kill('SIGTERM');
       reject(new Error('yt-dlp resolve timed out'));
-    }, 30_000);
+    }, isSoundCloud ? 60_000 : 30_000);
 
     ytdlp.on('close', (code) => {
       clearTimeout(timeout);
