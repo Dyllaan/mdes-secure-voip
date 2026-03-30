@@ -82,6 +82,7 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
           </Label>
           <Input
             id="username"
+            data-testid="username-input"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -100,6 +101,7 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
           </Label>
           <Input
             id="password"
+            data-testid="password-input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -119,6 +121,7 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
           </Label>
           <Input
             id="confirmPassword"
+            data-testid="confirm-password-input"
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
@@ -132,6 +135,7 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
         {/* Submit Button */}
         <Button
           type="submit"
+          data-testid="register-submit"
           disabled={isLoading}
           className="w-full mt-6"
         >
@@ -142,6 +146,7 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
         <div className="pt-4 text-center">
           <button
             type="button"
+            data-testid="switch-to-login"
             onClick={onToggleMode}
             disabled={isLoading}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
