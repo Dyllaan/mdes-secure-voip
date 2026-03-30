@@ -42,7 +42,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 pt-4 w-96 mx-auto p-6">
+    <form data-testid="login-form" onSubmit={handleSubmit} className="space-y-4 pt-4 w-96 mx-auto p-6">
       {/* Username Field */}
       <div className="space-y-2">
         <Label htmlFor="username" className="flex items-center gap-2">
@@ -51,6 +51,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
         </Label>
         <Input
           id="username"
+          data-testid="username-input"
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -69,6 +70,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
         </Label>
         <Input
           id="password"
+          data-testid="password-input"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -82,6 +84,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
       {/* Submit Button */}
       <Button
         type="submit"
+        data-testid="login-submit"
         disabled={isLoading}
         className="w-full mt-6"
       >
@@ -92,6 +95,7 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
       <div className="pt-4 text-center">
         <button
           type="button"
+          data-testid="switch-to-register"
           onClick={onToggleMode}
           disabled={isLoading}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

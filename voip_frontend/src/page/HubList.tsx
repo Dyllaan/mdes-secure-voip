@@ -88,12 +88,13 @@ export default function HubList() {
             {/* Create hub */}
             <div className="flex gap-2">
                 <Input
+                    data-testid="hub-name-input"
                     placeholder="Hub name..."
                     value={newHubName}
                     onChange={(e) => setNewHubName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                 />
-                <Button onClick={handleCreate} disabled={creating || !newHubName.trim()}>
+                <Button data-testid="create-hub-button" onClick={handleCreate} disabled={creating || !newHubName.trim()}>
                     <Plus className="h-4 w-4 mr-2" />
                     {creating ? 'Creating...' : 'Create'}
                 </Button>
@@ -102,12 +103,14 @@ export default function HubList() {
             {/* Redeem invite */}
             <div className="flex gap-2">
                 <Input
+                    data-testid="invite-input"
                     placeholder="Invite code..."
                     value={inviteInput}
                     onChange={(e) => setInviteInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleRedeem()}
                 />
                 <Button
+                    data-testid="join-hub-button"
                     variant="outline"
                     onClick={handleRedeem}
                     disabled={redeeming || !inviteInput.trim()}
@@ -117,7 +120,7 @@ export default function HubList() {
             </div>
 
             {error && (
-                <p className="text-sm text-destructive text-center">{error}</p>
+                <p data-testid="hub-error" className="text-sm text-destructive text-center">{error}</p>
             )}
 
             {/* Hub list */}
@@ -133,6 +136,7 @@ export default function HubList() {
                     hubs.map((hub) => (
                         <button
                             key={hub.id}
+                            data-testid="hub-item"
                             onClick={() => navigate(`/hubs/${hub.id}`)}
                             className="w-full flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors text-left"
                         >
