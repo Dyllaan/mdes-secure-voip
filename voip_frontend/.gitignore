@@ -25,7 +25,5 @@ dist-ssr
 *.sln
 *.sw?
 
-test-results
-tests
 playwright-report
 coverage
