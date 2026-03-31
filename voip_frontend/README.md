@@ -1,75 +1,105 @@
-# React + TypeScript + Vite
+# Frontend - mdes.sh
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React/TypeScript frontend for the VoIP and chat platform, deployable as a website or Electron desktop app.
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 18+
+- `npm install`
 
-## React Compiler
+## Development
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Web only:
+```bash
+npx vite
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Web + Electron:
+```bash
+npm run dev
 ```
+
+## Building
+
+### Website
+```bash
+npm run build
+```
+Output is in `dist/` - This is served to users
+
+### Electron (Windows)
+```bash
+npm run package
+```
+Output is in `release/` - produces an installer and a portable `.exe`.
+
+> Run this in a standalone terminal and not VS Code's integrated terminal, as it can cause file lock issues.
+
+# Playwright Guide
+Playwright will run tests in a browser environment to ensure core functionalities work.
+# Tests
+
+### `auth.spec.ts`: Login
+
+1. Renders username, password inputs and Sign In button
+2. Toggle to register mode shows register form
+3. Successful login redirects off the login page
+4. Login failure shows error message
+5. MFA-required response shows MFA form
+6. Sign In button is disabled while request is in flight
+
+### `auth.spec.ts`: Register
+
+1. Renders register form when toggled from login
+2. Can toggle back to login from register
+3. Passwords not matching shows error toast
+4. Password shorter than 8 chars is rejected by browser validation
+5. Successful registration shows MFA setup dialog
+6. Server error during registration shows error toast
+
+### `hubs.spec.ts`: Hub list
+
+1. Displays list of hubs from API
+2. Shows empty state when user has no hubs
+
+### `hubs.spec.ts`: Create hub
+
+1. Create button is disabled when hub name input is empty
+2. Create button is enabled after typing a hub name
+3. Creating a hub adds it to the list
+4. Pressing Enter in hub name input creates the hub
+5. Create hub API error shows error message
+
+### `hubs.spec.ts`: Join hub
+
+1. Join button is disabled when invite input is empty
+2. Join button is enabled after typing an invite code
+3. Redeeming an invite code navigates to the hub
+4. Invalid invite code shows error message
+
+### `hubs.spec.ts`: Hub navigation
+
+1. Clicking a hub item navigates to the hub page
+2. Page shows the correct hub count
+
+### `navigation.spec.ts`: Unauthenticated redirects
+
+1. Unauthenticated user visiting `/` is redirected to `/login`
+2. Unauthenticated user visiting `/hubs/123` is redirected to `/login`
+3. Unauthenticated user visiting `/keys` is redirected to `/login`
+
+### `navigation.spec.ts`: Authenticated redirects
+
+1. Authenticated user without IDB keys visiting `/` is redirected to `/keys`
+2. Authenticated user with IDB keys visiting `/login` is redirected to `/`
+3. Authenticated user with IDB keys visiting `/register` is redirected to `/`
+4. Unknown route shows 404 page
+
+# Commands
+-`npm install`
+
+-`npx playwright install chromium`
+    - Only need to run this once
+
+-`npm run test:ui`
+    - Run before committing when changes are made

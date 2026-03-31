@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import VoicePanel from '@/components/voip/VoicePanel';
-import MusicmanPanel from '@/components/music/MusicManPanel';
 import { ArrowLeft, Hash, Plus, Users, MessageSquare, Volume2 } from 'lucide-react';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
 import { HubMembersDrawer } from './HubMembersDrawer';
@@ -9,7 +8,7 @@ import MembersList from '../room/MembersList';
 export default function ChannelSidebar() {
 
     const {
-        hub, channels, memberCount, isOwner, hasMusicman, onBotJoined,
+        hub, channels, memberCount, isOwner,
         channelId, activeVoiceChannelId, inviteCode, onCreateInvite,
         newChannelName, newChannelType, isConnected, ephem,
         onNavigateBack, onChannelClick, onCreateChannel,
@@ -97,7 +96,7 @@ export default function ChannelSidebar() {
                             </button>
                             {channel.type === 'voice' && activeVoiceChannelId === channel.id && (
                                 <div className="ml-6 mt-1">
-                                    <MembersList muted={false} />
+                                    <MembersList />
                                 </div>
                             )}
                         </div>

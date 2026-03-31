@@ -122,7 +122,7 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
                 </div>
             )}
 
-            {/* Tuned-out strip — shows dismissed peers with a restore button */}
+            {/* Tuned-out strip - shows dismissed peers with a restore button */}
             {dismissedScreens.length > 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06]">
                     <EyeOff className="h-3 w-3 text-white/20 shrink-0" />

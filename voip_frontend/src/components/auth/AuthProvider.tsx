@@ -21,6 +21,7 @@ type AuthContextType = {
   disableMfa: (mfaCode: string) => Promise<void>;
   changeUserIsMfaEnabled: (enabled: boolean) => void;
   updatePassword: (oldPassword: string, newPassword: string, mfaCode?: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
+  isLoading: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,6 +36,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useLocalStorage<User | null>('user', null);
   const [signedIn, setSignedIn] = useState(!!user);
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaStatus, setMfaStatus] = useState<MfaStatus | null>(null);
 
@@ -61,6 +63,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     checkToken().then((isValid) => {
       if (!isValid) logout();
+    }).finally(() => {
+      setIsLoading(false); // done regardless of outcome
     });
   }, []);
 
@@ -294,7 +298,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     deleteUser,
     disableMfa,
     changeUserIsMfaEnabled,
-    updatePassword
+    updatePassword,
+    isLoading
   };
 
   return (

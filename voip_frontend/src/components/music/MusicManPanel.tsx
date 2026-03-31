@@ -80,17 +80,17 @@ function stubFromUrl(url: string): PlaylistItem {
                 id: stubId, url,
                 title:   parts.length >= 2 ? parts[parts.length - 1].replace(/-/g, ' ') : 'Loading…',
                 channel: parts[0] ?? 'SoundCloud',
-                duration: '—', durationMs: 0, source: 'soundcloud',
+                duration: '-', durationMs: 0, source: 'soundcloud',
             };
         }
         const vid = u.hostname === 'youtu.be'
             ? u.pathname.slice(1).split('?')[0]
             : u.searchParams.get('v');
         if (vid) {
-            return { id: vid, url, title: 'Loading…', channel: 'YouTube', duration: '—', durationMs: 0, source: 'youtube' };
+            return { id: vid, url, title: 'Loading…', channel: 'YouTube', duration: '-', durationMs: 0, source: 'youtube' };
         }
     } catch { /* ignore */ }
-    return { id: stubId, url, title: 'Loading…', channel: '—', duration: '—', durationMs: 0 };
+    return { id: stubId, url, title: 'Loading…', channel: '-', duration: '-', durationMs: 0 };
 }
 
 function mediaLabel(url: string): string {
@@ -98,11 +98,10 @@ function mediaLabel(url: string): string {
         const u = new URL(url.trim());
         if (u.hostname.includes('soundcloud.com')) {
             const parts = u.pathname.split('/').filter(Boolean);
-            // /artist/track → "artist — track"
-            if (parts.length >= 2) return `${parts[0]} — ${parts[parts.length - 1]}`.replace(/-/g, ' ');
+            // /artist/track → "artist - track"
+            if (parts.length >= 2) return `${parts[0]} - ${parts[parts.length - 1]}`.replace(/-/g, ' ');
             return u.hostname + u.pathname;
         }
-        // YouTube
         const vid = u.hostname === 'youtu.be'
             ? u.pathname.slice(1).split('?')[0]
             : u.searchParams.get('v');
@@ -210,7 +209,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         if (idx < currentIndex) {
             setCurrentIndex(c => Math.max(0, c - 1));
         } else if (idx === currentIndex) {
-            // The currently-playing track was removed — stop or advance
+            // The currently-playing track was removed - stop or advance
             setCurrentIndex(0);
             setPositionMs(0);
             if (next.length > 0) {
@@ -363,7 +362,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
         const available = MAX_QUEUE - queue.length;
         if (available <= 0) {
-            setInputError(`Queue is full (max ${MAX_QUEUE} tracks) — clear some tracks first`);
+            setInputError(`Queue is full (max ${MAX_QUEUE} tracks) - clear some tracks first`);
             return;
         }
 
@@ -402,7 +401,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             setUrlInput('');
             if (!queueOpen) setQueueOpen(true);
             if (toAdd.length < items.length) {
-                setInputError(`Added ${toAdd.length} of ${items.length} tracks — queue capped at ${MAX_QUEUE}`);
+                setInputError(`Added ${toAdd.length} of ${items.length} tracks - queue capped at ${MAX_QUEUE}`);
             }
 
             if (!active && wasEmpty) {
@@ -410,7 +409,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 await playItem(items[0]);
             }
         } catch {
-            setInputError('Failed to resolve URL — check the bot is running');
+            setInputError('Failed to resolve URL - check the bot is running');
         } finally {
             setResolving(false);
         }
@@ -519,7 +518,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     </div>
                 </div>
 
-                {/* Seek bar — shown when active */}
+                {/* Seek bar - shown when active */}
                 {active && (
                     <div className="flex items-center gap-2 px-3 pb-2">
                         <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-10 text-right shrink-0">
@@ -600,7 +599,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 : <ChevronDown className="h-3 w-3 text-muted-foreground" />
                             }
                         </button>
-                        {/* Clear button — always visible so queue can be wiped even when collapsed */}
+                        {/* Clear button - always visible so queue can be wiped even when collapsed */}
                         <button
                             onClick={clearQueue}
                             className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"

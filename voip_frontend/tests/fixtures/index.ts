@@ -25,9 +25,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-// ---------------------------------------------------------------------------
 // Auth state helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Writes MOCK_USER into localStorage via page.evaluate().
@@ -50,9 +48,7 @@ export async function setAuthState(page: Page, user = MOCK_USER) {
   }, user);
 }
 
-// ---------------------------------------------------------------------------
 // IndexedDB setup — satisfies KeysRequired guard
-// ---------------------------------------------------------------------------
 
 /**
  * Writes a real ECDH keypair into the 'channel-keys-v1' IndexedDB so that

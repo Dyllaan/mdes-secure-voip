@@ -4,17 +4,20 @@
   "version": "0.9.5",
   "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "build": "tsc -b && vite build",
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "build": "npm run build:electron && tsc -b && vite build",
+    "package": "npm run build && electron-builder"
   },
   "build": {
     "appId": "com.voip.frontend",
-    "productName": "VoIP Frontend",
+    "productaNme": "Mdes",
+    "icon": "assets/icon.png",
     "files": [
       "dist/**/*",
       "electron/dist/**/*"
@@ -24,8 +27,18 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
@@ -87,6 +100,7 @@
     "autoprefixer": "^10.4.23",
     "babel-plugin-react-compiler": "^1.0.0",
     "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
     "eslint": "^9.25.0",

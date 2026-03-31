@@ -40,7 +40,7 @@ export default function HubView() {
     const [inviteCode, setInviteCode] = useState<string | null>(null);
     const [screenshareVisible, setScreenshareVisible] = useState(true);
 
-    // Any streams exist at all (including dismissed ones — they're still live)
+    // Any streams exist at all (including dismissed ones - they're still live)
     const hasScreens = remoteScreenStreams.length > 0 || (isSharing && !!localScreenStream);
 
     // Auto-open panel when new streams arrive

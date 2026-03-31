@@ -29,7 +29,7 @@ const useScreenshare = ({
     const [isSharing,           setIsSharing]           = useState(false);
     const [localScreenStream,   setLocalScreenStream]   = useState<MediaStream | null>(null);
     const [remoteScreenStreams, setRemoteScreenStreams] = useState<RemoteScreenStream[]>([]);
-    // Peers the user has dismissed from the UI — stream is still live
+    // Peers the user has dismissed from the UI - stream is still live
     const [dismissedPeerIds,   setDismissedPeerIds]    = useState<Set<string>>(new Set());
 
     const screenPeerRef     = useRef<Peer | null>(null);
@@ -54,7 +54,7 @@ const useScreenshare = ({
         }
     }, [currentRoomId]);
 
-    // Fully removes a stream — used internally when the remote peer actually stops
+    // Fully removes a stream - used internally when the remote peer actually stops
     const closeRemoteScreenStream = useCallback((screenPeerId: string) => {
         setRemoteScreenStreams(prev => prev.filter(rs => rs.peerId !== screenPeerId));
         setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
@@ -67,12 +67,12 @@ const useScreenshare = ({
         }
     }, []);
 
-    // UI-only dismiss — hides from the manager but keeps the call alive
+    // UI-only dismiss - hides from the manager but keeps the call alive
     const dismissScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => new Set([...prev, screenPeerId]));
     }, []);
 
-    // Undo a dismiss — called when the user wants to tune back in
+    // Undo a dismiss - called when the user wants to tune back in
     const restoreScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
     }, []);

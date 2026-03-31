@@ -6,14 +6,14 @@ import { cn } from '@/lib/utils';
 
 export interface PlaylistItem {
     id: string;
-    /** Full playable URL — stored so SoundCloud tracks can be played back (ID alone is not enough). */
+    /** Full playable URL - stored so SoundCloud tracks can be played back (ID alone is not enough). */
     url?: string;
     title: string;
     channel: string;
     duration: string; // e.g. "3:45"
-    /** Duration in milliseconds — used for seek bar max. 0 = unknown. */
+    /** Duration in milliseconds - used for seek bar max. 0 = unknown. */
     durationMs?: number;
-    /** Optional — used to tint the index badge */
+    /** Optional - used to tint the index badge */
     source?: 'youtube' | 'spotify' | 'soundcloud';
 }
 
@@ -105,7 +105,7 @@ function VideoRow({
                 )}
             </div>
 
-            {/* Play button — overlays index on hover */}
+            {/* Play button - overlays index on hover */}
             {!isActive && (
                 <button
                     onClick={onPlay}

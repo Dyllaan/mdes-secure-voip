@@ -68,7 +68,7 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
-  /** Legacy join — returns 409 if bot already in room. Prefer play() for track changes. */
+  /** Legacy join - returns 409 if bot already in room. Prefer play() for track changes. */
   const join = useCallback(async (
     roomId:     string,
     youtubeUrl: string,
@@ -177,7 +177,7 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
-  /** Seek to a position. Does not set a loading spinner — seek can be called frequently. */
+  /** Seek to a position. Does not set a loading spinner - seek can be called frequently. */
   const seek = useCallback(async (roomId: string, seconds: number): Promise<void> => {
     setError(null);
     try {

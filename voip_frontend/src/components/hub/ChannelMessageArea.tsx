@@ -1,10 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Hash, Send, X } from 'lucide-react';
+import { Hash, Send } from 'lucide-react';
 import MessageBubble from '@/components/hub/MessageBubble';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
-import ScreenshareVideo from '../room/screenshare/ScreenshareVideo';
-import { ScreenshareManager } from '../room/screenshare/ScreenshareManager';
 
 export default function ChannelMessageArea() {
 

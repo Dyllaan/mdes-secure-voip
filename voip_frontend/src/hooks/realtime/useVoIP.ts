@@ -40,7 +40,7 @@ const useVoIP = () => {
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const [isVoiceActive, setIsVoiceActive] = useState(false);
 
-  const [mutedPeerIds, setMutedPeerIds] = useState<Set<string>>(new Set());
+  const [mutedPeerIds, _] = useState<Set<string>>(new Set());
   const [muted, setMuted] = useState(false);
 
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
