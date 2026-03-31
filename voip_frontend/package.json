@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.voip.frontend",
-    "productaNme": "Mdes",
+    "productName": "Mdes",
     "icon": "assets/icon.png",
     "files": [
       "dist/**/*",
