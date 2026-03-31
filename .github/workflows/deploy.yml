@@ -138,19 +138,6 @@ jobs:
         working-directory: ./voip_frontend
         run: npm ci
 
-      - name: Write production env
-        working-directory: ./voip_frontend
-        run: |
-          echo "VITE_AUTH_URL=${{ secrets.VITE_AUTH_URL }}" >> .env.production
-          echo "VITE_SOCKET_URL=${{ secrets.VITE_SOCKET_URL }}" >> .env.production
-          echo "VITE_HUB_SERVICE_URL=${{ secrets.VITE_HUB_SERVICE_URL }}" >> .env.production
-          echo "VITE_MUSICMAN_URL=${{ secrets.VITE_MUSICMAN_URL }}" >> .env.production
-          echo "VITE_PEER_HOST=${{ secrets.VITE_PEER_HOST }}" >> .env.production
-          echo "VITE_PEER_PORT=${{ secrets.VITE_PEER_PORT }}" >> .env.production
-          echo "VITE_PEER_PATH=${{ secrets.VITE_PEER_PATH }}" >> .env.production
-          echo "VITE_PEER_SECURE=${{ secrets.VITE_PEER_SECURE }}" >> .env.production
-        shell: bash
-
       - name: Build and package Electron app
         working-directory: ./voip_frontend
         run: npm run package
