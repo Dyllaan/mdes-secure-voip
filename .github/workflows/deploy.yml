@@ -41,6 +41,7 @@ jobs:
             musicman:
               - 'services/musicman-service/**'
               - 'Dockerfile.musicman-service'
+
   build-and-push:
     needs: detect-changes
     runs-on: ubuntu-latest
@@ -117,3 +118,51 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
             .
           docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
+
+  build-electron:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./voip_frontend
+        run: npm ci
+
+      - name: Write production env
+        working-directory: ./voip_frontend
+        run: |
+          echo "VITE_AUTH_URL=${{ secrets.VITE_AUTH_URL }}" >> .env.production
+          echo "VITE_SOCKET_URL=${{ secrets.VITE_SOCKET_URL }}" >> .env.production
+          echo "VITE_HUB_SERVICE_URL=${{ secrets.VITE_HUB_SERVICE_URL }}" >> .env.production
+          echo "VITE_MUSICMAN_URL=${{ secrets.VITE_MUSICMAN_URL }}" >> .env.production
+          echo "VITE_PEER_HOST=${{ secrets.VITE_PEER_HOST }}" >> .env.production
+          echo "VITE_PEER_PORT=${{ secrets.VITE_PEER_PORT }}" >> .env.production
+          echo "VITE_PEER_PATH=${{ secrets.VITE_PEER_PATH }}" >> .env.production
+          echo "VITE_PEER_SECURE=${{ secrets.VITE_PEER_SECURE }}" >> .env.production
+        shell: bash
+
+      - name: Build and package Electron app
+        working-directory: ./voip_frontend
+        run: npm run package
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            voip_frontend/release/*.exe
+          tag_name: v${{ github.run_number }}
+          name: Mdes v${{ github.run_number }}
+          body: |
+            Windows desktop release built from commit ${{ github.sha }}.
+          draft: false
+          prerelease: false
