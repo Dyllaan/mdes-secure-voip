@@ -5,20 +5,14 @@ import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EphemeralMessage } from '@/types/hub.types';
 
 export interface UseEphemeralChatReturn {
-    /** Whether an ephemeral room is currently active for this server */
     active: boolean;
-    /** Whether the local user has joined the ephemeral room */
     joined: boolean;
-    /** Whether the slide-in panel is expanded */
     open: boolean;
     messages: EphemeralMessage[];
     input: string;
-    /** Formatted countdown string, e.g. "4:32" - passed to panel + sidebar */
     timeLeft: string;
-
     setOpen: (v: boolean) => void;
     setInput: (v: string) => void;
-
     handleStart: () => Promise<void>;
     handleJoin: () => Promise<void>;
     handleLeave: () => void;
@@ -26,13 +20,9 @@ export interface UseEphemeralChatReturn {
     handleSend: () => Promise<void>;
 }
 
-/**
- * Manages the complete ephemeral-chat lifecycle for a server:
- * polling, countdown, signal-client callbacks, and all action handlers.
- */
 export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatReturn {
     const { user } = useAuth();
-    const { socket, signalClient } = useConnection();
+    const { socket, roomClient } = useConnection();
     const { startEphemeral, getEphemeral, endEphemeral } = useHubAPI();
 
     const [roomId, setRoomId]       = useState<string | null>(null);
@@ -58,7 +48,6 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
                 } else {
                     setRoomId(null);
                     setExpiresAt(null);
-                    // Room expired while we were in it - clean up locally
                     setJoined(prev => {
                         if (prev) {
                             setOpen(false);
@@ -77,9 +66,7 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
         return () => clearInterval(id);
     }, [hubId, getEphemeral]);
 
-    // ------------------------------------------------------------------
-    // 1-second countdown timer
-    // ------------------------------------------------------------------
+    // Countdown timer
     useEffect(() => {
         if (!expiresAt) {
             setTimeLeft('');
@@ -99,13 +86,11 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
         return () => clearInterval(id);
     }, [expiresAt]);
 
-    // ------------------------------------------------------------------
-    // Signal-client callback for incoming ephemeral messages
-    // ------------------------------------------------------------------
+    // Room client message callback
     useEffect(() => {
-        if (!signalClient || !joined) return;
+        if (!roomClient || !joined) return;
 
-        signalClient.onRoomMessageDecrypted = (msg) => {
+        roomClient.onRoomMessageDecrypted = (msg) => {
             setMessages(prev => [...prev, {
                 sender: msg.senderUserId,
                 message: msg.message,
@@ -114,16 +99,12 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
             }]);
         };
 
-        return () => { signalClient.onRoomMessageDecrypted = undefined; };
-    }, [signalClient, joined]);
-
-    // ------------------------------------------------------------------
-    // Action handlers
-    // ------------------------------------------------------------------
+        return () => { roomClient.onRoomMessageDecrypted = undefined; };
+    }, [roomClient, joined]);
 
     const handleStart = async () => {
         if (!hubId) return;
-        const newRoomId = `ephemeral-${hubId}-${Date.now()}`;
+        const newRoomId = `ephemeral-${hubId}`;
         try {
             const data = await startEphemeral(hubId, newRoomId);
             setRoomId(data.roomId);
@@ -134,14 +115,20 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
     };
 
     const handleJoin = async () => {
-        if (!roomId || !signalClient || !socket) return;
+        if (!roomId || !socket || !roomClient) return;
         try {
-            socket.emit('join-room', {
-                roomId,
-                alias: user?.username || 'Anonymous',
-                userId: user?.username,
+            const existingUsers = await new Promise<string[]>((resolve) => {
+                socket.once('all-users', (users: { peerId: string; alias: string; userId: string }[]) => {
+                    resolve(users.map(u => u.userId));
+                });
+                socket.emit('join-room', {
+                    roomId,
+                    alias: user?.username || 'Anonymous',
+                    userId: user?.username,
+                });
             });
-            await signalClient.joinRoom(roomId, []);
+
+            await roomClient.joinRoom(roomId, existingUsers);
             setJoined(true);
             setOpen(true);
         } catch (err) {
@@ -150,10 +137,8 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
     };
 
     const handleLeave = () => {
-        if (socket && roomId) {
-            socket.emit('leave-room', { roomId });
-        }
-        signalClient?.leaveRoom();
+        if (socket && roomId) socket.emit('leave-room', { roomId });
+        roomClient?.leaveRoom();
         setJoined(false);
         setOpen(false);
         setMessages([]);
@@ -172,10 +157,10 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
     };
 
     const handleSend = async () => {
-        if (!signalClient || !input.trim()) return;
+        if (!roomClient || !input.trim()) return;
         const text = input.trim();
         try {
-            await signalClient.sendRoomMessage(text);
+            await roomClient.sendMessage(text);
             setMessages(prev => [...prev, {
                 sender: 'me',
                 message: text,

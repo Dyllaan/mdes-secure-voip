@@ -2,14 +2,14 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { Socket } from "socket.io-client";
 import type Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
-import type { SignalProtocolClient } from "@/utils/SignalProtocolClient";
+import type { RoomClient } from "@/utils/RoomClient";
 import type { RemoteStream } from "./useVoIP";
 import type { UserConnectedData } from "@/types/voip.types";
 
 interface UseRoomOptions {
     socket: Socket | null;
     peer: Peer | null;
-    signalClient: SignalProtocolClient | null;
+    roomClient: RoomClient | null;
     processedStream: MediaStream | null;
     roomId: string;
     onPeerJoined:  (peerId: string) => void;
@@ -20,7 +20,7 @@ interface UseRoomOptions {
 const useRoom = ({
     socket,
     peer,
-    signalClient,
+    roomClient,
     processedStream,
     roomId,
     onPeerJoined,
@@ -46,9 +46,6 @@ const useRoom = ({
         );
     }, []);
 
-    // Only removes the stream entry does NOT close the connection.
-    // Used by local PeerJS close/error events which can fire during normal
-    // renegotiation (when a screenshare call opens to the same peer).
     const removeStream = useCallback((peerId: string) => {
         openConnectionsRef.current.delete(peerId);
         setRemoteStreams(prev => prev.filter(rs => rs.peerId !== peerId));
@@ -73,23 +70,37 @@ const useRoom = ({
     const callPeer = useCallback((peerId: string): void => {
         const waitAndCall = (): void => {
             if (!processedStreamRef.current || !peerRef.current) {
-                console.log(`callPeer waiting - stream: ${!!processedStreamRef.current}, peer: ${!!peerRef.current}`);
+                console.log(`[callPeer] waiting for ${peerId} — stream: ${!!processedStreamRef.current}, peer: ${!!peerRef.current}`);
                 setTimeout(waitAndCall, 100);
                 return;
             }
 
-            console.log(`Calling peer ${peerId} with PeerJS`);
-            const outgoingCall = peerRef.current.call(peerId, processedStreamRef.current);
+            const stream = processedStreamRef.current;
+            const audioTracks = stream.getAudioTracks();
+            console.log(`[callPeer] calling ${peerId} — stream id: ${stream.id}, audioTracks: ${audioTracks.length}, active: ${stream.active}`);
+            audioTracks.forEach((t, i) =>
+                console.log(`[callPeer]   track[${i}]: id=${t.id} kind=${t.kind} enabled=${t.enabled} readyState=${t.readyState}`)
+            );
+
+            const outgoingCall = peerRef.current!.call(peerId, stream);
             openConnectionsRef.current.set(peerId, outgoingCall);
 
             outgoingCall.on("stream", (remoteStream: MediaStream) => {
-                console.log(`Got remote stream from ${peerId}, tracks: ${remoteStream.getAudioTracks().length}`);
+                const aTracks = remoteStream.getAudioTracks();
+                const vTracks = remoteStream.getVideoTracks();
+                console.log(`[callPeer] stream from ${peerId} — audio: ${aTracks.length}, video: ${vTracks.length}`);
+                aTracks.forEach((t, i) =>
+                    console.log(`[callPeer]   audio[${i}]: id=${t.id} enabled=${t.enabled} readyState=${t.readyState} muted=${t.muted}`)
+                );
                 addRemoteStream(peerId, remoteStream);
             });
 
-            outgoingCall.on("close", () => removeStream(peerId));
+            outgoingCall.on("close", () => {
+                console.log(`[callPeer] call closed by ${peerId}`);
+                removeStream(peerId);
+            });
             outgoingCall.on("error", (error) => {
-                console.error("Error calling peer", peerId, error);
+                console.error(`[callPeer] error from ${peerId}:`, error);
                 removeStream(peerId);
             });
         };
@@ -104,37 +115,39 @@ const useRoom = ({
         if (!socket) return;
 
         const handleAllUsers = async (users: Array<{ peerId: string; alias: string; userId: string }>) => {
-            console.log("Received all-users:", users);
-
             onRoomCleared();
             users.forEach(({ peerId }) => onPeerJoined(peerId));
             setConnectedPeers(users);
 
-            if (signalClient) {
+            if (!roomId.startsWith('ephemeral-')) {
+                users.forEach(({ peerId, alias }) => {
+                    console.log(`[useRoom] all-users: calling ${peerId} (${alias})`);
+                    callPeer(peerId);
+                });
+            }
+
+            if (roomClient && roomId && !roomId.startsWith('ephemeral-')) {
                 try {
-                    await signalClient.joinRoom(roomId, users.map(u => u.userId));
-                    setIsEncryptionReady(signalClient.isRoomReady());
+                    await roomClient.joinRoom(roomId, users.map(u => u.userId));
+                    setIsEncryptionReady(roomClient.isRoomReady());
                 } catch (error) {
                     console.error("Failed to join encrypted room:", error);
                     setIsEncryptionReady(false);
                 }
             }
-
-            users.forEach(({ peerId, alias }) => {
-                console.log(`Calling existing user: ${peerId} (${alias})`);
-                callPeer(peerId);
-            });
         };
 
         const handleUserConnected = ({ peerId, alias }: UserConnectedData) => {
-            console.log(`New user connected: ${peerId} (${alias})`);
+            console.log(`[useRoom] user-connected: ${peerId} (${alias})`);
             onPeerJoined(peerId);
             setConnectedPeers(prev => prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]);
-            callPeer(peerId);
+            if (!roomId.startsWith('ephemeral-')) {
+                callPeer(peerId);
+            }
         };
 
         const handleUserDisconnected = (disconnectedPeerId: string) => {
-            console.log("User disconnected:", disconnectedPeerId);
+            console.log(`[useRoom] user-disconnected: ${disconnectedPeerId}`);
             onPeerLeft(disconnectedPeerId);
             setConnectedPeers(prev => prev.filter(p => p.peerId !== disconnectedPeerId));
             closePeerConnection(disconnectedPeerId);
@@ -149,7 +162,7 @@ const useRoom = ({
             socket.off("user-connected",    handleUserConnected);
             socket.off("user-disconnected", handleUserDisconnected);
         };
-    }, [socket, signalClient, roomId, callPeer, onPeerJoined, onPeerLeft, onRoomCleared, closePeerConnection]);
+    }, [socket, roomClient, roomId, callPeer, onPeerJoined, onPeerLeft, onRoomCleared, closePeerConnection]);
 
     useEffect(() => {
         if (!roomId) {

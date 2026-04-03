@@ -1,3 +1,22 @@
+/**
+ * Musicman HTTP service
+ *
+ * Express server that manages BotInstance lifecycle per voice room.
+ * Handles hub joining, playback control (play, pause, resume, seek, leave),
+ * URL resolution via yt-dlp, and graceful shutdown.
+ *
+ * Video screenshare mode
+ * ──────────────────────
+ * Pass `"videoMode": true` in the body of /join or /play to stream the YouTube
+ * video as a peer screenshare in addition to audio.  The bot will request a
+ * screen peer ID from the signaling server, open a second PeerJS connection for
+ * it, and emit 'screenshare-started' so other room members automatically
+ * connect to the screen peer for video.
+ *
+ * Video mode is set at join time and cannot be toggled mid-session.  To switch
+ * modes, call /leave then /join again with the desired flag.
+ */
+
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { spawn } from 'child_process';
@@ -6,97 +25,83 @@ import { login, startTokenRefresh, getToken } from './auth';
 import { BotInstance } from './BotInstance';
 import { HubHandler } from './HubHandler';
 
-// ── Playlist resolver ─────────────────────────────────────────────────────────
-
 interface ResolvedItem {
-  id:         string;
-  url:        string;   // full playable URL (needed for SoundCloud — can't reconstruct from ID)
-  title:      string;
-  channel:    string;
-  duration:   string;   // "mm:ss" or "h:mm:ss"
-  durationMs: number;
+    id:         string;
+    url:        string;
+    title:      string;
+    channel:    string;
+    duration:   string;
+    durationMs: number;
 }
 
 function secondsToTimestamp(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/**
- * Use yt-dlp --flat-playlist -J to resolve a URL to individual video entries.
- * Works for single videos and playlists.  Times out after 30 seconds.
- */
 function resolveUrl(url: string): Promise<ResolvedItem[]> {
-  return new Promise((resolve, reject) => {
-    const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
+    return new Promise((resolve, reject) => {
+        const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
-    const isSoundCloud = /soundcloud\.com/i.test(url);
-    // SC sets (playlists) can use --flat-playlist to get individual track URLs quickly;
-    // SC single tracks skip it so yt-dlp returns full metadata (title, artist, duration).
-    // YouTube always uses --flat-playlist — titles come from the playlist API for free.
-    const isSCSingle = isSoundCloud && !/\/sets\//.test(url) && (() => {
-      try { return new URL(url).pathname.split('/').filter(Boolean).length === 2; } catch { return false; }
-    })();
-    const useFlatPlaylist = !isSCSingle;
+        const isSoundCloud = /soundcloud\.com/i.test(url);
+        const isSCSingle   = isSoundCloud && !/\/sets\//.test(url) && (() => {
+            try { return new URL(url).pathname.split('/').filter(Boolean).length === 2; } catch { return false; }
+        })();
+        const useFlatPlaylist = !isSCSingle;
 
-    const args = [
-      ...(useFlatPlaylist ? ['--flat-playlist'] : []),
-      '-J',
-      '--no-warnings',
-      '--js-runtimes', 'quickjs:/usr/bin/qjs',
-      '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
-    ];
+        const args = [
+            ...(useFlatPlaylist ? ['--flat-playlist'] : []),
+            '-J',
+            '--no-warnings',
+            '--js-runtimes', 'quickjs:/usr/bin/qjs',
+            '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
+        ];
 
-    if (process.env.YTDLP_COOKIES_PATH) {
-      args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
-    }
+        if (process.env.YTDLP_COOKIES_PATH) {
+            args.push('--cookies', process.env.YTDLP_COOKIES_PATH);
+        }
 
-    args.push(url);
+        args.push(url);
 
-    const ytdlp = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const ytdlp = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    let stdout = '';
-    let stderr = '';
-    ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-    ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
+        let stdout = '';
+        let stderr = '';
+        ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
+        ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
 
-    // SC single-track resolve (full metadata) can take longer than a flat-playlist call
-    const timeout = setTimeout(() => {
-      ytdlp.kill('SIGTERM');
-      reject(new Error('yt-dlp resolve timed out'));
-    }, isSCSingle ? 60_000 : 30_000);
+        const timeout = setTimeout(() => {
+            ytdlp.kill('SIGTERM');
+            reject(new Error('yt-dlp resolve timed out'));
+        }, isSCSingle ? 60_000 : 30_000);
 
-    ytdlp.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
-      try {
-        const data = JSON.parse(stdout);
-        // Single video: { _type: 'video', id, title, duration, channel/uploader }
-        // Playlist:     { _type: 'playlist', entries: [...] }
-        const entries: Record<string, unknown>[] = data.entries ?? [data];
-        const items: ResolvedItem[] = entries
-          .filter((e) => e && e.id)
-          .map((e) => ({
-            id:         String(e.id),
-            // webpage_url is the canonical page URL; url is the direct stream URL in flat mode.
-            // Fall back to reconstructing a YouTube watch URL when neither is present.
-            url:        String(e.webpage_url ?? e.url ?? `https://www.youtube.com/watch?v=${e.id}`),
-            title:      String(e.title ?? e.id),
-            channel:    String(e.channel ?? e.uploader ?? 'Unknown'),
-            duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '—',
-            durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
-          }));
-        resolve(items);
-      } catch {
-        reject(new Error('Failed to parse yt-dlp output'));
-      }
+        ytdlp.on('close', (code) => {
+            clearTimeout(timeout);
+            if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+            try {
+                const data    = JSON.parse(stdout);
+                const entries: Record<string, unknown>[] = data.entries ?? [data];
+                const items: ResolvedItem[] = entries
+                    .filter((e) => e && e.id)
+                    .map((e) => ({
+                        id:         String(e.id),
+                        url:        String(e.webpage_url ?? e.url ?? `https://www.youtube.com/watch?v=${e.id}`),
+                        title:      String(e.title ?? e.id),
+                        channel:    String(e.channel ?? e.uploader ?? 'Unknown'),
+                        duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '—',
+                        durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
+                    }));
+                resolve(items);
+            } catch {
+                reject(new Error('Failed to parse yt-dlp output'));
+            }
+        });
+
+        ytdlp.on('error', (err) => { clearTimeout(timeout); reject(err); });
     });
-
-    ytdlp.on('error', (err) => { clearTimeout(timeout); reject(err); });
-  });
 }
 
 const app  = express();
@@ -104,14 +109,10 @@ const bots = new Map<string, BotInstance>();
 
 app.use(express.json());
 
-/**
- * POST /hub/join
- * Body: { hubId: string }
- * Joins a hub using its ID.
- */
+// ─── Hub ─────────────────────────────────────────────────────────────────────
+
 app.post('/hub/join', async (req: Request, res: Response) => {
     const { hubId } = req.body as { hubId?: string };
-
     if (!hubId) return res.status(400).json({ error: 'hubId is required' });
 
     let token: string;
@@ -126,248 +127,176 @@ app.post('/hub/join', async (req: Request, res: Response) => {
         return res.json({ ok: true });
     } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(`[/hub/join] Failed to join hub:`, msg);
         return res.status(403).json({ error: msg });
     }
 });
 
-/**
- * POST /join
- * Body: { roomId: string, youtubeUrl: string }
- * Spawns a bot in a voice channel. Bot must already be a hub member.
- * Returns 409 if the bot is already in the room — use POST /play instead,
- * which handles both join and track change.
- */
+// ─── Playback ─────────────────────────────────────────────────────────────────
+
 app.post('/join', async (req: Request, res: Response) => {
-  const { roomId, youtubeUrl } = req.body as {
-    roomId?:     string;
-    youtubeUrl?: string;
-  };
+    const { roomId, youtubeUrl, videoMode = false } =
+        req.body as { roomId?: string; youtubeUrl?: string; videoMode?: boolean };
 
-  if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
-  if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
+    if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
+    if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
 
-  if (bots.has(roomId)) {
-    return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
-  }
+    if (bots.has(roomId)) {
+        return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
+    }
 
-  let token: string;
-  try {
-    token = getToken();
-  } catch {
-    return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
-  }
+    let token: string;
+    try {
+        token = getToken();
+    } catch {
+        return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
+    }
 
-  const bot = new BotInstance(roomId, youtubeUrl, token);
-  bots.set(roomId, bot);
+    const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    bots.set(roomId, bot);
 
-  try {
-    await bot.start();
-    console.log(`[/join] Bot started in room: ${roomId}`);
-    return res.json({ ok: true, roomId });
-  } catch (err: unknown) {
-    bots.delete(roomId);
-    bot.destroy();
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[/join] Failed for room "${roomId}":`, msg);
-    return res.status(500).json({ error: msg });
-  }
+    try {
+        await bot.start();
+        return res.json({ ok: true, roomId, videoMode });
+    } catch (err: unknown) {
+        bots.delete(roomId);
+        bot.destroy();
+        const msg = err instanceof Error ? err.message : String(err);
+        return res.status(500).json({ error: msg });
+    }
 });
 
-/**
- * POST /play
- * Body: { roomId: string, youtubeUrl: string }
- * If the bot is not yet in the room: joins and starts streaming.
- * If the bot is already in the room: swaps the track without disrupting WebRTC connections.
- */
 app.post('/play', async (req: Request, res: Response) => {
-  const { roomId, youtubeUrl } = req.body as {
-    roomId?:     string;
-    youtubeUrl?: string;
-  };
+    const { roomId, youtubeUrl, videoMode = false } =
+        req.body as { roomId?: string; youtubeUrl?: string; videoMode?: boolean };
 
-  if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
-  if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
+    if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
+    if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
 
-  const existing = bots.get(roomId);
-  if (existing) {
-    existing.changeTrack(youtubeUrl);
-    console.log(`[/play] Track changed in room: ${roomId}`);
-    return res.json({ ok: true, roomId, action: 'changeTrack' });
-  }
+    const existing = bots.get(roomId);
+    if (existing) {
+        // Track change on an already-joined bot (videoMode cannot be changed here;
+        // call /leave then /join again to switch modes).
+        existing.changeTrack(youtubeUrl);
+        return res.json({ ok: true, roomId, action: 'changeTrack' });
+    }
 
-  let token: string;
-  try {
-    token = getToken();
-  } catch {
-    return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
-  }
+    let token: string;
+    try {
+        token = getToken();
+    } catch {
+        return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
+    }
 
-  const bot = new BotInstance(roomId, youtubeUrl, token);
-  bots.set(roomId, bot);
+    const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    bots.set(roomId, bot);
 
-  try {
-    await bot.start();
-    console.log(`[/play] Bot started in room: ${roomId}`);
-    return res.json({ ok: true, roomId, action: 'join' });
-  } catch (err: unknown) {
-    bots.delete(roomId);
-    bot.destroy();
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[/play] Failed for room "${roomId}":`, msg);
-    return res.status(500).json({ error: msg });
-  }
+    try {
+        await bot.start();
+        return res.json({ ok: true, roomId, action: 'join', videoMode });
+    } catch (err: unknown) {
+        bots.delete(roomId);
+        bot.destroy();
+        const msg = err instanceof Error ? err.message : String(err);
+        return res.status(500).json({ error: msg });
+    }
 });
 
-/**
- * POST /leave
- * Body: { roomId: string }
- * Gracefully removes the bot from the room, stops the audio pipeline and
- * closes all WebRTC + socket connections for that room.
- */
 app.post('/leave', (req: Request, res: Response) => {
-  const { roomId } = req.body as { roomId?: string };
+    const { roomId } = req.body as { roomId?: string };
+    if (!roomId) return res.status(400).json({ error: 'roomId is required' });
 
-  if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+    const bot = bots.get(roomId);
+    if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
 
-  const bot = bots.get(roomId);
-  if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
-
-  bot.destroy();
-  bots.delete(roomId);
-  console.log(`[/leave] Bot removed from room: ${roomId}`);
-  return res.json({ ok: true, roomId });
+    bot.destroy();
+    bots.delete(roomId);
+    return res.json({ ok: true, roomId });
 });
 
-/**
- * POST /pause
- * Body: { roomId: string }
- * Pauses frame dispatch. The yt-dlp/ffmpeg pipeline keeps running so resume is instant.
- */
 app.post('/pause', (req: Request, res: Response) => {
-  const { roomId } = req.body as { roomId?: string };
+    const { roomId } = req.body as { roomId?: string };
+    if (!roomId) return res.status(400).json({ error: 'roomId is required' });
 
-  if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+    const bot = bots.get(roomId);
+    if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
 
-  const bot = bots.get(roomId);
-  if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
-
-  bot.pause();
-  console.log(`[/pause] Paused room: ${roomId}`);
-  return res.json({ ok: true, roomId });
+    bot.pause();
+    return res.json({ ok: true, roomId });
 });
 
-/**
- * POST /resume
- * Body: { roomId: string }
- * Resumes frame dispatch after a pause.
- */
 app.post('/resume', (req: Request, res: Response) => {
-  const { roomId } = req.body as { roomId?: string };
+    const { roomId } = req.body as { roomId?: string };
+    if (!roomId) return res.status(400).json({ error: 'roomId is required' });
 
-  if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+    const bot = bots.get(roomId);
+    if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
 
-  const bot = bots.get(roomId);
-  if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
-
-  bot.resume();
-  console.log(`[/resume] Resumed room: ${roomId}`);
-  return res.json({ ok: true, roomId });
+    bot.resume();
+    return res.json({ ok: true, roomId });
 });
 
-/**
- * POST /seek
- * Body: { roomId: string, seconds: number }
- * Seeks to the given position by restarting the pipeline with an ffmpeg output-seek offset.
- */
 app.post('/seek', (req: Request, res: Response) => {
-  const { roomId, seconds } = req.body as { roomId?: string; seconds?: number };
+    const { roomId, seconds } = req.body as { roomId?: string; seconds?: number };
 
-  if (!roomId)              return res.status(400).json({ error: 'roomId is required' });
-  if (seconds === undefined) return res.status(400).json({ error: 'seconds is required' });
+    if (!roomId)              return res.status(400).json({ error: 'roomId is required' });
+    if (seconds === undefined) return res.status(400).json({ error: 'seconds is required' });
 
-  const bot = bots.get(roomId);
-  if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+    const bot = bots.get(roomId);
+    if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
 
-  bot.seek(Math.max(0, seconds) * 1000);
-  console.log(`[/seek] Seeked room ${roomId} to ${seconds}s`);
-  return res.json({ ok: true, roomId, seconds });
+    bot.seek(Math.max(0, seconds) * 1000);
+    return res.json({ ok: true, roomId, seconds });
 });
 
-/**
- * POST /resolve
- * Body: { url: string }
- * Resolves a YouTube URL (single video or playlist) to individual video items
- * using yt-dlp --flat-playlist. Used by the frontend to expand playlists.
- */
+// ─── Utility ─────────────────────────────────────────────────────────────────
+
 app.post('/resolve', async (req: Request, res: Response) => {
-  const { url } = req.body as { url?: string };
-  if (!url) return res.status(400).json({ error: 'url is required' });
+    const { url } = req.body as { url?: string };
+    if (!url) return res.status(400).json({ error: 'url is required' });
 
-  try {
-    const items = await resolveUrl(url);
-    return res.json({ items });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[/resolve] Failed for "${url}":`, msg);
-    return res.status(500).json({ error: msg });
-  }
+    try {
+        const items = await resolveUrl(url);
+        return res.json({ items });
+    } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return res.status(500).json({ error: msg });
+    }
 });
 
-/**
- * GET /rooms
- * Returns the list of room IDs where a bot is currently active.
- */
 app.get('/rooms', (_req: Request, res: Response) => {
-  return res.json({ rooms: [...bots.keys()] });
+    return res.json({ rooms: [...bots.keys()] });
 });
 
-/**
- * GET /status/:roomId
- * Returns the current playback state for a room.
- */
 app.get('/status/:roomId', (req: Request, res: Response) => {
-  const { roomId } = req.params;
-  const bot = bots.get(roomId);
-  if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
-  return res.json(bot.getStatus());
+    const { roomId } = req.params;
+    const bot = bots.get(roomId);
+    if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+    return res.json(bot.getStatus());
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('[Unhandled]', err);
-  res.status(500).json({ error: err.message });
+    console.error('[Unhandled]', err);
+    res.status(500).json({ error: err.message });
 });
 
+// ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-  try {
-    console.log('[Boot] Authenticating bot account...');
-    await login();
-    startTokenRefresh();
-    console.log('[Boot] Auth OK ✓');
-
-    app.listen(config.PORT, () => {
-      console.log(`[Boot] Music bot HTTP server listening on :${config.PORT}`);
-      console.log(`[Boot] Endpoints:`);
-      console.log(`[Boot]   POST /hub/join  |  POST /join   |  POST /play   |  POST /leave`);
-      console.log(`[Boot]   POST /pause     |  POST /resume |  POST /seek   |  POST /resolve`);
-      console.log(`[Boot]   GET  /rooms     |  GET  /status/:roomId`);
-    });
-  } catch (err) {
-    console.error('[Boot] Fatal - failed to authenticate:', err);
-    process.exit(1);
-  }
+    try {
+        await login();
+        startTokenRefresh();
+        app.listen(config.PORT, () => {
+            console.log(`[Boot] Musicman listening on :${config.PORT}`);
+        });
+    } catch (err) {
+        console.error('[Boot] Fatal - failed to authenticate:', err);
+        process.exit(1);
+    }
 })();
 
-// ── Graceful shutdown ─────────────────────────────────────────────────────────
-
 const shutdown = () => {
-  console.log('\n[Shutdown] Cleaning up all bot instances...');
-  for (const [roomId, bot] of bots) {
-    console.log(`[Shutdown] Destroying bot in room: ${roomId}`);
-    bot.destroy();
-  }
-  process.exit(0);
+    for (const [, bot] of bots) bot.destroy();
+    process.exit(0);
 };
 
 process.on('SIGINT',  shutdown);

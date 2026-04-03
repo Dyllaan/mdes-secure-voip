@@ -18,6 +18,8 @@ export const config = {
   BOT_SECRET: req('BOT_SECRET'),
 
   PORT: parseInt(process.env.PORT ?? '4000'),
-  PEER_ID_EVENT: process.env.PEER_ID_EVENT ?? 'peer-id-assigned',
+  PEER_ID_EVENT: process.env.PEER_ID_EVENT ?? 'peer-assigned',
   PEER_ID_KEY: process.env.PEER_ID_KEY ?? 'peerId',
+  SCREEN_PEER_ID_EVENT: process.env.SCREEN_PEER_ID_EVENT ?? 'screen-peer-assigned',
+  SCREEN_PEER_ID_KEY: process.env.SCREEN_PEER_ID_KEY ?? 'peerId',
 };

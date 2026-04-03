@@ -1,8 +1,10 @@
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-const helmet = require('helmet');
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import express, { Application } from 'express';
+import { RealtimeConfig } from '../config';
 
-function setupMiddleware(app, config) {
+function setupMiddleware(app: Application, config: RealtimeConfig): void {
     app.use(helmet({
         contentSecurityPolicy: {
             directives: {
@@ -11,23 +13,15 @@ function setupMiddleware(app, config) {
             }
         }
     }));
-
     app.use(cors(config.cors));
-    app.use(require('express').json({ limit: '10kb' }));
-
-    const apiLimiter = rateLimit({
+    app.use(express.json({ limit: '10kb' }));
+    app.use(rateLimit({
         windowMs: config.security.apiRateLimitWindow,
         max: config.security.apiRateLimitMax,
         message: { error: 'Too many requests, please try again later' },
         standardHeaders: true,
         legacyHeaders: false
-    });
-    app.use(apiLimiter);
-
-    app.use((req, res, next) => {
-        console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${req.ip}`);
-        next();
-    });
+    }));
 }
 
-module.exports = setupMiddleware;
+export default setupMiddleware;

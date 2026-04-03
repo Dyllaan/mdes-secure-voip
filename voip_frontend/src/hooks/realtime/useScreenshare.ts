@@ -29,7 +29,6 @@ const useScreenshare = ({
     const [isSharing,           setIsSharing]           = useState(false);
     const [localScreenStream,   setLocalScreenStream]   = useState<MediaStream | null>(null);
     const [remoteScreenStreams, setRemoteScreenStreams] = useState<RemoteScreenStream[]>([]);
-    // Peers the user has dismissed from the UI - stream is still live
     const [dismissedPeerIds,   setDismissedPeerIds]    = useState<Set<string>>(new Set());
 
     const screenPeerRef     = useRef<Peer | null>(null);
@@ -54,7 +53,6 @@ const useScreenshare = ({
         }
     }, [currentRoomId]);
 
-    // Fully removes a stream - used internally when the remote peer actually stops
     const closeRemoteScreenStream = useCallback((screenPeerId: string) => {
         setRemoteScreenStreams(prev => prev.filter(rs => rs.peerId !== screenPeerId));
         setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
@@ -67,17 +65,14 @@ const useScreenshare = ({
         }
     }, []);
 
-    // UI-only dismiss - hides from the manager but keeps the call alive
     const dismissScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => new Set([...prev, screenPeerId]));
     }, []);
 
-    // Undo a dismiss - called when the user wants to tune back in
     const restoreScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
     }, []);
 
-    // Create the dedicated screen Peer instance once socket is ready
     useEffect(() => {
         if (!socket) return;
 
@@ -99,6 +94,8 @@ const useScreenshare = ({
                 screenPeerIdRef.current = id;
             });
 
+            // All screen video arrives as incoming calls — both from remote users
+            // sharing their screen AND from the bot calling us with its video feed.
             screenPeer.on("call", (incomingCall: MediaConnection) => {
                 if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
                     console.warn("Rejecting screen call from unknown peer:", incomingCall.peer);
@@ -117,7 +114,6 @@ const useScreenshare = ({
                             ? prev.map(rs => rs.peerId === incomingCall.peer ? { ...rs, stream: remoteStream } : rs)
                             : [...prev, { peerId: incomingCall.peer, alias, stream: remoteStream }]
                     );
-                    // If they were previously dismissed and re-share, un-dismiss them
                     setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(incomingCall.peer); return next; });
                 });
 
@@ -205,6 +201,9 @@ const useScreenshare = ({
         console.log(`Peer ${alias} started screenshare with screen peer: ${screenPeerId}`);
         pendingAliasRef.current.set(screenPeerId, alias);
         peerScreenPeerIds.current.set(audioPeerId, screenPeerId);
+        // Allowlist the screen peer ID so the incoming call handler accepts it.
+        // The remote peer (or bot) is the caller and will send us an OFFER —
+        // we do not need to initiate anything here.
         allowedScreenPeerIds.current.add(screenPeerId);
     }, []);
 

@@ -1,114 +1,112 @@
-const { sanitizeInput } = require('../utils/sanitize');
+import { sanitizeInput } from '../utils/sanitize';
+import { SignalKeyBundle, PreKey, AuthenticatedSocket, RefreshPrekeysData, RegisterKeysData, Parent, RequestBundleData } from '../types';
 
 class SignalProtocolHandler {
-    constructor(parent) {
+    private signalKeys: Map<string, SignalKeyBundle>;
+    private findSocketByUserId: (username: string) => AuthenticatedSocket | null;
+
+    constructor(parent: Parent) {
         this.signalKeys = parent.signalKeys;
         this.findSocketByUserId = parent.findSocketByUserId.bind(parent);
     }
-w
-    handleRegisterKeys(socket, data) {
+
+    handleRegisterKeys(socket: AuthenticatedSocket, data: RegisterKeysData): void {
         const { identityKey, signedPreKey, preKeys, registrationId } = data;
 
         if (!identityKey || !signedPreKey || !registrationId) {
-            return socket.emit('signal-error', {
+            socket.emit('signal-error', {
                 message: 'Missing required key data',
-                field: !identityKey ? 'identityKey' : !signedPreKey ? 'signedPreKey' : 'registrationId'
+                field: !identityKey ? 'identityKey' : !signedPreKey ? 'signedPreKey' : 'registrationId',
             });
+            return;
         }
-
         if (typeof identityKey !== 'string' || identityKey.length < 20 || identityKey.length > 500) {
-            return socket.emit('signal-error', { message: 'Invalid identity key format' });
+            socket.emit('signal-error', { message: 'Invalid identity key format' });
+            return;
         }
-
         if (!signedPreKey.keyId || !signedPreKey.publicKey || !signedPreKey.signature) {
-            return socket.emit('signal-error', { message: 'Invalid signed pre-key structure' });
+            socket.emit('signal-error', { message: 'Invalid signed pre-key structure' });
+            return;
         }
-
         if (typeof signedPreKey.publicKey !== 'string' || signedPreKey.publicKey.length > 500) {
-            return socket.emit('signal-error', { message: 'Invalid signed pre-key format' });
+            socket.emit('signal-error', { message: 'Invalid signed pre-key format' });
+            return;
         }
-
         if (!Array.isArray(preKeys)) {
-            return socket.emit('signal-error', { message: 'preKeys must be an array' });
+            socket.emit('signal-error', { message: 'preKeys must be an array' });
+            return;
         }
-
         if (preKeys.length === 0 || preKeys.length > 100) {
-            return socket.emit('signal-error', { message: 'preKeys array must contain 1-100 keys' });
+            socket.emit('signal-error', { message: 'preKeys array must contain 1-100 keys' });
+            return;
         }
-
         for (const preKey of preKeys) {
             if (!preKey.keyId || !preKey.publicKey) {
-                return socket.emit('signal-error', { message: 'Invalid pre-key structure' });
+                socket.emit('signal-error', { message: 'Invalid pre-key structure' });
+                return;
             }
             if (typeof preKey.publicKey !== 'string' || preKey.publicKey.length > 500) {
-                return socket.emit('signal-error', { message: 'Invalid pre-key format' });
+                socket.emit('signal-error', { message: 'Invalid pre-key format' });
+                return;
             }
         }
-
         if (typeof registrationId !== 'number' || registrationId < 0 || registrationId > 16383) {
-            return socket.emit('signal-error', { message: 'Invalid registration ID (must be 0-16383)' });
+            socket.emit('signal-error', { message: 'Invalid registration ID (must be 0-16383)' });
+            return;
         }
 
-        const keyBundle = {
+        const now = Date.now();
+        const keyBundle: SignalKeyBundle = {
             userId: socket.username,
             identityKey: sanitizeInput(identityKey),
             signedPreKey: {
                 keyId: signedPreKey.keyId,
                 publicKey: sanitizeInput(signedPreKey.publicKey),
-                signature: sanitizeInput(signedPreKey.signature)
+                signature: sanitizeInput(signedPreKey.signature),
             },
             preKeys: new Map(preKeys.map(pk => [
                 pk.keyId,
-                { keyId: pk.keyId, publicKey: sanitizeInput(pk.publicKey) }
+                { keyId: pk.keyId, publicKey: sanitizeInput(pk.publicKey) },
             ])),
             registrationId,
-            createdAt: Date.now(),
-            updatedAt: Date.now()
+            createdAt: now,
+            updatedAt: now,
         };
 
         this.signalKeys.set(socket.username, keyBundle);
-
-        socket.emit('signal-keys-registered', {
-            success: true,
-            prekeyCount: preKeys.length
-        });
-
-        console.log(`Signal keys registered for user ${socket.username} (${preKeys.length} pre-keys)`);
+        socket.emit('signal-keys-registered', { success: true, prekeyCount: preKeys.length });
     }
 
-    handleRequestBundle(socket, data) {
+    handleRequestBundle(socket: AuthenticatedSocket, data: RequestBundleData): void {
         const { recipientUserId } = data;
 
         if (!recipientUserId || typeof recipientUserId !== 'string') {
-            return socket.emit('signal-error', { message: 'Invalid recipient user ID' });
+            socket.emit('signal-error', { message: 'Invalid recipient user ID' });
+            return;
         }
 
         const sanitizedRecipientId = sanitizeInput(recipientUserId);
         const recipientBundle = this.signalKeys.get(sanitizedRecipientId);
 
         if (!recipientBundle) {
-            return socket.emit('signal-error', {
+            socket.emit('signal-error', {
                 message: 'Recipient has not registered Signal keys',
-                recipientUserId: sanitizedRecipientId
+                recipientUserId: sanitizedRecipientId,
             });
+            return;
         }
 
-        let oneTimePreKey = null;
+        let oneTimePreKey: PreKey | null = null;
         if (recipientBundle.preKeys.size > 0) {
-            const firstKey = recipientBundle.preKeys.values().next().value;
+            const firstKey = recipientBundle.preKeys.values().next().value as PreKey;
             oneTimePreKey = { keyId: firstKey.keyId, publicKey: firstKey.publicKey };
-
             recipientBundle.preKeys.delete(firstKey.keyId);
             recipientBundle.updatedAt = Date.now();
-
-            console.log(`Pre-key consumed for user ${recipientBundle.userId} (${recipientBundle.preKeys.size} remaining)`);
 
             if (recipientBundle.preKeys.size < 10) {
                 const recipientSocket = this.findSocketByUserId(sanitizedRecipientId);
                 if (recipientSocket) {
-                    recipientSocket.emit('signal-prekeys-low', {
-                        remaining: recipientBundle.preKeys.size
-                    });
+                    recipientSocket.emit('signal-prekeys-low', { remaining: recipientBundle.preKeys.size });
                 }
             }
         }
@@ -120,49 +118,46 @@ w
             signedPreKey: {
                 keyId: recipientBundle.signedPreKey.keyId,
                 publicKey: recipientBundle.signedPreKey.publicKey,
-                signature: recipientBundle.signedPreKey.signature
+                signature: recipientBundle.signedPreKey.signature,
             },
-            preKey: oneTimePreKey
+            preKey: oneTimePreKey,
         });
     }
 
-    handleRefreshPrekeys(socket, data) {
+    handleRefreshPrekeys(socket: AuthenticatedSocket, data: RefreshPrekeysData): void {
         const { preKeys } = data;
 
         if (!Array.isArray(preKeys) || preKeys.length === 0 || preKeys.length > 100) {
-            return socket.emit('signal-error', { message: 'Invalid pre-keys array (must contain 1-100 keys)' });
+            socket.emit('signal-error', { message: 'Invalid pre-keys array (must contain 1-100 keys)' });
+            return;
         }
-
         for (const preKey of preKeys) {
             if (!preKey.keyId || !preKey.publicKey) {
-                return socket.emit('signal-error', { message: 'Invalid pre-key structure' });
+                socket.emit('signal-error', { message: 'Invalid pre-key structure' });
+                return;
             }
             if (typeof preKey.publicKey !== 'string' || preKey.publicKey.length > 500) {
-                return socket.emit('signal-error', { message: 'Invalid pre-key format' });
+                socket.emit('signal-error', { message: 'Invalid pre-key format' });
+                return;
             }
         }
 
         const bundle = this.signalKeys.get(socket.username);
         if (!bundle) {
-            return socket.emit('signal-error', { message: 'No key bundle found. Register keys first.' });
+            socket.emit('signal-error', { message: 'No key bundle found. Register keys first.' });
+            return;
         }
 
         for (const preKey of preKeys) {
             bundle.preKeys.set(preKey.keyId, {
                 keyId: preKey.keyId,
-                publicKey: sanitizeInput(preKey.publicKey)
+                publicKey: sanitizeInput(preKey.publicKey),
             });
         }
 
         bundle.updatedAt = Date.now();
-
-        socket.emit('signal-prekeys-refreshed', {
-            success: true,
-            totalPrekeys: bundle.preKeys.size
-        });
-
-        console.log(`Pre-keys refreshed for user ${socket.username} (total: ${bundle.preKeys.size})`);
+        socket.emit('signal-prekeys-refreshed', { success: true, totalPrekeys: bundle.preKeys.size });
     }
 }
 
-module.exports = SignalProtocolHandler;
+export default SignalProtocolHandler;

@@ -1,62 +1,74 @@
-const express = require('express');
-const http = require('http');
-const https = require('https');
-const socketIO = require('socket.io');
-const { PeerServer } = require('peer');
-const crypto = require('crypto');
-const fs = require('fs');
-const setupMiddleware = require('../middleware/middleware');
-const setupRoutes = require('../routes');
+/**
+ * Core HTTP and WebSocket server setup for the Realtime service.
+ */
+import express, { Application } from 'express';
+import http from 'http';
+import https from 'https';
+import { Server as SocketIOServer, ServerOptions } from 'socket.io';
+import { PeerServer } from 'peer';
+import crypto from 'crypto';
+import fs from 'fs';
+import setupMiddleware from '../middleware/middleware';
+import setupRoutes from '../routes';
+import type { CorsOptions } from 'cors';
+import { RealtimeConfig } from '../config';
+import { Service, SocketHandlers } from '../types';
 
 class HttpAndServerSetup {
-    constructor(service) {
+    private service: Service;
+    private config: RealtimeConfig;
+    app: Application;
+    server: http.Server | https.Server;
+    io: SocketIOServer;
+    peerServer: ReturnType<typeof PeerServer>;
+
+    constructor(service: Service) {
         this.service = service;
         this.config = service.config;
-
         this.app = express();
         this.server = this._createServer();
-
-        this.io = socketIO(this.server, {
+        this.io = new SocketIOServer(this.server, {
             cors: this.config.cors,
             pingTimeout: 60000,
             pingInterval: 25000
         });
-
         this.peerServer = PeerServer({
             port: this.config.peerPort,
             path: '/peerjs',
             allow_discovery: false,
             proxied: true,
-            corsOptions: this.config.cors,
+            corsOptions: this.config.cors as CorsOptions,
             key: 'peerjs',
             generateClientId: () => crypto.randomBytes(16).toString('hex')
         });
     }
 
-    _createServer() {
-        if (process.env.NODE_ENV === 'production' &&
-            process.env.SSL_KEY_PATH &&
-            process.env.SSL_CERT_PATH) {
+    private _createServer(): http.Server | https.Server {
+        if (
+            this.config.NODE_ENV === 'production' &&
+            this.config.sslKeyPath &&
+            this.config.sslCertPath
+        ) {
             try {
-                const options = {
-                    key: fs.readFileSync(process.env.SSL_KEY_PATH),
-                    cert: fs.readFileSync(process.env.SSL_CERT_PATH)
+                const options: https.ServerOptions = {
+                    key: fs.readFileSync(this.config.sslKeyPath),
+                    cert: fs.readFileSync(this.config.sslCertPath)
                 };
                 console.log('HTTPS server enabled');
                 return https.createServer(options, this.app);
             } catch (error) {
-                console.warn('Failed to load SSL certificates, falling back to HTTP:', error.message);
+                console.warn('Failed to load SSL certificates, falling back to HTTP:', (error as Error).message);
             }
         }
         return http.createServer(this.app);
     }
 
-    initialize(socketHandlers) {
+    initialize(socketHandlers: SocketHandlers): void {
         setupMiddleware(this.app, this.config);
         setupRoutes(this.app, this.config, socketHandlers);
     }
 
-    start() {
+    start(): Promise<void> {
         return new Promise((resolve) => {
             this.server.listen(this.config.port, () => {
                 console.log(`Secure Realtime service running on port ${this.config.port}`);
@@ -67,7 +79,7 @@ class HttpAndServerSetup {
         });
     }
 
-    shutdown() {
+    shutdown(): void {
         console.log('Shutting down server...');
         this.io.emit('server-shutdown', { message: 'Server is shutting down for maintenance' });
         this.io.close(() => console.log('Socket.IO server closed'));
@@ -75,4 +87,4 @@ class HttpAndServerSetup {
     }
 }
 
-module.exports = HttpAndServerSetup;
+export default HttpAndServerSetup;

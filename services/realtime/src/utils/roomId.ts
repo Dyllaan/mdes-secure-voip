@@ -1,9 +1,7 @@
-const crypto = require('crypto');
+import crypto from 'crypto';
 
 function generateRoomId() {
     return crypto.randomBytes(6).toString('base64url');
 }
 
-module.exports = {
-    generateRoomId,
-};
+export { generateRoomId };

@@ -5,7 +5,7 @@ import config from "@/config/config";
 import { SimpleNoiseGate } from "@/utils/SimpleNoiseGate";
 import { useAuth } from "@/hooks/useAuth";
 import { useConnection } from "@/components/providers/ConnectionProvider";
-import type { DecryptedMessage } from "@/utils/SignalProtocolClient";
+import type { DecryptedRoomMessage } from "@/utils/RoomClient";
 import useRoom from "./useRoom";
 import useScreenShare from "./useScreenshare";
 import { optimiseBitrate } from '@/utils/OptimiseBitrate';
@@ -30,7 +30,7 @@ const PEER_PATH = config.PEER_PATH;
 
 const useVoIP = () => {
   const { user, signedIn } = useAuth();
-  const { socket, signalClient, isConnected, assignedPeerId } = useConnection();
+  const { socket, signalClient, roomClient, isConnected, assignedPeerId } = useConnection();
   const username = user?.username ?? null;
 
   const [roomList, setRoomList] = useState<RoomInfo[]>([]);
@@ -71,7 +71,7 @@ const useVoIP = () => {
   } = useRoom({
     socket,
     peer,
-    signalClient,
+    roomClient,
     processedStream,
     roomId: currentRoomId ?? "",
     onPeerJoined: addRoomPeer,
@@ -103,12 +103,9 @@ const useVoIP = () => {
 
   const peerVolumeRef = useRef<Record<string, number>>({});
 
-
   const setPeerVolume = useCallback((peerId: string, volume: number) => {
-      setPeerVolumes(prev => ({ ...prev, [peerId]: volume }));
-      // Find the audio element for this peer and apply directly
-      // VoicePanel's audioElementsRef isn't accessible here, so we use a shared ref
-      peerVolumeRef.current[peerId] = volume;
+    setPeerVolumes(prev => ({ ...prev, [peerId]: volume }));
+    peerVolumeRef.current[peerId] = volume;
   }, []);
 
   // ── Screenshare signalling ──────────────────────────────────────────────
@@ -141,11 +138,11 @@ const useVoIP = () => {
     };
   }, [socket, handleRoomScreenPeerIds, handlePeerScreenshareStarted, handleRemoteScreenShareStopped, handleNewScreenPeer]);
 
-  // ── Set up signal client callbacks ──────────────────────────────────────
+  // ── Room client message callback ────────────────────────────────────────
   useEffect(() => {
-    if (!signalClient) return;
+    if (!roomClient) return;
 
-    signalClient.onRoomMessageDecrypted = (decryptedMsg: DecryptedMessage) => {
+    roomClient.onRoomMessageDecrypted = (decryptedMsg: DecryptedRoomMessage) => {
       setChatMessages(prev => [...prev, {
         sender: decryptedMsg.senderUserId,
         message: decryptedMsg.message,
@@ -153,14 +150,14 @@ const useVoIP = () => {
         timestamp: decryptedMsg.timestamp,
       }]);
     };
-  }, [signalClient]);
+  }, [roomClient]);
 
-  // ── Lightweight socket listeners (bound eagerly, no mic needed) ─────────
+  // ── Lightweight socket listeners ────────────────────────────────────────
   useEffect(() => {
     if (!socket || !isConnected) return;
 
     const handleJoinError = ({ message: errMsg }: { message: string }) =>
-        console.error("Join room error:", errMsg);
+      console.error("Join room error:", errMsg);
 
     const handleRoomClosed = () => {
       setCurrentRoomId(null);
@@ -219,10 +216,14 @@ const useVoIP = () => {
     });
 
     newPeer.on("call", (incomingCall: MediaConnection) => {
+      // Accept optimistically — the PeerJS server only routes messages between
+      // authenticated sockets so any caller is already room-validated server-side.
+      // The strict Set check caused a race condition: the bot's PeerJS OFFER
+      // arrived before the 'user-connected' socket event fired and added the
+      // bot's peerId to roomPeerIdsRef, so the call was being silently rejected.
       if (!roomPeerIdsRef.current.has(incomingCall.peer)) {
-        console.warn(`Rejecting call from peer not in room: ${incomingCall.peer}`);
-        incomingCall.close();
-        return;
+        console.log(`[peer.on(call)] ${incomingCall.peer} not yet in roomPeerIds — adding and accepting`);
+        roomPeerIdsRef.current.add(incomingCall.peer);
       }
 
       console.log("Incoming audio call from:", incomingCall.peer);
@@ -238,6 +239,7 @@ const useVoIP = () => {
       waitForStream();
 
       incomingCall.on("stream", (remoteStream: MediaStream) => {
+        console.log(`[peer.on(call)] stream from ${incomingCall.peer} — audio: ${remoteStream.getAudioTracks().length}`);
         addRemoteStream(incomingCall.peer, remoteStream);
       });
       incomingCall.on("close", () => removeStream(incomingCall.peer));
@@ -249,7 +251,7 @@ const useVoIP = () => {
     return newPeer;
   }, [addRemoteStream, removeStream, registerIncomingConnection]);
 
-  // ── Lazy voice initialization (mic + noise gate + PeerJS) ───────────────
+  // ── Lazy voice initialization ───────────────────────────────────────────
   const initializeVoice = useCallback(async (): Promise<boolean> => {
     if (voiceInitializedRef.current) return true;
 
@@ -271,17 +273,9 @@ const useVoIP = () => {
       localStreamRef.current = rawStream;
       if (localAudioRef.current) localAudioRef.current.srcObject = rawStream;
 
-      // const noiseGate = new SimpleNoiseGate();
-      // noiseGateRef.current = noiseGate;
-      // const processed = await noiseGate.processStream(rawStream);
-
-      // processedStreamRef.current = processed;
-      // setProcessedStream(processed);
-
       processedStreamRef.current = rawStream;
       setProcessedStream(rawStream);
 
-      // Now create the PeerJS instance with the server-assigned ID
       createPeerInstance(assignedPeerId);
 
       voiceInitializedRef.current = true;
@@ -293,7 +287,7 @@ const useVoIP = () => {
     }
   }, [createPeerInstance, assignedPeerId]);
 
-  // ── Voice cleanup (mic + PeerJS teardown) ───────────────────────────────
+  // ── Voice cleanup ───────────────────────────────────────────────────────
   const cleanupVoice = useCallback(() => {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     processedStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -314,28 +308,23 @@ const useVoIP = () => {
     setIsVoiceActive(false);
   }, []);
 
-  // ── Cleanup on unmount ──────────────────────────────────────────────────
   useEffect(() => {
-    return () => {
-      cleanupVoice();
-    };
+    return () => { cleanupVoice(); };
   }, [cleanupVoice]);
 
-  // ── Join room (initializes voice lazily, then waits for PeerJS open) ────
+  // ── Join room ───────────────────────────────────────────────────────────
   const joinRoom = useCallback(async (roomId: string): Promise<void> => {
     if (!socket || !isConnected) {
       console.error("Not connected");
       return;
     }
 
-    // Initialize voice if not already active
     const success = await initializeVoice();
     if (!success) {
       console.error("Failed to initialize voice - mic access denied?");
       return;
     }
 
-    // Wait for PeerJS to be ready (open event)
     if (!peerRef.current?.open) {
       let attempts = 0;
       while (!peerRef.current?.open && attempts < 40) {
@@ -362,38 +351,40 @@ const useVoIP = () => {
     setCurrentRoomId(roomId);
   }, [socket, signalClient, isConnected, username, closeAllConnections, initializeVoice]);
 
-  // ── Leave room (cleans up voice) ────────────────────────────────────────
+  // ── Leave room ──────────────────────────────────────────────────────────
   const leaveRoom = useCallback((): void => {
     if (socket && currentRoomId) {
       socket.emit("leave-room", { roomId: currentRoomId });
     }
+    roomClient?.leaveRoom();
     closeAllConnections();
     setCurrentRoomId(null);
     cleanupVoice();
-  }, [socket, currentRoomId, closeAllConnections, cleanupVoice]);
+  }, [socket, currentRoomId, roomClient, closeAllConnections, cleanupVoice]);
 
+  // ── Send room message ───────────────────────────────────────────────────
   const sendMessage = useCallback(async (): Promise<void> => {
-    if (!signalClient) { console.error("Signal client not ready"); return; }
-    if (!signalClient.isRoomReady()) { console.error("Room encryption not ready"); return; }
+    if (!roomClient) { console.error("Room client not ready"); return; }
+    if (!roomClient.isRoomReady()) { console.error("Room encryption not ready"); return; }
     if (!message.trim()) return;
 
     try {
-      await signalClient.sendRoomMessage(message);
+      await roomClient.sendMessage(message);
       setChatMessages(prev => [...prev, { sender: "me", message, alias: username ?? "Me" }]);
       setMessage("");
     } catch (error) {
       console.error("Failed to send encrypted message:", error);
     }
-  }, [signalClient, message, username]);
+  }, [roomClient, message, username]);
 
   const toggleMute = useCallback(() => {
     if (processedStreamRef.current) {
-        processedStreamRef.current.getAudioTracks().forEach(track => {
-            track.enabled = muted; // flip: if muted, re-enable
-        });
+      processedStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = muted;
+      });
     }
     setMuted(prev => !prev);
-}, [muted]);
+  }, [muted]);
 
   return {
     myPeerId,

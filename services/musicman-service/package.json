@@ -1,7 +1,6 @@
 {
-  "name": "talk-music-bot",
+  "name": "musicman-bot",
   "version": "1.0.0",
-  "description": "Music bot for Talk VoIP - joins rooms as a peer and streams YouTube audio",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch ./src/index.ts",

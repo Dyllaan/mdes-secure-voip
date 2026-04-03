@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Music2, Play, Pause, Square, Loader2, Radio,
-    ListMusic, Plus, ChevronDown, ChevronUp, SkipForward, Trash2,
+    ListMusic, Plus, ChevronDown, ChevronUp, SkipForward, Trash2, Cast,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,7 +57,6 @@ function isSupportedUrl(url: string) {
 function isSingleTrack(url: string): boolean {
     try {
         const u = new URL(url.trim());
-        // A playlist param always means multiple tracks, even if a video ID is also present
         if (u.searchParams.get('list')) return false;
         if (u.hostname === 'youtu.be') return true;
         if (u.hostname.includes('youtube.com')) return !!u.searchParams.get('v');
@@ -98,7 +97,6 @@ function mediaLabel(url: string): string {
         const u = new URL(url.trim());
         if (u.hostname.includes('soundcloud.com')) {
             const parts = u.pathname.split('/').filter(Boolean);
-            // /artist/track → "artist - track"
             if (parts.length >= 2) return `${parts[0]} - ${parts[parts.length - 1]}`.replace(/-/g, ' ');
             return u.hostname + u.pathname;
         }
@@ -119,7 +117,6 @@ function formatMs(ms: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-
 // ─── Local queue persistence ──────────────────────────────────────────────────
 
 const MAX_QUEUE   = 27;
@@ -129,7 +126,6 @@ function loadQueue(roomId: string): PlaylistItem[] {
     try {
         const raw   = localStorage.getItem(STORAGE_KEY(roomId));
         const items = raw ? JSON.parse(raw) : [];
-        // Clamp to max in case old data was saved before the limit existed
         return Array.isArray(items) ? items.slice(0, MAX_QUEUE) : [];
     } catch {
         return [];
@@ -155,17 +151,27 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const paused  = isPaused(roomId);
     const playing = nowPlaying(roomId);
 
-    const [queue, setQueue]           = useState<PlaylistItem[]>(() => loadQueue(roomId));
+    const [queue, setQueue]               = useState<PlaylistItem[]>(() => loadQueue(roomId));
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [queueOpen, setQueueOpen]   = useState(() => loadQueue(roomId).length > 0);
-    const [urlInput, setUrlInput]     = useState('');
-    const [inputError, setInputError] = useState<string | null>(null);
-    const [resolving, setResolving]   = useState(false);
-    const [positionMs, setPositionMs] = useState(0);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const [queueOpen, setQueueOpen]       = useState(() => loadQueue(roomId).length > 0);
+    const [urlInput, setUrlInput]         = useState('');
+    const [inputError, setInputError]     = useState<string | null>(null);
+    const [resolving, setResolving]       = useState(false);
+    const [positionMs, setPositionMs]     = useState(0);
 
-    const transitioningRef    = useRef(false);
-    const handlePlayNextRef   = useRef<() => Promise<void>>(() => Promise.resolve());
+    /**
+     * Video screenshare mode — streams the YouTube video as a peer screenshare.
+     * Locked at the moment the bot first joins a room; to change it the bot
+     * must leave and rejoin. The toggle is therefore disabled while the bot is
+     * active.
+     */
+    const [videoMode, setVideoMode] = useState(false);
+    /** Tracks whether the currently-active session was started in video mode. */
+    const [activeVideoMode, setActiveVideoMode] = useState(false);
+
+    const inputRef             = useRef<HTMLInputElement>(null);
+    const transitioningRef     = useRef(false);
+    const handlePlayNextRef    = useRef<() => Promise<void>>(() => Promise.resolve());
 
     const resolveAndUpdate = useCallback(async (url: string, stubId: string) => {
         try {
@@ -209,7 +215,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         if (idx < currentIndex) {
             setCurrentIndex(c => Math.max(0, c - 1));
         } else if (idx === currentIndex) {
-            // The currently-playing track was removed - stop or advance
             setCurrentIndex(0);
             setPositionMs(0);
             if (next.length > 0) {
@@ -242,12 +247,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // ── Playback ──────────────────────────────────────────────────
 
     const playItem = async (item: PlaylistItem) => {
-        // Use the stored URL when available (required for SoundCloud).
-        // Fall back to reconstructing a YouTube watch URL for items saved before
-        // the url field was added.
         const url = item.url ?? `https://www.youtube.com/watch?v=${item.id}`;
         setPositionMs(0);
-        await play(roomId, url);
+        // Pass videoMode on first join; on track changes the bot already knows its mode
+        await play(roomId, url, videoMode);
+        if (!active) setActiveVideoMode(videoMode);
     };
 
     const handlePlayFromQueue = async (id: string) => {
@@ -259,7 +263,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const handlePlayNext = useCallback(async () => {
         if (queue.length === 0) return;
-        // Remove the track that just finished; the next one slides into index 0
         const nextQueue = queue.filter((_, i) => i !== currentIndex);
         updateQueue(nextQueue);
         setCurrentIndex(0);
@@ -270,20 +273,29 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [queue, currentIndex]);
 
-    // Keep the ref current so the polling closure always calls the latest version
     useEffect(() => {
         handlePlayNextRef.current = handlePlayNext;
     }, [handlePlayNext]);
 
     // On mount: clear queue if the bot is not currently running in this room
-    // (handles the case where the service restarted but localStorage still has old queue data)
     useEffect(() => {
         if (queue.length === 0) return;
         getStatus(roomId).then(status => {
-            if (!status) clearQueue();
+            if (!status) {
+                clearQueue();
+            } else {
+                // Sync video mode state from an already-active bot
+                setActiveVideoMode(status.videoMode ?? false);
+                setVideoMode(status.videoMode ?? false);
+            }
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // When the bot stops, clear the active video mode indicator
+    useEffect(() => {
+        if (!active) setActiveVideoMode(false);
+    }, [active]);
 
     const handlePauseResume = async () => {
         if (paused) {
@@ -295,7 +307,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const handleSeek = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const seconds = Number(e.target.value);
-        setPositionMs(seconds * 1000); // optimistic update
+        setPositionMs(seconds * 1000);
         await seek(roomId, seconds);
     };
 
@@ -320,7 +332,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         };
 
         poll();
-        const intervalId = setInterval(poll, 2000);
+        const intervalId = setInterval(poll, 5000);
         return () => clearInterval(intervalId);
     }, [active, roomId, getStatus]);
 
@@ -422,7 +434,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
     const isLoading = loading || resolving;
 
-    // Duration of the currently-playing item (for seek bar max)
     const currentDurationMs = (active && queue[currentIndex]?.durationMs) || 0;
     const seekMax = currentDurationMs > 0 ? Math.floor(currentDurationMs / 1000) : 3600;
 
@@ -448,6 +459,16 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={queue[currentIndex]?.title ?? playing ?? ''}>
                                     {queue[currentIndex]?.title ?? (playing ? mediaLabel(playing) : 'Playing…')}
                                 </span>
+                                {/* Video mode badge shown when session is running in screenshare mode */}
+                                {activeVideoMode && (
+                                    <span
+                                        className="shrink-0 flex items-center gap-0.5 text-[10px] font-medium text-sky-400 bg-sky-950/40 border border-sky-500/30 rounded px-1 py-0.5"
+                                        title="Streaming video as screenshare"
+                                    >
+                                        <Cast className="h-2.5 w-2.5" />
+                                        Video
+                                    </span>
+                                )}
                             </div>
                         ) : (
                             <span className="text-xs text-muted-foreground">Music Bot</span>
@@ -557,6 +578,35 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 className="h-8 text-xs pl-7 bg-background/50"
                             />
                         </div>
+
+                        {/*
+                         * Video mode toggle — enabled before joining only.
+                         * Once the bot is active the mode is locked until /leave.
+                         * Tooltip explains the constraint when disabled.
+                         */}
+                        <button
+                            onClick={() => !active && setVideoMode(v => !v)}
+                            disabled={active}
+                            title={
+                                active
+                                    ? `Video screenshare is ${activeVideoMode ? 'on' : 'off'} for this session — stop the bot to change`
+                                    : videoMode
+                                        ? 'Video screenshare on — click to disable'
+                                        : 'Video screenshare off — click to stream video as a screenshare'
+                            }
+                            className={`
+                                shrink-0 h-8 w-8 flex items-center justify-center rounded-md border transition-all
+                                ${active
+                                    ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
+                                    : videoMode
+                                        ? 'border-sky-500/60 bg-sky-950/30 text-sky-400 hover:bg-sky-950/50'
+                                        : 'border-border text-muted-foreground hover:text-foreground hover:border-border/80'
+                                }
+                            `}
+                        >
+                            <Cast className="h-3.5 w-3.5" />
+                        </button>
+
                         <Button
                             size="sm"
                             className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 gap-1.5"
@@ -569,6 +619,14 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             }
                         </Button>
                     </div>
+
+                    {/* Video mode hint when toggled on and bot not yet active */}
+                    {videoMode && !active && (
+                        <p className="text-[11px] text-sky-400/80 flex items-center gap-1 px-1">
+                            <Cast className="h-3 w-3 shrink-0" />
+                            Video will stream as a screenshare when the bot joins
+                        </p>
+                    )}
 
                     {(inputError || error) && (
                         <p className="text-xs text-red-400 px-1">{inputError ?? error}</p>
@@ -599,7 +657,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 : <ChevronDown className="h-3 w-3 text-muted-foreground" />
                             }
                         </button>
-                        {/* Clear button - always visible so queue can be wiped even when collapsed */}
                         <button
                             onClick={clearQueue}
                             className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"

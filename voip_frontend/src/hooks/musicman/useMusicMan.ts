@@ -9,10 +9,12 @@ export interface MusicmanStatus {
 }
 
 export interface PlaybackStatus {
-  playing:    boolean;
-  paused:     boolean;
-  positionMs: number;
-  youtubeUrl: string;
+  playing:      boolean;
+  paused:       boolean;
+  positionMs:   number;
+  youtubeUrl:   string;
+  videoMode:    boolean;
+  screenPeerId: string | null;
 }
 
 export interface ResolvedItem {
@@ -68,43 +70,25 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
-  /** Legacy join - returns 409 if bot already in room. Prefer play() for track changes. */
-  const join = useCallback(async (
-    roomId:     string,
-    youtubeUrl: string,
-  ): Promise<void> => {
-    setLoading(true);
-    setError(null);
-    try {
-      await fetchMusicman('/join', {
-        method: 'POST',
-        body:   JSON.stringify({ roomId, youtubeUrl }),
-      });
-      setActiveRooms(prev => new Map(prev).set(roomId, youtubeUrl));
-      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchMusicman]);
-
   /**
-   * Play a YouTube URL in a room. If the bot is not yet in the room it joins first;
-   * if it's already there the track is swapped without disrupting connections.
+   * Play a YouTube/SoundCloud URL in a room. If the bot is not yet in the room
+   * it joins first; if it's already there the track is swapped without
+   * disrupting connections.
+   *
+   * videoMode streams the video as a peer screenshare in addition to audio.
+   * It is locked at join time — changing it mid-session requires /leave + /play.
    */
   const play = useCallback(async (
     roomId:     string,
     youtubeUrl: string,
+    videoMode = false,
   ): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
       await fetchMusicman('/play', {
         method: 'POST',
-        body:   JSON.stringify({ roomId, youtubeUrl }),
+        body:   JSON.stringify({ roomId, youtubeUrl, videoMode }),
       });
       setActiveRooms(prev => new Map(prev).set(roomId, youtubeUrl));
       setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
@@ -211,18 +195,25 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
-  /** Fetch current playback status for a room. Returns null on error (e.g. no bot active). */
+  /** Fetch current playback status for a room. Returns null on error (e.g. no bot active).
+   *  Also syncs activeRooms so isActive() returns true for rooms where the bot is already
+   *  playing (e.g. when the frontend joins a room where the bot was already running).
+   */
   const getStatus = useCallback(async (roomId: string): Promise<PlaybackStatus | null> => {
     try {
-      return await fetchMusicman(`/status/${encodeURIComponent(roomId)}`);
+      const status = await fetchMusicman(`/status/${encodeURIComponent(roomId)}`);
+      if (status?.playing) {
+        // Bot is active in this room — ensure activeRooms reflects it so isActive() works
+        setActiveRooms(prev => prev.has(roomId) ? prev : new Map(prev).set(roomId, status.youtubeUrl));
+      }
+      return status;
     } catch {
       return null;
     }
   }, [fetchMusicman]);
 
   /**
-   * Resolve a YouTube URL (single video or playlist) to individual video items.
-   * Uses yt-dlp on the server so playlists expand into their constituent tracks.
+   * Resolve a YouTube/SoundCloud URL to individual track items via yt-dlp on the server.
    */
   const resolve = useCallback(async (url: string): Promise<ResolvedItem[]> => {
     const data: { items: ResolvedItem[] } = await fetchMusicman('/resolve', {
@@ -232,24 +223,12 @@ const useMusicman = () => {
     return data.items;
   }, [fetchMusicman]);
 
-  const isActive = useCallback(
-    (roomId: string) => activeRooms.has(roomId),
-    [activeRooms],
-  );
-
-  const nowPlaying = useCallback(
-    (roomId: string) => activeRooms.get(roomId) ?? null,
-    [activeRooms],
-  );
-
-  const isPaused = useCallback(
-    (roomId: string) => pausedRooms.has(roomId),
-    [pausedRooms],
-  );
+  const isActive   = useCallback((roomId: string) => activeRooms.has(roomId), [activeRooms]);
+  const nowPlaying = useCallback((roomId: string) => activeRooms.get(roomId) ?? null, [activeRooms]);
+  const isPaused   = useCallback((roomId: string) => pausedRooms.has(roomId), [pausedRooms]);
 
   return {
     joinHub,
-    join,
     play,
     leave,
     pause,
