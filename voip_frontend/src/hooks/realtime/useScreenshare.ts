@@ -16,6 +16,8 @@ interface UseScreenShareOptions {
     peerPort: number;
     peerPath: string;
     peerSecure: boolean;
+    onDismiss?: (screenPeerId: string) => void;
+    onRestore?: (screenPeerId: string) => void;
 }
 
 const useScreenshare = ({
@@ -25,6 +27,8 @@ const useScreenshare = ({
     peerPort,
     peerPath,
     peerSecure,
+    onDismiss,
+    onRestore,
 }: UseScreenShareOptions) => {
     const [isSharing,           setIsSharing]           = useState(false);
     const [localScreenStream,   setLocalScreenStream]   = useState<MediaStream | null>(null);
@@ -36,6 +40,10 @@ const useScreenshare = ({
     const screenCallsRef    = useRef<Map<string, MediaConnection>>(new Map());
     const localStreamRef    = useRef<MediaStream | null>(null);
     const currentRoomIdRef  = useRef<string | null>(currentRoomId);
+
+    // Persistent audio elements for streams that carry audio tracks (e.g. bot AV stream).
+    // These are managed outside React so they survive screenshare dismiss/restore.
+    const screenAudioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
     const allowedScreenPeerIds = useRef<Set<string>>(new Set());
     const peerScreenPeerIds    = useRef<Map<string, string>>(new Map());
@@ -50,6 +58,9 @@ const useScreenshare = ({
             pendingAliasRef.current.clear();
             setRemoteScreenStreams([]);
             setDismissedPeerIds(new Set());
+            // Clean up any persistent audio elements
+            screenAudioElsRef.current.forEach(el => { el.srcObject = null; });
+            screenAudioElsRef.current.clear();
         }
     }, [currentRoomId]);
 
@@ -63,14 +74,28 @@ const useScreenshare = ({
             try { call.close(); } catch {}
             screenCallsRef.current.delete(screenPeerId);
         }
+        // Clean up persistent audio element if present
+        const audioEl = screenAudioElsRef.current.get(screenPeerId);
+        if (audioEl) {
+            audioEl.srcObject = null;
+            screenAudioElsRef.current.delete(screenPeerId);
+        }
     }, []);
 
     const dismissScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => new Set([...prev, screenPeerId]));
+        // Mute persistent audio (bot streams) when dismissed
+        const audioEl = screenAudioElsRef.current.get(screenPeerId);
+        if (audioEl) audioEl.muted = true;
+        onDismiss?.(screenPeerId);
     }, []);
 
     const restoreScreenShare = useCallback((screenPeerId: string) => {
         setDismissedPeerIds(prev => { const next = new Set(prev); next.delete(screenPeerId); return next; });
+        // Restore persistent audio (bot streams) when restored
+        const audioEl = screenAudioElsRef.current.get(screenPeerId);
+        if (audioEl) audioEl.muted = false;
+        onRestore?.(screenPeerId);
     }, []);
 
     useEffect(() => {
@@ -109,6 +134,21 @@ const useScreenshare = ({
                 incomingCall.on("stream", (remoteStream: MediaStream) => {
                     const alias = pendingAliasRef.current.get(incomingCall.peer) ?? incomingCall.peer;
                     console.log("Received screenshare stream from:", alias);
+
+                    // If the stream carries audio tracks (bot AV stream), manage a
+                    // persistent audio element outside React so audio survives dismiss/restore.
+                    // The ScreenshareVideo video element is muted — audio plays here only.
+                    if (remoteStream.getAudioTracks().length > 0) {
+                        const existing = screenAudioElsRef.current.get(incomingCall.peer);
+                        if (existing) { existing.srcObject = null; }
+                        const audioEl = new Audio();
+                        audioEl.srcObject = remoteStream;
+                        audioEl.autoplay = true;
+                        audioEl.play().catch(e => console.warn("Screen audio autoplay blocked:", e));
+                        screenAudioElsRef.current.set(incomingCall.peer, audioEl);
+                        console.log("Persistent audio element created for screen peer:", incomingCall.peer);
+                    }
+
                     setRemoteScreenStreams(prev =>
                         prev.some(rs => rs.peerId === incomingCall.peer)
                             ? prev.map(rs => rs.peerId === incomingCall.peer ? { ...rs, stream: remoteStream } : rs)
@@ -202,7 +242,7 @@ const useScreenshare = ({
         pendingAliasRef.current.set(screenPeerId, alias);
         peerScreenPeerIds.current.set(audioPeerId, screenPeerId);
         // Allowlist the screen peer ID so the incoming call handler accepts it.
-        // The remote peer (or bot) is the caller and will send us an OFFER —
+        // The remote peer (or bot) is the caller and will send us an OFFER
         // we do not need to initiate anything here.
         allowedScreenPeerIds.current.add(screenPeerId);
     }, []);
@@ -225,6 +265,13 @@ const useScreenshare = ({
         }
     }, [closeRemoteScreenStream]);
 
+    const getAudioPeerIdForScreenPeer = useCallback((screenPeerId: string) => {
+        for (const [audioPeerId, spid] of peerScreenPeerIds.current) {
+            if (spid === screenPeerId) return audioPeerId;
+        }
+        return null;
+    }, []);
+
     return {
         isSharing,
         localScreenStream,
@@ -239,6 +286,7 @@ const useScreenshare = ({
         handleRemoteScreenShareStopped,
         handleNewScreenPeer,
         screenPeerIdRef,
+        getAudioPeerIdForScreenPeer,
     };
 };
 

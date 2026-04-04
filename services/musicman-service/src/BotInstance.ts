@@ -18,6 +18,8 @@ import { config } from './config';
 
 const OPUS_PAYLOAD_TYPE = 111;
 
+// ── Audio-only peer (non-video mode) ─────────────────────────────────────────
+
 interface PeerConn {
   pc:           RTCPeerConnection;
   track:        MediaStreamTrack;
@@ -28,14 +30,24 @@ interface PeerConn {
   timestamp:    number;
 }
 
-interface VideoPeerConn {
-  pc:           RTCPeerConnection;
-  track:        MediaStreamTrack;
-  transceiver:  RTCRtpTransceiver;
-  connectionId: string;
-  ssrc:         number;
-  seq:          number;
-  timestamp:    number;
+// ── AV peer (video mode) — one PC, both tracks ────────────────────────────────
+// Audio and video share a single RTCPeerConnection so the browser receives
+// RTCP Sender Reports with a shared NTP clock and can sync them natively.
+// No application-level sync needed.
+
+interface AVPeerConn {
+  pc:               RTCPeerConnection;
+  audioTrack:       MediaStreamTrack;
+  audioTransceiver: RTCRtpTransceiver;
+  videoTrack:       MediaStreamTrack;
+  videoTransceiver: RTCRtpTransceiver;
+  connectionId:     string;
+  audioSsrc:        number;
+  audioSeq:         number;
+  audioTimestamp:   number;
+  videoSsrc:        number;
+  videoSeq:         number;
+  videoTimestamp:   number;
 }
 
 type IceEntry = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
@@ -54,7 +66,7 @@ export class BotInstance {
   private peerWs:   WebSocket | null = null;
   private myPeerId: string | null = null;
 
-  // Audio pipeline (always present)
+  // Audio-only mode
   private pipeline:   AudioPipeline;
   private youtubeUrl: string;
   private conns       = new Map<string, PeerConn>();
@@ -64,14 +76,13 @@ export class BotInstance {
   private frameQueue: OpusFrame[] = [];
   private isConnected = false;
 
-  // Video screenshare mode (optional)
-  private videoMode:      boolean;
-  private avPipeline:     AVPipeline | null = null;
-  private screenPeerId:   string | null = null;
-  private screenConnected = false;
+  // Video mode — single PC per user carrying both tracks
+  private videoMode:     boolean;
+  private avPipeline:    AVPipeline | null = null;
+  private screenPeerId:  string | null = null;
   private screenPeerWs:  WebSocket | null = null;
-  private videoConns     = new Map<string, VideoPeerConn>();
-  private videoIceBuf    = new Map<string, IceEntry[]>();
+  private avConns        = new Map<string, AVPeerConn>();
+  private avIceBuf       = new Map<string, IceEntry[]>();
   private screenHbTimer: NodeJS.Timeout | null = null;
 
   readonly roomId: string;
@@ -86,16 +97,21 @@ export class BotInstance {
 
   // ── Pipeline listeners ────────────────────────────────────────────────────
 
-  private readonly onFrame = (frame: OpusFrame) => {
-    if (this.isConnected) {
-      for (const conn of this.conns.values()) this.sendOpusFrame(conn, frame);
+  private readonly onAudioFrame = (frame: OpusFrame) => {
+    if (this.videoMode) {
+      // In video mode audio goes through the AV peer connections
+      for (const conn of this.avConns.values()) this.sendOpusFrameAV(conn, frame);
     } else {
-      this.frameQueue.push(frame);
+      if (this.isConnected) {
+        for (const conn of this.conns.values()) this.sendOpusFrame(conn, frame);
+      } else {
+        this.frameQueue.push(frame);
+      }
     }
   };
 
   private readonly onVideoFrame = (frameData: Buffer) => {
-    for (const conn of this.videoConns.values()) this.sendVP8Frame(conn, frameData);
+    for (const conn of this.avConns.values()) this.sendVP8Frame(conn, frameData);
   };
 
   private readonly onEnded = (code: number | null) => {
@@ -107,26 +123,26 @@ export class BotInstance {
     console.error(`[Bot ${this.roomId}] Pipeline error:`, e);
 
   private wirePipeline(): void {
-    this.pipeline.on('frame', this.onFrame);
+    this.pipeline.on('frame', this.onAudioFrame);
     this.pipeline.on('ended', this.onEnded);
     this.pipeline.on('error', this.onPipelineError);
   }
 
   private unwirePipeline(): void {
-    this.pipeline.removeListener('frame', this.onFrame);
+    this.pipeline.removeListener('frame', this.onAudioFrame);
     this.pipeline.removeListener('ended', this.onEnded);
     this.pipeline.removeListener('error', this.onPipelineError);
   }
 
   private wireAVPipeline(): void {
-    this.avPipeline!.on('audioFrame', this.onFrame);
+    this.avPipeline!.on('audioFrame', this.onAudioFrame);
     this.avPipeline!.on('videoFrame', this.onVideoFrame);
     this.avPipeline!.on('ended',      this.onEnded);
     this.avPipeline!.on('error',      this.onPipelineError);
   }
 
   private unwireAVPipeline(): void {
-    this.avPipeline!.removeListener('audioFrame', this.onFrame);
+    this.avPipeline!.removeListener('audioFrame', this.onAudioFrame);
     this.avPipeline!.removeListener('videoFrame', this.onVideoFrame);
     this.avPipeline!.removeListener('ended',      this.onEnded);
     this.avPipeline!.removeListener('error',      this.onPipelineError);
@@ -156,7 +172,7 @@ export class BotInstance {
       this.unwireAVPipeline();
       this.avPipeline?.stop();
       if (this.screenHbTimer) { clearInterval(this.screenHbTimer); this.screenHbTimer = null; }
-      for (const peerId of [...this.videoConns.keys()]) this.closeVideoPeer(peerId);
+      for (const peerId of [...this.avConns.keys()]) this.closeAVPeer(peerId);
       if (this.socket?.connected) this.socket.emit('screenshare-stopped');
       this.screenPeerWs?.close();
       this.screenPeerWs = null;
@@ -186,7 +202,6 @@ export class BotInstance {
     if (this.videoMode && this.avPipeline) {
       this.unwireAVPipeline();
       this.avPipeline.stop();
-      this.frameQueue = [];
       this.avPipeline = new AVPipeline(url);
       this.wireAVPipeline();
       this.avPipeline.start();
@@ -234,7 +249,7 @@ export class BotInstance {
     if (this.socket?.connected) this.socket.emit(event, data);
   }
 
-  // ── Signaling ─────────────────────────────────────────────────────────────
+  // ── Signaling — unchanged ─────────────────────────────────────────────────
 
   private connectSignaling(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -275,7 +290,7 @@ export class BotInstance {
             await this.connectScreenPeerWs(screenPeerId);
             this.avPipeline.start();
             this.socket!.emit('screenshare-started', { screenPeerId });
-            console.log(`[Bot ${this.roomId}] Video screenshare started — screen peer: ${screenPeerId}`);
+            console.log(`[Bot ${this.roomId}] AV stream started — screen peer: ${screenPeerId}`);
           } else {
             this.pipeline.start();
           }
@@ -294,7 +309,6 @@ export class BotInstance {
         console.log(`[Bot ${this.roomId}] user-connected: ${alias} (${peerId})`);
       });
 
-      // Server sends existing screen peers in the room after we emit screenshare-started.
       this.socket.on('room-screen-peers', ({ peers }: { peers: Array<{ screenPeerId: string; alias: string }> }) => {
         console.log(`[Bot ${this.roomId}] room-screen-peers: ${peers.length} peer(s)`);
         for (const { screenPeerId, alias } of peers) {
@@ -302,7 +316,6 @@ export class BotInstance {
         }
       });
 
-      // A new user joined while we are already sharing — call their screen peer.
       this.socket.on('new-screen-peer', ({ screenPeerId, alias }: { screenPeerId: string; alias: string }) => {
         console.log(`[Bot ${this.roomId}] new-screen-peer: ${alias} (${screenPeerId})`);
         this.callFrontendScreenPeer(screenPeerId, alias);
@@ -341,7 +354,7 @@ export class BotInstance {
     });
   }
 
-  // ── Audio PeerJS WS ───────────────────────────────────────────────────────
+  // ── Audio-only PeerJS WS (non-video mode) ────────────────────────────────
 
   private connectPeerWs(peerId: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -375,7 +388,11 @@ export class BotInstance {
 
         switch (msg.type) {
           case 'OPEN':     clearTimeout(timer); console.log(`[PeerWS ${this.roomId}] Open ✓`); resolve(); break;
-          case 'OFFER':    await this.onOffer(msg.src, msg.payload);    break;
+          case 'OFFER':
+            // In video mode, audio+video are handled through the screen peer WS.
+            // Ignore incoming audio-only offers from the frontend.
+            if (!this.videoMode) await this.onOffer(msg.src, msg.payload);
+            break;
           case 'ANSWER':   await this.onAnswer(msg.src, msg.payload);   break;
           case 'CANDIDATE': await this.onCandidate(msg.src, msg.payload); break;
           case 'LEAVE':
@@ -398,7 +415,7 @@ export class BotInstance {
     this.peerWs.send(JSON.stringify({ type, src: this.myPeerId, dst, payload }));
   }
 
-  // ── Audio peer connections — identical to original working version ─────────
+  // ── Audio-only peer connections (non-video mode) ──────────────────────────
 
   private makePc(remotePeerId: string, connectionId: string): PeerConn {
     const pc          = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -465,15 +482,6 @@ export class BotInstance {
     const answer = await conn.pc.createAnswer();
     await conn.pc.setLocalDescription(answer);
 
-    // Diagnostic: log key SDP lines to verify PT, direction, and SSRC
-    const sdpLines = (answer.sdp ?? '').split(/\r?\n/);
-    const relevant = sdpLines.filter(l =>
-      l.startsWith('a=rtpmap') || l.startsWith('a=sendonly') ||
-      l.startsWith('a=recvonly') || l.startsWith('a=sendrecv') ||
-      l.startsWith('a=inactive') || l.startsWith('a=ssrc')
-    );
-    console.log(`[Bot ${this.roomId}] answer SDP for ${remotePeerId}:`, relevant);
-
     this.sendPeer('ANSWER', remotePeerId, {
       sdp: { sdp: answer.sdp, type: answer.type }, connectionId, browser: 'node-bot',
     });
@@ -536,13 +544,11 @@ export class BotInstance {
     const pkt = Buffer.concat([header, frame.data]);
     try {
       conn.track.writeRtp(pkt);
-      // Log first 3 successful sends so we know writeRtp isn't silently failing
       if (this._rtpLogCount < 3) {
         this._rtpLogCount++;
         console.log(`[Bot ${this.roomId}] writeRtp ok #${this._rtpLogCount} — ssrc: ${conn.ssrc}, seq: ${conn.seq}, pt: ${OPUS_PAYLOAD_TYPE}, bytes: ${pkt.length}`);
       }
     } catch (e) {
-      // Log errors — previously swallowed silently
       if (this._rtpLogCount < 3) {
         this._rtpLogCount++;
         console.error(`[Bot ${this.roomId}] writeRtp ERROR #${this._rtpLogCount}:`, e);
@@ -550,7 +556,7 @@ export class BotInstance {
     }
   }
 
-  // ── Screen PeerJS WS ─────────────────────────────────────────────────────
+  // ── Screen PeerJS WS (video mode) ────────────────────────────────────────
 
   private connectScreenPeerWs(screenPeerId: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -576,16 +582,15 @@ export class BotInstance {
         let msg: { type: string; src: string; dst: string; payload: Record<string, unknown> };
         try { msg = JSON.parse(raw.toString()); } catch { return; }
         switch (msg.type) {
-          // Bot is the CALLER — it sends OFFERs and receives ANSWERs.
           case 'OPEN':
             clearTimeout(timer);
             console.log(`[ScreenPeerWS ${this.roomId}] Open ✓ — screen peer: ${screenPeerId}`);
             resolve();
             break;
-          case 'ANSWER':    await this.onScreenAnswer(msg.src, msg.payload); break;
-          case 'CANDIDATE': await this.onScreenCandidate(msg.src, msg.payload); break;
+          case 'ANSWER':    await this.onAVAnswer(msg.src, msg.payload);    break;
+          case 'CANDIDATE': await this.onAVCandidate(msg.src, msg.payload); break;
           case 'LEAVE':
-          case 'EXPIRE':    this.closeVideoPeer(msg.src); break;
+          case 'EXPIRE':    this.closeAVPeer(msg.src); break;
           case 'ID-TAKEN':
             clearTimeout(timer);
             reject(new Error(`[Bot ${this.roomId}] Screen peer ID already taken: ${screenPeerId}`));
@@ -608,17 +613,16 @@ export class BotInstance {
     this.screenPeerWs.send(JSON.stringify({ type, src: this.screenPeerId, dst, payload }));
   }
 
-  // ── Video peer connections ────────────────────────────────────────────────
+  // ── AV peer connections — one PC, two transceivers ────────────────────────
 
-  // ── Bot-as-caller: bot sends OFFERs to frontend screen peers ────────────
-  // The bot owns the video stream so it must be the PeerJS caller.
-  // The frontend's screen peer answers and the stream event fires on the viewer.
+  private makeAVPc(remotePeerId: string, connectionId: string): AVPeerConn {
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-  private makeVideoPc(remotePeerId: string, connectionId: string): VideoPeerConn {
-    const pc    = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const track = new MediaStreamTrack({ kind: 'video' });
-    // Pre-add sendonly transceiver — we are the caller with a video track to send.
-    const transceiver = pc.addTransceiver(track, { direction: 'sendonly' });
+    // Both tracks on the same PC — the browser's RTCP SR mechanism syncs them.
+    const audioTrack       = new MediaStreamTrack({ kind: 'audio' });
+    const audioTransceiver = pc.addTransceiver(audioTrack, { direction: 'sendonly' });
+    const videoTrack       = new MediaStreamTrack({ kind: 'video' });
+    const videoTransceiver = pc.addTransceiver(videoTrack, { direction: 'sendonly' });
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
@@ -632,36 +636,32 @@ export class BotInstance {
 
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      console.log(`[ScreenPC ${this.roomId}→${remotePeerId}] state: ${state}`);
-      if (state === 'connected') {
-        this.screenConnected = true;
-      }
+      console.log(`[AVPC ${this.roomId}→${remotePeerId}] state: ${state}`);
       if (state === 'failed' || state === 'closed') {
-        this.closeVideoPeer(remotePeerId);
-        this.screenConnected = this.videoConns.size > 0;
+        this.closeAVPeer(remotePeerId);
       }
     });
 
-    const conn: VideoPeerConn = {
-      pc, track, transceiver, connectionId,
-      ssrc:      Math.floor(Math.random() * 0xFFFFFFFF),
-      seq:       Math.floor(Math.random() * 0xFFFF),
-      timestamp: Math.floor(Math.random() * 0xFFFFFFFF),
+    const conn: AVPeerConn = {
+      pc, audioTrack, audioTransceiver, videoTrack, videoTransceiver, connectionId,
+      audioSsrc:      Math.floor(Math.random() * 0xFFFFFFFF),
+      audioSeq:       Math.floor(Math.random() * 0xFFFF),
+      audioTimestamp: Math.floor(Math.random() * 0xFFFFFFFF),
+      videoSsrc:      Math.floor(Math.random() * 0xFFFFFFFF),
+      videoSeq:       Math.floor(Math.random() * 0xFFFF),
+      videoTimestamp: Math.floor(Math.random() * 0xFFFFFFFF),
     };
-    this.videoConns.set(remotePeerId, conn);
+    this.avConns.set(remotePeerId, conn);
     return conn;
   }
 
-  // Called when the signaling server tells us a frontend screen peer exists.
-  // The bot creates the offer so the frontend receives an incoming call and
-  // the stream event fires on the viewer side when we push VP8 frames.
   private async callFrontendScreenPeer(frontendScreenPeerId: string, alias: string): Promise<void> {
     if (this.destroyed) return;
-    if (this.videoConns.has(frontendScreenPeerId)) return; // already connected
+    if (this.avConns.has(frontendScreenPeerId)) return;
 
     const connectionId = `screen-${uuid()}`;
-    console.log(`[Bot ${this.roomId}] → Calling frontend screen peer ${frontendScreenPeerId} (${alias})`);
-    const conn = this.makeVideoPc(frontendScreenPeerId, connectionId);
+    console.log(`[Bot ${this.roomId}] → Calling frontend screen peer ${frontendScreenPeerId} (${alias}) with audio+video`);
+    const conn = this.makeAVPc(frontendScreenPeerId, connectionId);
 
     try {
       const offer = await conn.pc.createOffer();
@@ -674,68 +674,84 @@ export class BotInstance {
         metadata: { connectionId },
       });
     } catch (err) {
-      console.error(`[Bot ${this.roomId}] Failed to create screen offer for ${frontendScreenPeerId}:`, err);
-      this.closeVideoPeer(frontendScreenPeerId);
+      console.error(`[Bot ${this.roomId}] Failed to create AV offer for ${frontendScreenPeerId}:`, err);
+      this.closeAVPeer(frontendScreenPeerId);
     }
   }
 
-  private async onScreenAnswer(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
-    const conn = this.videoConns.get(remotePeerId);
+  private async onAVAnswer(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
+    const conn = this.avConns.get(remotePeerId);
     if (!conn) return;
     const sdpObj  = payload.sdp as { sdp: string; type: string } | string;
     const sdpStr  = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
     const sdpType = typeof sdpObj === 'string' ? payload.type as string : sdpObj.type;
     await conn.pc.setRemoteDescription(new RTCSessionDescription(sdpStr, sdpType as 'offer' | 'answer'));
-    await this.drainVideoIceBuf(remotePeerId, conn.pc);
+    await this.drainAVIceBuf(remotePeerId, conn.pc);
   }
 
-  private async onScreenCandidate(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
+  private async onAVCandidate(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
     const raw = payload.candidate as IceEntry | null;
     if (!raw) return;
-    const conn = this.videoConns.get(remotePeerId);
+    const conn = this.avConns.get(remotePeerId);
     if (!conn?.pc.remoteDescription) {
-      const buf = this.videoIceBuf.get(remotePeerId) ?? [];
+      const buf = this.avIceBuf.get(remotePeerId) ?? [];
       buf.push(raw);
-      this.videoIceBuf.set(remotePeerId, buf);
+      this.avIceBuf.set(remotePeerId, buf);
       return;
     }
     try { await conn.pc.addIceCandidate(new RTCIceCandidate(raw)); } catch {}
   }
 
-  private async drainVideoIceBuf(peerId: string, pc: RTCPeerConnection): Promise<void> {
-    const buf = this.videoIceBuf.get(peerId) ?? [];
-    this.videoIceBuf.delete(peerId);
+  private async drainAVIceBuf(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    const buf = this.avIceBuf.get(peerId) ?? [];
+    this.avIceBuf.delete(peerId);
     for (const cand of buf) {
       try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch {}
     }
   }
 
-  private closeVideoPeer(peerId: string): void {
-    const conn = this.videoConns.get(peerId);
+  private closeAVPeer(peerId: string): void {
+    const conn = this.avConns.get(peerId);
     if (!conn) return;
     try { conn.pc.close(); } catch {}
-    this.videoConns.delete(peerId);
-    this.videoIceBuf.delete(peerId);
+    this.avConns.delete(peerId);
+    this.avIceBuf.delete(peerId);
+    console.log(`[Bot ${this.roomId}] Closed AV peer: ${peerId}`);
   }
 
-  private sendVP8Frame(conn: VideoPeerConn, frameData: Buffer): void {
+  // ── RTP senders ───────────────────────────────────────────────────────────
+
+  private sendOpusFrameAV(conn: AVPeerConn, frame: OpusFrame): void {
     if (conn.pc.connectionState !== 'connected') return;
-    conn.timestamp = (conn.timestamp + VP8_TIMESTAMP_STEP) >>> 0;
+    conn.audioSeq       = (conn.audioSeq + 1) & 0xFFFF;
+    conn.audioTimestamp = (conn.audioTimestamp + RTP_TIMESTAMP_STEP) >>> 0;
+    const header = Buffer.alloc(12);
+    header[0] = 0x80;
+    header[1] = OPUS_PAYLOAD_TYPE & 0x7F;
+    header.writeUInt16BE(conn.audioSeq, 2);
+    header.writeUInt32BE(conn.audioTimestamp, 4);
+    header.writeUInt32BE(conn.audioSsrc, 8);
+    try { conn.audioTrack.writeRtp(Buffer.concat([header, frame.data])); } catch {}
+  }
+
+  private sendVP8Frame(conn: AVPeerConn, frameData: Buffer): void {
+    if (conn.pc.connectionState !== 'connected') return;
+    conn.videoTimestamp = (conn.videoTimestamp + VP8_TIMESTAMP_STEP) >>> 0;
     let offset = 0;
     while (offset < frameData.length) {
       const isFirst = offset === 0;
       const chunk   = frameData.subarray(offset, offset + VP8_MAX_RTP_PAYLOAD);
       const isLast  = offset + chunk.length >= frameData.length;
-      conn.seq = (conn.seq + 1) & 0xFFFF;
+      conn.videoSeq = (conn.videoSeq + 1) & 0xFFFF;
       const header = Buffer.alloc(12);
       header[0] = 0x80;
       header[1] = (isLast ? 0x80 : 0x00) | (VP8_PAYLOAD_TYPE & 0x7F);
-      header.writeUInt16BE(conn.seq, 2);
-      header.writeUInt32BE(conn.timestamp, 4);
-      header.writeUInt32BE(conn.ssrc, 8);
+      header.writeUInt16BE(conn.videoSeq, 2);
+      header.writeUInt32BE(conn.videoTimestamp, 4);
+      header.writeUInt32BE(conn.videoSsrc, 8);
       const desc = Buffer.alloc(1);
       desc[0] = isFirst ? 0x10 : 0x00;
-      try { conn.track.writeRtp(Buffer.concat([header, desc, chunk])); } catch {}
+      try { conn.videoTrack.writeRtp(Buffer.concat([header, desc, chunk])); } catch {}
       offset += chunk.length;
     }
   }

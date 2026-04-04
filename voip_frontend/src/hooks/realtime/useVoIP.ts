@@ -92,6 +92,7 @@ const useVoIP = () => {
     handleNewScreenPeer,
     dismissedPeerIds,
     restoreScreenShare,
+    getAudioPeerIdForScreenPeer,
   } = useScreenShare({
     socket,
     currentRoomId,
@@ -99,6 +100,22 @@ const useVoIP = () => {
     peerPort: PEER_PORT,
     peerPath: PEER_PATH,
     peerSecure: PEER_SECURE,
+
+    onDismiss: (screenPeerId) => {
+      const audioPeerId = getAudioPeerIdForScreenPeer(screenPeerId);
+      if (!audioPeerId) return;
+      // stash current volume then zero it
+      const current = peerVolumeRef.current[audioPeerId] ?? 1;
+      peerVolumeRef.current[`_predismiss_${audioPeerId}`] = current;
+      setPeerVolume(audioPeerId, 0);
+      },
+    onRestore: (screenPeerId) => {
+        const audioPeerId = getAudioPeerIdForScreenPeer(screenPeerId);
+        if (!audioPeerId) return;
+        const prev = peerVolumeRef.current[`_predismiss_${audioPeerId}`] ?? 1;
+        delete peerVolumeRef.current[`_predismiss_${audioPeerId}`];
+        setPeerVolume(audioPeerId, prev);
+    },
   });
 
   const peerVolumeRef = useRef<Record<string, number>>({});

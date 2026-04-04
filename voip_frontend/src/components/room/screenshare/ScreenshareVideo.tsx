@@ -10,10 +10,21 @@ export default function ScreenshareVideo({ alias, stream }: ScreenshareVideoProp
     const videoRef = useRef<HTMLVideoElement>(null);
 
     useEffect(() => {
-        if (!videoRef.current) return;
-        videoRef.current.srcObject = stream;
+        const el = videoRef.current;
+        if (!el) return;
+        el.srcObject = stream;
+        // Explicitly call play() — autoPlay attribute alone isn't reliable for
+        // streams containing audio tracks (browser autoplay policy). The user has
+        // already interacted with the page, so this should always succeed.
+        el.play().catch(err => {
+            // NotAllowedError means autoplay was blocked — surface it so the
+            // user knows audio may be silent until they interact with the video.
+            if (err.name !== 'AbortError') {
+                console.warn('[ScreenshareVideo] play() blocked:', err);
+            }
+        });
         return () => {
-            if (videoRef.current) videoRef.current.srcObject = null;
+            el.srcObject = null;
         };
     }, [stream]);
 

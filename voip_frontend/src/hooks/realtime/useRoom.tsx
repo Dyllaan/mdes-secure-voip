@@ -6,6 +6,15 @@ import type { RoomClient } from "@/utils/RoomClient";
 import type { RemoteStream } from "./useVoIP";
 import type { UserConnectedData } from "@/types/voip.types";
 
+// Bot user IDs never register RSA keys and in video mode don't answer audio
+// offers — the bot's audio arrives via the screen-share peer connection instead.
+// Calling their audio peer just hangs and errors, so we skip it.
+const BOT_USER_IDS = ['musicman'];
+function isBotUser(userId?: string): boolean {
+    if (!userId) return false;
+    return BOT_USER_IDS.some(id => userId === id || userId.startsWith(id + '-'));
+}
+
 interface UseRoomOptions {
     socket: Socket | null;
     peer: Peer | null;
@@ -120,7 +129,11 @@ const useRoom = ({
             setConnectedPeers(users);
 
             if (!roomId.startsWith('ephemeral-')) {
-                users.forEach(({ peerId, alias }) => {
+                users.forEach(({ peerId, alias, userId }) => {
+                    if (isBotUser(userId)) {
+                        console.log(`[useRoom] all-users: skipping audio call to bot ${alias} (${peerId}) — audio arrives via screen-share PC`);
+                        return;
+                    }
                     console.log(`[useRoom] all-users: calling ${peerId} (${alias})`);
                     callPeer(peerId);
                 });
@@ -137,12 +150,16 @@ const useRoom = ({
             }
         };
 
-        const handleUserConnected = ({ peerId, alias }: UserConnectedData) => {
+        const handleUserConnected = ({ peerId, alias, userId }: UserConnectedData) => {
             console.log(`[useRoom] user-connected: ${peerId} (${alias})`);
             onPeerJoined(peerId);
             setConnectedPeers(prev => prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]);
             if (!roomId.startsWith('ephemeral-')) {
-                callPeer(peerId);
+                if (isBotUser(userId)) {
+                    console.log(`[useRoom] user-connected: skipping audio call to bot ${alias} (${peerId}) — audio arrives via screen-share PC`);
+                } else {
+                    callPeer(peerId);
+                }
             }
         };
 

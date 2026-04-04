@@ -634,7 +634,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 </div>
             )}
 
-            {/* ── Queue ─────────────────────────────────────────── */}
             {queue.length > 0 && (
                 <div className="mt-3">
                     <Separator className="mb-3" />

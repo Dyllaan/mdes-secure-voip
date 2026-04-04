@@ -12,6 +12,7 @@ type RemoteStream = {
 type UserConnectedData = {
     peerId: string;
     alias: string;
+    userId?: string; // present when server echoes join-room payload; used to detect bots
 }
 
 type ChatMessageData = {
