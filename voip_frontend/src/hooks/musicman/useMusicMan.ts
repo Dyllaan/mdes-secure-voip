@@ -72,11 +72,11 @@ const useMusicman = () => {
 
   /**
    * Play a YouTube/SoundCloud URL in a room. If the bot is not yet in the room
-   * it joins first; if it's already there the track is swapped without
-   * disrupting connections.
+   * it joins first
+   * if it's already there the track is swapped
    *
-   * videoMode streams the video as a peer screenshare in addition to audio.
-   * It is locked at join time — changing it mid-session requires /leave + /play.
+   * videoMode streams the video as a peer screenshare WITH AUDIO
+   * @TODO: to change the bot must be kicked and re-added to the room make this smoother by allowing videoMode to be toggled without leaving the room
    */
   const play = useCallback(async (
     roomId:     string,
@@ -195,15 +195,13 @@ const useMusicman = () => {
     }
   }, [fetchMusicman]);
 
-  /** Fetch current playback status for a room. Returns null on error (e.g. no bot active).
-   *  Also syncs activeRooms so isActive() returns true for rooms where the bot is already
-   *  playing (e.g. when the frontend joins a room where the bot was already running).
+  /** Fetch current playback status for a room.
+   *  Also syncs activeRooms so isActive() returns true for rooms where the bot is playing
    */
   const getStatus = useCallback(async (roomId: string): Promise<PlaybackStatus | null> => {
     try {
       const status = await fetchMusicman(`/status/${encodeURIComponent(roomId)}`);
       if (status?.playing) {
-        // Bot is active in this room — ensure activeRooms reflects it so isActive() works
         setActiveRooms(prev => prev.has(roomId) ? prev : new Map(prev).set(roomId, status.youtubeUrl));
       }
       return status;

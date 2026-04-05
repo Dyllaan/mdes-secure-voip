@@ -6,9 +6,8 @@
  * URL resolution via yt-dlp, and graceful shutdown.
  *
  * Video screenshare mode
- * ──────────────────────
  * Pass `"videoMode": true` in the body of /join or /play to stream the YouTube
- * video as a peer screenshare in addition to audio.  The bot will request a
+ * video as a peer screenshare in addition to audio. The bot will request a
  * screen peer ID from the signaling server, open a second PeerJS connection for
  * it, and emit 'screenshare-started' so other room members automatically
  * connect to the screen peer for video.
@@ -91,7 +90,7 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
                         url:        String(e.webpage_url ?? e.url ?? `https://www.youtube.com/watch?v=${e.id}`),
                         title:      String(e.title ?? e.id),
                         channel:    String(e.channel ?? e.uploader ?? 'Unknown'),
-                        duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '—',
+                        duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '-',
                         durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
                     }));
                 resolve(items);
@@ -108,8 +107,6 @@ const app  = express();
 const bots = new Map<string, BotInstance>();
 
 app.use(express.json());
-
-// ─── Hub ─────────────────────────────────────────────────────────────────────
 
 app.post('/hub/join', async (req: Request, res: Response) => {
     const { hubId } = req.body as { hubId?: string };
@@ -131,8 +128,6 @@ app.post('/hub/join', async (req: Request, res: Response) => {
     }
 });
 
-// ─── Playback ─────────────────────────────────────────────────────────────────
-
 app.post('/join', async (req: Request, res: Response) => {
     const { roomId, youtubeUrl, videoMode = false } =
         req.body as { roomId?: string; youtubeUrl?: string; videoMode?: boolean };
@@ -152,6 +147,10 @@ app.post('/join', async (req: Request, res: Response) => {
     }
 
     const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    bot.setAutoLeaveCallback(() => {
+      bot.destroy();
+      bots.delete(roomId);
+    });
     bots.set(roomId, bot);
 
     try {
@@ -174,8 +173,6 @@ app.post('/play', async (req: Request, res: Response) => {
 
     const existing = bots.get(roomId);
     if (existing) {
-        // Track change on an already-joined bot (videoMode cannot be changed here;
-        // call /leave then /join again to switch modes).
         existing.changeTrack(youtubeUrl);
         return res.json({ ok: true, roomId, action: 'changeTrack' });
     }
@@ -188,6 +185,10 @@ app.post('/play', async (req: Request, res: Response) => {
     }
 
     const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    bot.setAutoLeaveCallback(() => {
+      bot.destroy();
+      bots.delete(roomId);
+    });
     bots.set(roomId, bot);
 
     try {
@@ -248,8 +249,6 @@ app.post('/seek', (req: Request, res: Response) => {
     return res.json({ ok: true, roomId, seconds });
 });
 
-// ─── Utility ─────────────────────────────────────────────────────────────────
-
 app.post('/resolve', async (req: Request, res: Response) => {
     const { url } = req.body as { url?: string };
     if (!url) return res.status(400).json({ error: 'url is required' });
@@ -278,8 +277,6 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[Unhandled]', err);
     res.status(500).json({ error: err.message });
 });
-
-// ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (async () => {
     try {

@@ -233,13 +233,8 @@ const useVoIP = () => {
     });
 
     newPeer.on("call", (incomingCall: MediaConnection) => {
-      // Accept optimistically — the PeerJS server only routes messages between
-      // authenticated sockets so any caller is already room-validated server-side.
-      // The strict Set check caused a race condition: the bot's PeerJS OFFER
-      // arrived before the 'user-connected' socket event fired and added the
-      // bot's peerId to roomPeerIdsRef, so the call was being silently rejected.
       if (!roomPeerIdsRef.current.has(incomingCall.peer)) {
-        console.log(`[peer.on(call)] ${incomingCall.peer} not yet in roomPeerIds — adding and accepting`);
+        console.log(`[peer.on(call)] ${incomingCall.peer} not yet in roomPeerIds - adding and accepting`);
         roomPeerIdsRef.current.add(incomingCall.peer);
       }
 
@@ -256,7 +251,7 @@ const useVoIP = () => {
       waitForStream();
 
       incomingCall.on("stream", (remoteStream: MediaStream) => {
-        console.log(`[peer.on(call)] stream from ${incomingCall.peer} — audio: ${remoteStream.getAudioTracks().length}`);
+        console.log(`[peer.on(call)] stream from ${incomingCall.peer} - audio: ${remoteStream.getAudioTracks().length}`);
         addRemoteStream(incomingCall.peer, remoteStream);
       });
       incomingCall.on("close", () => removeStream(incomingCall.peer));

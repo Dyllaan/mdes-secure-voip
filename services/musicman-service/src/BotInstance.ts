@@ -18,7 +18,7 @@ import { config } from './config';
 
 const OPUS_PAYLOAD_TYPE = 111;
 
-// ── Audio-only peer (non-video mode) ─────────────────────────────────────────
+// Audio-only peer (non-video mode)
 
 interface PeerConn {
   pc:           RTCPeerConnection;
@@ -30,10 +30,9 @@ interface PeerConn {
   timestamp:    number;
 }
 
-// ── AV peer (video mode) — one PC, both tracks ────────────────────────────────
-// Audio and video share a single RTCPeerConnection so the browser receives
-// RTCP Sender Reports with a shared NTP clock and can sync them natively.
-// No application-level sync needed.
+/** AV peer (video mode) = one PC, both tracks
+    Audio and video share a single RTCPeerConnection so the browser receives
+    Without this desync errors will fry you **/
 
 interface AVPeerConn {
   pc:               RTCPeerConnection;
@@ -66,7 +65,6 @@ export class BotInstance {
   private peerWs:   WebSocket | null = null;
   private myPeerId: string | null = null;
 
-  // Audio-only mode
   private pipeline:   AudioPipeline;
   private youtubeUrl: string;
   private conns       = new Map<string, PeerConn>();
@@ -76,7 +74,6 @@ export class BotInstance {
   private frameQueue: OpusFrame[] = [];
   private isConnected = false;
 
-  // Video mode — single PC per user carrying both tracks
   private videoMode:     boolean;
   private avPipeline:    AVPipeline | null = null;
   private screenPeerId:  string | null = null;
@@ -84,6 +81,8 @@ export class BotInstance {
   private avConns        = new Map<string, AVPeerConn>();
   private avIceBuf       = new Map<string, IceEntry[]>();
   private screenHbTimer: NodeJS.Timeout | null = null;
+
+  private onAutoLeave: (() => void) | null = null;
 
   readonly roomId: string;
 
@@ -95,7 +94,9 @@ export class BotInstance {
     if (videoMode) this.avPipeline = new AVPipeline(youtubeUrl);
   }
 
-  // ── Pipeline listeners ────────────────────────────────────────────────────
+  setAutoLeaveCallback(cb: () => void): void {
+    this.onAutoLeave = cb;
+  }
 
   private readonly onAudioFrame = (frame: OpusFrame) => {
     if (this.videoMode) {
@@ -152,8 +153,6 @@ export class BotInstance {
     return (this.videoMode && this.avPipeline) ? this.avPipeline : this.pipeline;
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
-
   async start(): Promise<void> {
     if (this.videoMode && this.avPipeline) {
       this.wireAVPipeline();
@@ -191,8 +190,6 @@ export class BotInstance {
     }
     this.peerWs?.close();
   }
-
-  // ── Playback controls ─────────────────────────────────────────────────────
 
   changeTrack(url: string): void {
     if (this.destroyed) return;
@@ -249,7 +246,17 @@ export class BotInstance {
     if (this.socket?.connected) this.socket.emit(event, data);
   }
 
-  // ── Signaling — unchanged ─────────────────────────────────────────────────
+  private checkAutoLeave(): void {
+    const peerCount = this.videoMode ? this.avConns.size : this.conns.size;
+    if (peerCount === 0) {
+      console.log(`[Bot ${this.roomId}] No peers connected, triggering auto-leave`);
+      this.onAutoLeave?.();
+    }
+  }
+
+  private getPeerCount(): number {
+    return this.videoMode ? this.avConns.size : this.conns.size;
+  }
 
   private connectSignaling(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -290,7 +297,7 @@ export class BotInstance {
             await this.connectScreenPeerWs(screenPeerId);
             this.avPipeline.start();
             this.socket!.emit('screenshare-started', { screenPeerId });
-            console.log(`[Bot ${this.roomId}] AV stream started — screen peer: ${screenPeerId}`);
+            console.log(`[Bot ${this.roomId}] AV stream started - screen peer: ${screenPeerId}`);
           } else {
             this.pipeline.start();
           }
@@ -527,6 +534,7 @@ export class BotInstance {
     this.conns.delete(peerId);
     this.iceBuf.delete(peerId);
     console.log(`[Bot ${this.roomId}] Closed audio peer: ${peerId}`);
+    this.checkAutoLeave();
   }
 
   private _rtpLogCount = 0;
@@ -546,7 +554,7 @@ export class BotInstance {
       conn.track.writeRtp(pkt);
       if (this._rtpLogCount < 3) {
         this._rtpLogCount++;
-        console.log(`[Bot ${this.roomId}] writeRtp ok #${this._rtpLogCount} — ssrc: ${conn.ssrc}, seq: ${conn.seq}, pt: ${OPUS_PAYLOAD_TYPE}, bytes: ${pkt.length}`);
+        console.log(`[Bot ${this.roomId}] writeRtp ok #${this._rtpLogCount} - ssrc: ${conn.ssrc}, seq: ${conn.seq}, pt: ${OPUS_PAYLOAD_TYPE}, bytes: ${pkt.length}`);
       }
     } catch (e) {
       if (this._rtpLogCount < 3) {
@@ -555,8 +563,6 @@ export class BotInstance {
       }
     }
   }
-
-  // ── Screen PeerJS WS (video mode) ────────────────────────────────────────
 
   private connectScreenPeerWs(screenPeerId: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -584,7 +590,7 @@ export class BotInstance {
         switch (msg.type) {
           case 'OPEN':
             clearTimeout(timer);
-            console.log(`[ScreenPeerWS ${this.roomId}] Open ✓ — screen peer: ${screenPeerId}`);
+            console.log(`[ScreenPeerWS ${this.roomId}] Open ✓ - screen peer: ${screenPeerId}`);
             resolve();
             break;
           case 'ANSWER':    await this.onAVAnswer(msg.src, msg.payload);    break;
@@ -613,12 +619,12 @@ export class BotInstance {
     this.screenPeerWs.send(JSON.stringify({ type, src: this.screenPeerId, dst, payload }));
   }
 
-  // ── AV peer connections — one PC, two transceivers ────────────────────────
+  // peer connections: one PC, two transceivers
 
   private makeAVPc(remotePeerId: string, connectionId: string): AVPeerConn {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    // Both tracks on the same PC — the browser's RTCP SR mechanism syncs them.
+    // Both tracks on the same PC - the browser's RTCP SR mechanism syncs them.
     const audioTrack       = new MediaStreamTrack({ kind: 'audio' });
     const audioTransceiver = pc.addTransceiver(audioTrack, { direction: 'sendonly' });
     const videoTrack       = new MediaStreamTrack({ kind: 'video' });
@@ -717,9 +723,8 @@ export class BotInstance {
     this.avConns.delete(peerId);
     this.avIceBuf.delete(peerId);
     console.log(`[Bot ${this.roomId}] Closed AV peer: ${peerId}`);
+    this.checkAutoLeave();
   }
-
-  // ── RTP senders ───────────────────────────────────────────────────────────
 
   private sendOpusFrameAV(conn: AVPeerConn, frame: OpusFrame): void {
     if (conn.pc.connectionState !== 'connected') return;

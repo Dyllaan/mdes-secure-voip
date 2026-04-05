@@ -1,3 +1,9 @@
+/**
+ * WebRTC media streaming pipeline for video/audio sync via yt-dlp into ffmpeg into IVF/OGG
+ * Audio (Opus) drives playback clock via hrtime self-correcting timer.
+ * Video frames carry encoded PTS timestamps; frames release when PTS <= audio position.
+ */
+
 import { spawn, type ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { type Readable } from 'stream';
@@ -134,39 +140,37 @@ function extractOggPackets(buf: Buffer, onPacket: (pkt: Buffer) => void): Buffer
   return buf.subarray(offset);
 }
 
-// Video frame carrying its encoded PTS in milliseconds.
-// This is the source of truth for AV sync — no estimation needed.
 interface VideoFrame {
   ptsMs: number;
-  data:  Buffer;
+  data: Buffer;
 }
 
 interface IVFState {
   headerSkipped: boolean;
-  framesTotal:   number;
-  fps:           number;
-  fpsNum:        number; // stored separately for exact ptsMs calculation
-  fpsDen:        number;
+  framesTotal: number;
+  fps: number;
+  fpsNum: number;
+  fpsDen: number;
 }
 
 function extractIVFFrames(
-  buf:     Buffer,
+  buf: Buffer,
   onFrame: (frame: VideoFrame) => void,
-  state:   IVFState,
+  state: IVFState,
 ): Buffer {
-  let offset    = 0;
+  let offset = 0;
   let extracted = 0;
 
   if (!state.headerSkipped) {
     if (buf.length < 4) return buf;
     if (buf.toString('ascii', 0, 4) === 'DKIF') {
       if (buf.length < 32) return buf;
-      const codec  = buf.toString('ascii', 8, 12);
-      const width  = buf.readUInt16LE(12);
+      const codec = buf.toString('ascii', 8, 12);
+      const width = buf.readUInt16LE(12);
       const height = buf.readUInt16LE(14);
       state.fpsNum = buf.readUInt32LE(16);
       state.fpsDen = buf.readUInt32LE(20);
-      state.fps    = state.fpsNum > 0 && state.fpsDen > 0
+      state.fps = state.fpsNum > 0 && state.fpsDen > 0
         ? state.fpsNum / state.fpsDen
         : 30;
       avLog('ivf: header', { codec, width, height, fps: `${state.fpsNum}/${state.fpsDen}`, resolvedFps: state.fps });
@@ -194,8 +198,6 @@ function extractIVFFrames(
 
     const pts = buf.readBigUInt64LE(offset + 4);
 
-    // IVF timebase: one PTS tick = fpsDen/fpsNum seconds.
-    // ptsMs = pts_ticks * (fpsDen / fpsNum) * 1000
     const ptsMs = state.fpsNum > 0
       ? Number(pts) * state.fpsDen / state.fpsNum * 1000
       : Number(pts) * (1000 / 30);
@@ -215,33 +217,32 @@ function extractIVFFrames(
 }
 
 export class AVPipeline extends EventEmitter {
-  private ytdlp:  ChildProcess | null = null;
+  private ytdlp: ChildProcess | null = null;
   private ffmpeg: ChildProcess | null = null;
 
   private audioBuf: Buffer = Buffer.alloc(0);
   private videoBuf: Buffer = Buffer.alloc(0);
-  private audioQueue: Buffer[]     = [];
-  private videoQueue: VideoFrame[] = []; // now carries ptsMs
+  private audioQueue: Buffer[] = [];
+  private videoQueue: VideoFrame[] = [];
 
   private audioTimer: NodeJS.Timeout | null = null;
   private drainCheck: NodeJS.Timeout | null = null;
   private ivfState: IVFState = { headerSkipped: false, framesTotal: 0, fps: 30, fpsNum: 30, fpsDen: 1 };
 
-  private _running      = false;
-  private _paused       = false;
-  private _frameCount   = 0;
+  private _running = false;
+  private _paused = false;
+  private _frameCount = 0;
   private _seekOffsetMs = 0;
 
-  // hrtime self-correcting timer
-  private _nextFrameNs:  bigint = 0n;
+  private _nextFrameNs: bigint = 0n;
   private _timerStopped = false;
 
   private _ytdlpPrimeBuffer: Buffer = Buffer.alloc(0);
-  private _ytdlpPrimed      = false;
-  private _ytdlpBytesTotal  = 0;
+  private _ytdlpPrimed = false;
+  private _ytdlpBytesTotal = 0;
 
-  get running()    { return this._running; }
-  get isPaused()   { return this._paused; }
+  get running() { return this._running; }
+  get isPaused() { return this._paused; }
   get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
   constructor(private readonly youtubeUrl: string) {
@@ -251,19 +252,19 @@ export class AVPipeline extends EventEmitter {
   start(seekMs = 0): void {
     if (this._running) return;
 
-    this._running      = true;
-    this._paused       = false;
-    this._frameCount   = 0;
+    this._running = true;
+    this._paused = false;
+    this._frameCount = 0;
     this._seekOffsetMs = seekMs;
-    this.ivfState      = { headerSkipped: false, framesTotal: 0, fps: 30, fpsNum: 30, fpsDen: 1 };
-    this.audioBuf      = Buffer.alloc(0);
-    this.videoBuf      = Buffer.alloc(0);
-    this.audioQueue    = [];
-    this.videoQueue    = [];
+    this.ivfState = { headerSkipped: false, framesTotal: 0, fps: 30, fpsNum: 30, fpsDen: 1 };
+    this.audioBuf = Buffer.alloc(0);
+    this.videoBuf = Buffer.alloc(0);
+    this.audioQueue = [];
+    this.videoQueue = [];
     this._ytdlpPrimeBuffer = Buffer.alloc(0);
-    this._ytdlpPrimed      = false;
-    this._ytdlpBytesTotal  = 0;
-    this._timerStopped     = false;
+    this._ytdlpPrimed = false;
+    this._ytdlpBytesTotal = 0;
+    this._timerStopped = false;
 
     const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
@@ -378,7 +379,7 @@ export class AVPipeline extends EventEmitter {
     });
 
     this.ffmpeg.on('spawn', () => {
-      avLog('ffmpeg: spawned — writing prime buffer', { primeBytes: this._ytdlpPrimeBuffer.length });
+      avLog('ffmpeg: spawned - writing prime buffer', { primeBytes: this._ytdlpPrimeBuffer.length });
 
       const canContinue = this.ffmpeg!.stdin!.write(this._ytdlpPrimeBuffer, (err) => {
         if (err) avWarn('ffmpeg: error writing prime buffer', err);
@@ -388,7 +389,7 @@ export class AVPipeline extends EventEmitter {
       if (!canContinue) {
         avLog('ffmpeg: stdin backpressure after prime buffer, waiting for drain');
         this.ffmpeg!.stdin!.once('drain', () => {
-          avLog('ffmpeg: stdin drained — resuming ytdlp stdout pipe');
+          avLog('ffmpeg: stdin drained - resuming ytdlp stdout pipe');
           this._pipeYtdlpToFfmpeg();
         });
       } else {
@@ -415,8 +416,8 @@ export class AVPipeline extends EventEmitter {
           containerHint: detectContainerHint(this._ytdlpPrimeBuffer),
         });
       }
-      if (msg.includes('Error opening input'))  avWarn('ffmpeg: input open failed');
-      if (msg.includes('moov atom not found'))  avWarn('ffmpeg: moov atom missing — mp4 index at end, not streamable');
+      if (msg.includes('Error opening input')) avWarn('ffmpeg: input open failed');
+      if (msg.includes('moov atom not found')) avWarn('ffmpeg: moov atom missing - mp4 index at end, not streamable');
     });
 
     this.ffmpeg.stdout!.on('data', (chunk: Buffer) => {
@@ -455,7 +456,7 @@ export class AVPipeline extends EventEmitter {
       avLog('ffmpeg: close', {
         code, signal,
         audioQueueAtClose: this.audioQueue.length,
-        videoFramesTotal:  this.ivfState.framesTotal,
+        videoFramesTotal: this.ivfState.framesTotal,
       });
 
       this._running = false;
@@ -463,7 +464,7 @@ export class AVPipeline extends EventEmitter {
         if (this.audioQueue.length === 0) {
           if (this.drainCheck) { clearInterval(this.drainCheck); this.drainCheck = null; }
           this._timerStopped = true;
-          avLog('ffmpeg: audio queue drained — emitting ended', { code });
+          avLog('ffmpeg: audio queue drained - emitting ended', { code });
           this.emit('ended', code);
         } else {
           avLog('ffmpeg: waiting for audio queue drain', { remaining: this.audioQueue.length });
@@ -471,38 +472,29 @@ export class AVPipeline extends EventEmitter {
       }, OPUS_FRAME_MS);
     });
 
-    // ── Self-correcting hrtime timer ─────────────────────────────────────────
-    // Audio drives the clock. Each tick the audio position advances by
-    // OPUS_FRAME_MS. Any video frame whose encoded PTS (ms) falls at or before
-    // that position is emitted immediately — no accumulator, no wall-clock math,
-    // sync comes directly from the timestamps ffmpeg wrote into the IVF stream.
-
-    this._nextFrameNs  = process.hrtime.bigint() + FRAME_NS;
+    this._nextFrameNs = process.hrtime.bigint() + FRAME_NS;
     this._timerStopped = false;
 
     const tick = () => {
       if (this._timerStopped) return;
 
       if (!this._paused) {
-        // ── Audio ────────────────────────────────────────────────────────────
         if (this.audioQueue.length > 0) {
           const frame = this.audioQueue.shift()!;
           this._frameCount++;
 
           if (DEBUG_AV_VERBOSE) {
             avLog('audio: frame emitted', {
-              frameCount:     this._frameCount,
-              positionMs:     this.positionMs,
+              frameCount: this._frameCount,
+              positionMs: this.positionMs,
               queueRemaining: this.audioQueue.length,
-              frameLen:       frame.length,
+              frameLen: frame.length,
             });
           }
 
           this.emit('audioFrame', { data: frame, durationMs: OPUS_FRAME_MS } satisfies OpusFrame);
         }
 
-        // ── Video — release every frame whose PTS is due ──────────────────
-        // positionMs is updated above, so video always locks to audio.
         const posMs = this.positionMs;
         while (this.videoQueue.length > 0 && this.videoQueue[0].ptsMs <= posMs) {
           const vf = this.videoQueue.shift()!;
@@ -513,9 +505,8 @@ export class AVPipeline extends EventEmitter {
         }
       }
 
-      // ── Reschedule, compensating for event-loop jitter ───────────────────
       this._nextFrameNs += FRAME_NS;
-      const now     = process.hrtime.bigint();
+      const now = process.hrtime.bigint();
       const delayMs = Number(this._nextFrameNs - now) / 1_000_000;
       this.audioTimer = setTimeout(tick, Math.max(0, delayMs));
     };
@@ -539,31 +530,31 @@ export class AVPipeline extends EventEmitter {
 
     avLog('stop: called', { running: this._running, frameCount: this._frameCount, positionMs: this.positionMs });
 
-    this._running      = false;
+    this._running = false;
     this._timerStopped = true;
 
     if (this.audioTimer) { clearTimeout(this.audioTimer); this.audioTimer = null; }
     if (this.drainCheck) { clearInterval(this.drainCheck); this.drainCheck = null; }
 
-    this._paused       = false;
-    this._frameCount   = 0;
+    this._paused = false;
+    this._frameCount = 0;
     this._seekOffsetMs = 0;
 
     try { this.ffmpeg?.stdin?.end(); } catch (e) { avLog('stop: ffmpeg stdin end failed', e); }
 
-    if (this.ytdlp)  { avLog('stop: killing ytdlp');  this.ytdlp.kill('SIGTERM'); }
+    if (this.ytdlp) { avLog('stop: killing ytdlp'); this.ytdlp.kill('SIGTERM'); }
     if (this.ffmpeg) { avLog('stop: killing ffmpeg'); this.ffmpeg.kill('SIGTERM'); }
 
-    this.ytdlp  = null;
+    this.ytdlp = null;
     this.ffmpeg = null;
-    this.audioBuf  = Buffer.alloc(0);
-    this.videoBuf  = Buffer.alloc(0);
+    this.audioBuf = Buffer.alloc(0);
+    this.videoBuf = Buffer.alloc(0);
     this.audioQueue = [];
     this.videoQueue = [];
-    this.ivfState   = { headerSkipped: false, framesTotal: 0, fps: 30, fpsNum: 30, fpsDen: 1 };
+    this.ivfState = { headerSkipped: false, framesTotal: 0, fps: 30, fpsNum: 30, fpsDen: 1 };
     this._ytdlpPrimeBuffer = Buffer.alloc(0);
-    this._ytdlpPrimed      = false;
-    this._ytdlpBytesTotal  = 0;
+    this._ytdlpPrimed = false;
+    this._ytdlpBytesTotal = 0;
   }
 
   pause(): void {

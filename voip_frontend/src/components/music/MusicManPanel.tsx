@@ -18,8 +18,6 @@ interface MusicmanPanelProps {
     onBotJoined: () => void;
 }
 
-// ─── Waveform ─────────────────────────────────────────────────────────────────
-
 function Waveform({ active }: { active: boolean }) {
     return (
         <div className="flex items-end gap-[2px] h-4">
@@ -46,8 +44,6 @@ function Waveform({ active }: { active: boolean }) {
         </div>
     );
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isSupportedUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)/.test(url.trim());
@@ -117,8 +113,6 @@ function formatMs(ms: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// ─── Local queue persistence ──────────────────────────────────────────────────
-
 const MAX_QUEUE   = 27;
 const STORAGE_KEY = (roomId: string) => `talk:queue:${roomId}`;
 
@@ -137,8 +131,6 @@ function saveQueue(roomId: string, items: PlaylistItem[]) {
         localStorage.setItem(STORAGE_KEY(roomId), JSON.stringify(items));
     } catch { }
 }
-
-// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined }: MusicmanPanelProps) {
     const {
@@ -160,9 +152,9 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const [positionMs, setPositionMs]     = useState(0);
 
     /**
-     * Video screenshare mode — streams the YouTube video as a peer screenshare.
-     * Locked at the moment the bot first joins a room; to change it the bot
-     * must leave and rejoin. The toggle is therefore disabled while the bot is
+     * Video screenshare mode streams the YouTube video as a peer screenshare.
+     * Locked at the moment the bot first joins a room to change it the bot
+     * must leave and rejoin. The toggle is disabled while the bot is
      * active.
      */
     const [videoMode, setVideoMode] = useState(false);
@@ -437,8 +429,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const currentDurationMs = (active && queue[currentIndex]?.durationMs) || 0;
     const seekMax = currentDurationMs > 0 ? Math.floor(currentDurationMs / 1000) : 3600;
 
-    // ── Render ────────────────────────────────────────────────────
-
     return (
         <div className="flex flex-col gap-0">
 
@@ -580,19 +570,18 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         </div>
 
                         {/*
-                         * Video mode toggle — enabled before joining only.
+                         * Video mode toggle enabled before joining only.
                          * Once the bot is active the mode is locked until /leave.
-                         * Tooltip explains the constraint when disabled.
                          */}
                         <button
                             onClick={() => !active && setVideoMode(v => !v)}
                             disabled={active}
                             title={
                                 active
-                                    ? `Video screenshare is ${activeVideoMode ? 'on' : 'off'} for this session — stop the bot to change`
+                                    ? `Video screenshare is ${activeVideoMode ? 'on' : 'off'} for this session - stop the bot to change`
                                     : videoMode
-                                        ? 'Video screenshare on — click to disable'
-                                        : 'Video screenshare off — click to stream video as a screenshare'
+                                        ? 'Video screenshare on - click to disable'
+                                        : 'Video screenshare off - click to stream video as a screenshare'
                             }
                             className={`
                                 shrink-0 h-8 w-8 flex items-center justify-center rounded-md border transition-all

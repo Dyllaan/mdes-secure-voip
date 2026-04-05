@@ -4,6 +4,7 @@
  * Spawns a yt-dlp | ffmpeg subprocess pipeline to extract Opus audio frames
  * from a URL, emitting 'frame' events at 20ms intervals and an 'ended' event
  * when the stream finishes. Supports pause/resume and seek.
+ * ONLY USED WHEN VIDEO MODE IS DISABLED. In video mode, the AVPipeline class is used instead,
  */
 
 import { spawn, type ChildProcess } from 'child_process';

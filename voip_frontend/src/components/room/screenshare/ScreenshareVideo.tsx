@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Monitor } from "lucide-react";
+import { toast } from "sonner";
 
 interface ScreenshareVideoProps {
     alias: string;
@@ -13,14 +14,10 @@ export default function ScreenshareVideo({ alias, stream }: ScreenshareVideoProp
         const el = videoRef.current;
         if (!el) return;
         el.srcObject = stream;
-        // Explicitly call play() — autoPlay attribute alone isn't reliable for
-        // streams containing audio tracks (browser autoplay policy). The user has
-        // already interacted with the page, so this should always succeed.
+        // autoPlay isn't reliable
         el.play().catch(err => {
-            // NotAllowedError means autoplay was blocked — surface it so the
-            // user knows audio may be silent until they interact with the video.
             if (err.name !== 'AbortError') {
-                console.warn('[ScreenshareVideo] play() blocked:', err);
+                toast.error('Playback blocked please leave and rejoin the channel to view the screenshare');
             }
         });
         return () => {

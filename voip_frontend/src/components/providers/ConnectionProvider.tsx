@@ -86,7 +86,6 @@ export default function ConnectionProvider({ children }: { children: React.React
 
             if (!username) return;
 
-            // 1. Signal Protocol client — DMs only
             try {
                 const client = new SignalProtocolClient(username, voipSocket);
                 signalClientRef.current = client;
@@ -96,7 +95,6 @@ export default function ConnectionProvider({ children }: { children: React.React
                 console.error('Failed to initialize Signal Protocol:', error);
             }
 
-            // 2. Room client — AES group encryption for all rooms
             try {
                 const client = new RoomClient(voipSocket);
                 roomClientRef.current = client;
@@ -106,7 +104,6 @@ export default function ConnectionProvider({ children }: { children: React.React
                 console.error('Failed to initialize RoomClient:', error);
             }
 
-            // 3. CryptKeyManager — persistent channel encryption
             try {
                 const api = hubAPIRef.current;
                 const hubs: Array<{ id: string }> = await api.listHubs();

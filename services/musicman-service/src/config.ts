@@ -22,4 +22,5 @@ export const config = {
   PEER_ID_KEY: process.env.PEER_ID_KEY ?? 'peerId',
   SCREEN_PEER_ID_EVENT: process.env.SCREEN_PEER_ID_EVENT ?? 'screen-peer-assigned',
   SCREEN_PEER_ID_KEY: process.env.SCREEN_PEER_ID_KEY ?? 'peerId',
+  TURN_SERVERS: process.env.TURN_SERVERS ? JSON.parse(process.env.TURN_SERVERS) : [],
 };

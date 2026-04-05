@@ -48,7 +48,7 @@ export async function setAuthState(page: Page, user = MOCK_USER) {
   }, user);
 }
 
-// IndexedDB setup — satisfies KeysRequired guard
+// IndexedDB setup - satisfies KeysRequired guard
 
 /**
  * Writes a real ECDH keypair into the 'channel-keys-v1' IndexedDB so that
@@ -162,7 +162,7 @@ export async function mockHubRoutes(page: Page, hubs = MOCK_HUBS) {
       return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify(hubList) });
     }
 
-    // POST /hub/hubs — create hub
+    // POST /hub/hubs - create hub
     if (method === 'POST' && /\/hub\/hubs$/.test(url)) {
       const body = JSON.parse(route.request().postData() ?? '{}') as { name: string };
       const newHub = {

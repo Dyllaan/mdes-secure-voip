@@ -7,7 +7,7 @@ import type { RemoteStream } from "./useVoIP";
 import type { UserConnectedData } from "@/types/voip.types";
 
 // Bot user IDs never register RSA keys and in video mode don't answer audio
-// offers — the bot's audio arrives via the screen-share peer connection instead.
+// offers - the bot's audio arrives via the screen-share peer connection instead.
 // Calling their audio peer just hangs and errors, so we skip it.
 const BOT_USER_IDS = ['musicman'];
 function isBotUser(userId?: string): boolean {
@@ -79,14 +79,14 @@ const useRoom = ({
     const callPeer = useCallback((peerId: string): void => {
         const waitAndCall = (): void => {
             if (!processedStreamRef.current || !peerRef.current) {
-                console.log(`[callPeer] waiting for ${peerId} — stream: ${!!processedStreamRef.current}, peer: ${!!peerRef.current}`);
+                console.log(`[callPeer] waiting for ${peerId} - stream: ${!!processedStreamRef.current}, peer: ${!!peerRef.current}`);
                 setTimeout(waitAndCall, 100);
                 return;
             }
 
             const stream = processedStreamRef.current;
             const audioTracks = stream.getAudioTracks();
-            console.log(`[callPeer] calling ${peerId} — stream id: ${stream.id}, audioTracks: ${audioTracks.length}, active: ${stream.active}`);
+            console.log(`[callPeer] calling ${peerId} - stream id: ${stream.id}, audioTracks: ${audioTracks.length}, active: ${stream.active}`);
             audioTracks.forEach((t, i) =>
                 console.log(`[callPeer]   track[${i}]: id=${t.id} kind=${t.kind} enabled=${t.enabled} readyState=${t.readyState}`)
             );
@@ -97,7 +97,7 @@ const useRoom = ({
             outgoingCall.on("stream", (remoteStream: MediaStream) => {
                 const aTracks = remoteStream.getAudioTracks();
                 const vTracks = remoteStream.getVideoTracks();
-                console.log(`[callPeer] stream from ${peerId} — audio: ${aTracks.length}, video: ${vTracks.length}`);
+                console.log(`[callPeer] stream from ${peerId} - audio: ${aTracks.length}, video: ${vTracks.length}`);
                 aTracks.forEach((t, i) =>
                     console.log(`[callPeer]   audio[${i}]: id=${t.id} enabled=${t.enabled} readyState=${t.readyState} muted=${t.muted}`)
                 );
@@ -131,7 +131,7 @@ const useRoom = ({
             if (!roomId.startsWith('ephemeral-')) {
                 users.forEach(({ peerId, alias, userId }) => {
                     if (isBotUser(userId)) {
-                        console.log(`[useRoom] all-users: skipping audio call to bot ${alias} (${peerId}) — audio arrives via screen-share PC`);
+                        console.log(`[useRoom] all-users: skipping audio call to bot ${alias} (${peerId}) - audio arrives via screen-share PC`);
                         return;
                     }
                     console.log(`[useRoom] all-users: calling ${peerId} (${alias})`);
@@ -156,7 +156,7 @@ const useRoom = ({
             setConnectedPeers(prev => prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]);
             if (!roomId.startsWith('ephemeral-')) {
                 if (isBotUser(userId)) {
-                    console.log(`[useRoom] user-connected: skipping audio call to bot ${alias} (${peerId}) — audio arrives via screen-share PC`);
+                    console.log(`[useRoom] user-connected: skipping audio call to bot ${alias} (${peerId}) - audio arrives via screen-share PC`);
                 } else {
                     callPeer(peerId);
                 }

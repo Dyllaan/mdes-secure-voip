@@ -119,8 +119,6 @@ const useScreenshare = ({
                 screenPeerIdRef.current = id;
             });
 
-            // All screen video arrives as incoming calls — both from remote users
-            // sharing their screen AND from the bot calling us with its video feed.
             screenPeer.on("call", (incomingCall: MediaConnection) => {
                 if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
                     console.warn("Rejecting screen call from unknown peer:", incomingCall.peer);
@@ -135,9 +133,9 @@ const useScreenshare = ({
                     const alias = pendingAliasRef.current.get(incomingCall.peer) ?? incomingCall.peer;
                     console.log("Received screenshare stream from:", alias);
 
-                    // If the stream carries audio tracks (bot AV stream), manage a
-                    // persistent audio element outside React so audio survives dismiss/restore.
-                    // The ScreenshareVideo video element is muted — audio plays here only.
+                    // If the stream carries audio tracks (in video mode) manage a
+                    // persistent audio element so audio survives dismiss/restore.
+                    // The ScreenshareVideo video element is muted so audio plays here only.
                     if (remoteStream.getAudioTracks().length > 0) {
                         const existing = screenAudioElsRef.current.get(incomingCall.peer);
                         if (existing) { existing.srcObject = null; }
@@ -225,12 +223,17 @@ const useScreenshare = ({
     const handleRoomScreenPeerIds = useCallback((
         peers: Array<{ screenPeerId: string; alias: string }>
     ) => {
-        const stream = localStreamRef.current;
-        if (!stream) return;
         peers.forEach(({ screenPeerId, alias }) => {
-            console.log("Calling room member with screenshare:", alias);
-            callPeerWithScreen(screenPeerId, stream);
+            allowedScreenPeerIds.current.add(screenPeerId);
+            pendingAliasRef.current.set(screenPeerId, alias);
         });
+        const stream = localStreamRef.current;
+        if (stream) {
+            peers.forEach(({ screenPeerId, alias }) => {
+                console.log("Calling room member with screenshare:", alias);
+                callPeerWithScreen(screenPeerId, stream);
+            });
+        }
     }, [callPeerWithScreen]);
 
     const handlePeerScreenshareStarted = useCallback((

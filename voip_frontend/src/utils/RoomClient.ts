@@ -86,12 +86,12 @@ export class RoomClient {
         console.log('[RoomClient] joinRoom:', roomId, 'existingUsers:', existingUsers);
         this.currentRoomId = roomId;
 
-        // Filter out bots — they never register RSA keys and cannot participate
+        // Bots cannot register RSA keys and cannot participate
         // in the AES room key exchange.
         const humanUsers = existingUsers.filter(id => !isBotUser(id));
 
         if (humanUsers.length === 0) {
-            // Room is empty or only bots present — generate a fresh key.
+            // Room is empty or only bots present so generate a fresh key.
             const key = await crypto.subtle.generateKey(
                 { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
             );
