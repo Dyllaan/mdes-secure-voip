@@ -2,13 +2,8 @@ import { useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import config from '@/config/config';
 
-export interface MusicmanStatus {
-  active:     boolean;
-  roomId:     string;
-  youtubeUrl: string;
-}
 
-export interface PlaybackStatus {
+interface PlaybackStatus {
   playing:      boolean;
   paused:       boolean;
   positionMs:   number;
@@ -17,7 +12,7 @@ export interface PlaybackStatus {
   screenPeerId: string | null;
 }
 
-export interface ResolvedItem {
+interface ResolvedItem {
   id:         string;
   url:        string;
   title:      string;

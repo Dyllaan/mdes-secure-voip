@@ -78,7 +78,8 @@ export default function HubList() {
     };
 
     return (
-        <Page title="Your Hubs" subtitle="Create a new hub or join an existing one with an invite code.">
+        <Page>
+            <div className="flex flex-col max-w-md mx-auto space-y-6 mt-20">
             <div className="flex gap-2">
                 <Input
                     data-testid="hub-name-input"
@@ -155,6 +156,7 @@ export default function HubList() {
                     Join an ephemeral call instead
                 </button>
                 <Logout />
+            </div>
             </div>
         </Page>
     );

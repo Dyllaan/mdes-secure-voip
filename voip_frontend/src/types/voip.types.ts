@@ -16,15 +16,4 @@ type UserConnectedData = {
   userId?: string;
 };
 
-type ChatMessageData = {
-  sender: string;
-  message: string;
-  alias: string;
-};
-
-interface Peer {
-  peerId: string;
-  alias: string;
-}
-
-export type { ChatMessage, RemoteStream, UserConnectedData, ChatMessageData, Peer };
+export type { ChatMessage, RemoteStream, UserConnectedData };

@@ -19,13 +19,13 @@ import {
 import { ChannelKeyNotFoundError } from '@/crypto/errors';
 import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
 
-export interface EncryptedPayload {
+interface EncryptedPayload {
     ciphertext: string;
     iv: string;
     keyVersion: string;
 }
 
-export interface KeyDistributedEvent {
+interface KeyDistributedEvent {
     hubId: string;
     channelId: string;
     newVersion: number;

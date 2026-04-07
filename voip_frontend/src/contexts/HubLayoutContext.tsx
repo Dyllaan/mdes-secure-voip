@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Hub, Channel, EncryptedMessage, Member, EphemeralMessage } from '@/types/hub.types';
+import type { Hub, Channel, EncryptedMessage, Member } from '@/types/hub.types';
 import type { EphemeralSession } from '@/hooks/hub/useEphemeralSession';
 
 interface EphemeralContextSlice extends EphemeralSession {

@@ -3,7 +3,7 @@ import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
 import type { Socket } from "socket.io-client";
 
-export interface RemoteScreenStream {
+interface RemoteScreenStream {
   peerId: string;
   alias: string;
   stream: MediaStream;

@@ -16,6 +16,9 @@ import { Toaster } from "./components/ui/sonner";
 import { useTheme } from 'next-themes';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TooltipProvider } from './components/ui/tooltip';
+import ToS from './page/ToS';
+import Privacy from './page/Privacy';
+import RootRoute from './components/auth/routes/RootRoute';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,19 +45,17 @@ function App() {
           <HashRouter>
             <AuthProvider>
               <Routes>
-                {/* Public routes - only accessible when NOT authenticated */}
+                <Route path="/" element={<RootRoute />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<ToS />} />
+
                 <Route element={<PublicRoute />}>
                   <Route path="/login" element={<AuthPage />} />
                   <Route path="/register" element={<AuthPage mode="register" />} />
                 </Route>
-                
-                {/* Protected routes - only accessible when authenticated */}
+
                 <Route element={<ProtectedRoute />}>
-
-                  {/* Key setup - inside auth guard but before ConnectionProvider */}
                   <Route path="/keys" element={<KeySetupPage />} />
-
-                  {/* All app routes - gated by IDB keypair check */}
                   <Route element={<KeysRequired />}>
                     <Route element={
                       <ConnectionProvider>
@@ -63,21 +64,19 @@ function App() {
                         </VoIPProvider>
                       </ConnectionProvider>
                     }>
-                      <Route path="/" element={<HubList />} />
+                      <Route path="/hub-list" element={<HubList />} />
                       <Route path="/hubs/:hubId" element={<HubView />} />
                       <Route path="/hubs/:hubId/channels/:channelId" element={<HubView />} />
                     </Route>
                   </Route>
-
                 </Route>
 
-                {/* 404 - accessible to everyone */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <ToasterWrapper />
             </AuthProvider>
           </HashRouter>
-      </TooltipProvider>
+        </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>
   )

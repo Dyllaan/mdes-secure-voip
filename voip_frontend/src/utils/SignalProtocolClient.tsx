@@ -12,18 +12,18 @@ import {
 import { SignalProtocolStore } from './SignalProtocolStore';
 import type { Socket } from 'socket.io-client';
 
-export interface PreKey {
+interface PreKey {
     keyId: number;
     publicKey: string;
 }
 
-export interface SignedPreKey {
+interface SignedPreKey {
     keyId: number;
     publicKey: string;
     signature: string;
 }
 
-export interface PreKeyBundle {
+interface PreKeyBundle {
     userId: string;
     registrationId: number;
     identityKey: string;
@@ -31,13 +31,13 @@ export interface PreKeyBundle {
     preKey?: PreKey | null;
 }
 
-export interface EncryptedMessage {
+interface EncryptedMessage {
     ciphertext: string;
     type: number;
     registrationId: number;
 }
 
-export interface DecryptedMessage {
+interface DecryptedMessage {
     message: string;
     senderUserId: string;
     senderAlias: string;
