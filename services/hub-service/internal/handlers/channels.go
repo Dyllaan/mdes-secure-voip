@@ -11,6 +11,8 @@ import (
 	"hub-service/internal/db"
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
+
+	"strings"
 )
 
 func CreateChannel(w http.ResponseWriter, r *http.Request) {
@@ -72,6 +74,26 @@ func CreateChannel(w http.ResponseWriter, r *http.Request) {
 func CheckChannelAccess(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
 	channelID := chi.URLParam(r, "channelID")
+
+	if strings.HasPrefix(channelID, "ephemeral-") {
+		// Format: ephemeral-{hubId}
+		// Strip "ephemeral-" prefix
+		hubID := strings.TrimPrefix(channelID, "ephemeral-")
+
+		var member structs.Member
+		if err := db.DB.First(&member, "user_id = ? AND hub_id = ?", userID, hubID).Error; err != nil {
+			writeError(w, http.StatusForbidden, "Not a member of this hub")
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]string{
+			"userID":    userID,
+			"channelID": channelID,
+			"hubID":     hubID,
+			"role":      string(member.Role),
+		})
+		return
+	}
 
 	var channel structs.Channel
 	if err := db.DB.First(&channel, "id = ?", channelID).Error; err != nil {

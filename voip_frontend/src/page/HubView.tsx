@@ -9,10 +9,11 @@ import type { Channel } from '@/types/hub.types';
 import ChannelSidebar from '@/components/hub/ChannelSidebar';
 import ChannelMessageArea from '@/components/hub/ChannelMessageArea';
 import EphemeralChatPanel from '@/components/hub/EphemeralChatPanel';
-import useHubData from '@/hooks/hub/useHubData';
-import { useEphemeralChat } from '@/hooks/hub/useEphemeralChat';
+import useHubState from '@/hooks/hub/useHubState';
+import useHubActions from '@/hooks/hub/useHubActions';
 import { useChannelMessages } from '@/hooks/hub/useChannelMessages';
-import useHubAPI from '@/hooks/hub/useHubAPI';
+import { useChannelEncryption } from '@/hooks/hub/useChannelEncryption';
+import { useEphemeralSession } from '@/hooks/hub/useEphemeralSession';
 import HubLayoutContext from '@/contexts/HubLayoutContext';
 import ActionsSidebar from '@/components/hub/ActionsSidebar';
 import { ScreenshareManager } from '@/components/room/screenshare/ScreenshareManager';
@@ -22,7 +23,6 @@ export default function HubView() {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { socket, isConnected } = useConnection();
-    const { createChannel, createInvite } = useHubAPI();
     const {
         voiceChannel, joinVoiceChannel,
         remoteScreenStreams, localScreenStream, isSharing,
@@ -30,20 +30,21 @@ export default function HubView() {
         dismissedPeerIds, restoreScreenShare,
     } = useVoIPContext();
 
-    const { hub, channels, members, loading, error, isOwner, refreshChannels, hasMusicman, refreshMembers, kickMember } = useHubData(hubId);
-    const { messages, hasMore, decryptedMessages, loadOlderMessages, sendMessage: sendChannelMessage } = useChannelMessages(hubId, channelId);
-    const ephem = useEphemeralChat(hubId);
+    const { hub, channels, members, loading, error, isOwner, hasMusicman, refreshChannels, refreshMembers } = useHubState(hubId);
+    const { kickMember, createChannel, createInvite } = useHubActions(hubId);
+    const { messages, hasMore, loadOlderMessages, sendMessage, refreshMessages } = useChannelMessages(hubId, channelId);
+    const { decryptedMessages } = useChannelEncryption(hubId, channelId, messages, refreshMessages);
+    const ephemSession = useEphemeralSession(hubId);
 
     const [messageInput, setMessageInput] = useState('');
     const [newChannelName, setNewChannelName] = useState('');
     const [newChannelType, setNewChannelType] = useState<'text' | 'voice'>('text');
     const [inviteCode, setInviteCode] = useState<string | null>(null);
     const [screenshareVisible, setScreenshareVisible] = useState(true);
+    const [ephemOpen, setEphemOpen] = useState(false);
 
-    // Any streams exist at all (including dismissed ones - they're still live)
     const hasScreens = remoteScreenStreams.length > 0 || (isSharing && !!localScreenStream);
 
-    // Auto-open panel when new streams arrive
     useEffect(() => {
         if (hasScreens) setScreenshareVisible(true);
     }, [hasScreens]);
@@ -59,7 +60,7 @@ export default function HubView() {
     const handleCreateChannel = async () => {
         if (!hubId || !newChannelName.trim()) return;
         try {
-            const created = await createChannel(hubId, newChannelName.trim(), newChannelType);
+            const created = await createChannel(newChannelName.trim(), newChannelType);
             setNewChannelName('');
             setNewChannelType('text');
             await refreshChannels();
@@ -76,20 +77,25 @@ export default function HubView() {
         const text = messageInput.trim();
         setMessageInput('');
         try {
-            await sendChannelMessage(text);
+            await sendMessage(text);
         } catch (err) {
             console.error('Failed to send message:', err);
         }
     };
 
     const handleCreateInvite = async () => {
-        if (!hubId) return;
         try {
-            const data = await createInvite(hubId);
-            setInviteCode(data.code);
+            const data = await createInvite();
+            if (data) setInviteCode(data.code);
         } catch (err) {
             console.error('Failed to create invite:', err);
         }
+    };
+
+    const handleKickMember = async (memberId: string) => {
+        if (!isOwner) return;
+        await kickMember(memberId);
+        await refreshMembers();
     };
 
     if (loading) {
@@ -145,9 +151,10 @@ export default function HubView() {
             onLoadOlder: loadOlderMessages,
             onInputChange: setMessageInput,
             onSend: handleSendMessage,
-            ephem,
+            ephem: { ...ephemSession, open: ephemOpen, setOpen: setEphemOpen },
             isConnected,
-            onBotJoined: refreshMembers, kickMember,
+            onBotJoined: refreshMembers,
+            kickMember: handleKickMember,
             remoteScreenStreams,
             localScreenStream,
             isSharing,

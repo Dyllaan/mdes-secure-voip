@@ -1,26 +1,31 @@
 {
   "name": "api-gateway",
-  "version": "1.0.0",
-  "description": "API Gateway for Auth and VoIP microservices",
-  "main": "gateway.js",
+  "version": "2.1.0",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node gateway.js",
-    "dev": "nodemon gateway.js"
+    "dev": "tsx watch ./src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
   },
-  "keywords": [
-    "api-gateway",
-    "microservices",
-    "express"
-  ],
-  "author": "",
-  "license": "ISC",
+  "author": "Louis Figes, t0ct0u",
   "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "http-proxy-middleware": "^2.0.6"
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "express-rate-limit": "^8.3.2",
+    "helmet": "^8.1.0",
+    "http-proxy-middleware": "^2.0.9",
+    "opossum": "^9.0.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.25",
+    "@types/opossum": "^8.1.9",
+    "nodemon": "^3.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.5"
   }
 }

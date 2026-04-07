@@ -7,5 +7,6 @@ const config = {
   PEER_SECURE: import.meta.env.VITE_PEER_SECURE || (window.location.protocol === 'https:' ? 'true' : 'false'),
   PEER_PATH: import.meta.env.VITE_PEER_PATH || '/peerjs',
   MUSICMAN_URL: import.meta.env.VITE_MUSICMAN_URL ?? 'http://localhost:4000',
+  GITHUB_URL: import.meta.env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/voip_and_content_synchronisation'
 };
 export default config;

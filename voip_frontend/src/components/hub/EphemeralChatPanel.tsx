@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LogOut, MessageSquare, Send } from 'lucide-react';
@@ -6,21 +6,26 @@ import { useHubLayout } from '@/contexts/HubLayoutContext';
 
 export default function EphemeralChatPanel() {
     const { ephem } = useHubLayout();
-    const { joined, open, setOpen, messages, input, setInput, timeLeft, handleLeave, handleSend } = ephem;
+    const { joined, open, setOpen, messages, timeLeft, leave, send } = ephem;
+    const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Auto-scroll to bottom whenever new messages arrive
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
     if (!joined) return null;
 
+    const handleSend = async () => {
+        if (!input.trim()) return;
+        await send(input.trim());
+        setInput('');
+    };
+
     return (
         <div className={`absolute right-0 top-0 bottom-0 border-l bg-background flex flex-col shadow-xl z-10 transition-all duration-300 ${
             open ? 'w-80' : 'w-0'
         }`}>
-            {/* Fold/unfold toggle on the left edge */}
             <button
                 onClick={() => setOpen(!open)}
                 className="absolute -left-6 top-1/2 -translate-y-1/2 h-12 w-6 bg-amber-600 hover:bg-amber-700 rounded-l-md flex items-center justify-center transition-colors z-20"
@@ -38,7 +43,6 @@ export default function EphemeralChatPanel() {
 
             {open && (
                 <>
-                    {/* Header */}
                     <div className="p-4 border-b flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <MessageSquare className="h-4 w-4 text-amber-400" />
@@ -50,7 +54,7 @@ export default function EphemeralChatPanel() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                onClick={handleLeave}
+                                onClick={leave}
                             >
                                 <LogOut className="h-4 w-4" />
                             </Button>
@@ -60,7 +64,6 @@ export default function EphemeralChatPanel() {
                         </div>
                     </div>
 
-                    {/* Encrypted notice + countdown */}
                     <div className="px-4 py-2 bg-amber-500/10 border-b flex items-center justify-between">
                         <p className="text-[11px] text-amber-400/80">
                             Messages Encrypted. Disappears when you leave.
@@ -72,7 +75,6 @@ export default function EphemeralChatPanel() {
                         )}
                     </div>
 
-                    {/* Messages */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
                         {messages.length === 0 ? (
                             <div className="flex items-center justify-center h-full">
@@ -106,7 +108,6 @@ export default function EphemeralChatPanel() {
                         )}
                     </div>
 
-                    {/* Input */}
                     <div className="p-3 border-t flex gap-2">
                         <Input
                             placeholder="Ephemeral message..."

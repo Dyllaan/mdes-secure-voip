@@ -12,7 +12,7 @@ import { p256 } from '@noble/curves/nist.js';
 import { hkdfSha256 } from '@/crypto/hkdfSha256';
 import { bufToBase64, toBase64url } from '@/crypto/base64';
 
-export interface DeviceIdentity {
+interface DeviceIdentity {
     keyPair: CryptoKeyPair;
     publicKeySpki: string;
     deviceId: string;
@@ -39,7 +39,7 @@ export async function deriveDeviceIdentity(mnemonic: string): Promise<DeviceIden
     }
 
     const seed = await mnemonicToSeed(normalised);
-    const seedBuf = seed.buffer.slice(seed.byteOffset, seed.byteOffset + seed.byteLength);
+    const seedBuf = seed.buffer.slice(seed.byteOffset, seed.byteOffset + seed.byteLength) as ArrayBuffer;
 
     const [scalarBuf, uuidBuf] = await Promise.all([
         hkdfSha256(seedBuf, 'voip-ecdh-v1', 32),

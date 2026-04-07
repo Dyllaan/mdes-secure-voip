@@ -30,7 +30,7 @@ export default function AuthPage({ mode = 'login' }: { mode?: 'login' | 'registe
   }
 
   return (
-    <Page title={isLogin ? "Login" : "Register"} subtitle="Access your account or create a new one to get started.">
+    <Page header footer>
       {isLogin ? (
         <LoginForm 
           onSuccess={handleAuthSuccess}

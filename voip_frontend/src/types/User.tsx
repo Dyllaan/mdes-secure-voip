@@ -22,5 +22,3 @@ export type MeResponse = {
   username: string;
   mfaEnabled: boolean;
 }
-
-export type DeleteResult = LoginResult

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useHubAPI from '@/hooks/hub/useHubAPI';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +10,8 @@ import Page from '@/components/layout/Page';
 
 export default function HubList() {
     const navigate = useNavigate();
-    const hubAPI = useHubAPI();
-    const { listHubs, createHub, redeemInvite } = hubAPI;
-    const { socket, channelKeyManager } = useConnection();
+    const { hubClient, socket, channelKeyManager } = useConnection();
+    const { listHubs, createHub, redeemInvite } = hubClient;
 
     const [inviteInput, setInviteInput] = useState('');
     const [redeeming, setRedeeming] = useState(false);
@@ -22,7 +20,6 @@ export default function HubList() {
     const [creating, setCreating] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
 
     const fetchHubs = async () => {
         try {
@@ -63,14 +60,11 @@ export default function HubList() {
             setInviteInput('');
             await fetchHubs();
 
-            // Register our device key with the new hub so existing members can
-            // distribute channel keys to us
             if (channelKeyManager && data.hub?.id) {
-                channelKeyManager.registerWithHub(hubAPI, data.hub.id)
+                channelKeyManager.registerWithHub(hubClient, data.hub.id)
                     .catch(err => console.warn('[HubList] Failed to register device key with new hub:', err));
             }
 
-            // Notify existing hub members that a new member joined
             if (data.hub?.id) {
                 socket?.emit('member-joined', { hubId: data.hub.id });
             }
@@ -84,8 +78,8 @@ export default function HubList() {
     };
 
     return (
-        <Page title="Your Hubs" subtitle="Create a new hub or join an existing one with an invite code.">
-            {/* Create hub */}
+        <Page>
+            <div className="flex flex-col max-w-md mx-auto space-y-6 mt-20">
             <div className="flex gap-2">
                 <Input
                     data-testid="hub-name-input"
@@ -100,7 +94,6 @@ export default function HubList() {
                 </Button>
             </div>
 
-            {/* Redeem invite */}
             <div className="flex gap-2">
                 <Input
                     data-testid="invite-input"
@@ -123,7 +116,6 @@ export default function HubList() {
                 <p data-testid="hub-error" className="text-sm text-destructive text-center">{error}</p>
             )}
 
-            {/* Hub list */}
             <div className="space-y-2">
                 {loading ? (
                     <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
@@ -164,6 +156,7 @@ export default function HubList() {
                     Join an ephemeral call instead
                 </button>
                 <Logout />
+            </div>
             </div>
         </Page>
     );

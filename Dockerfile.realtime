@@ -1,7 +1,8 @@
 FROM node:18-alpine
 WORKDIR /app
 COPY services/realtime/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 COPY services/realtime/ .
+RUN npm run build
 EXPOSE 9001 9000
 CMD ["npm", "start"]

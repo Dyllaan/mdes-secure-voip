@@ -16,6 +16,7 @@ services:
       - PEER_SERVICE_URL=http://voip-realtime:9000
       - HUB_SERVICE_URL=http://hub-service:8080
       - MUSICMAN_URL=http://musicman-service:4000
+      - CORS_ORIGIN=http://localhost:5173
     depends_on:
       - p2p-voip-realtime-service
     networks:
@@ -53,6 +54,7 @@ services:
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
+      - ALLOWED_ORIGINS=http://localhost:5173
     networks:
       - voip-network
     restart: unless-stopped
@@ -124,6 +126,8 @@ services:
       - PORT=4000
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
+      - DEBUG_BOT=1
+      - DEBUG_AV=1
     depends_on:
       - p2p-voip-gateway
       - p2p-auth-service
@@ -149,6 +153,7 @@ services:
       --realm=talkpass
       --user=talk:talkpass
       --allow-loopback-peers
+      --external-ip=192.168.1.245
     networks:
       voip-network:
         ipv4_address: 10.10.10.10

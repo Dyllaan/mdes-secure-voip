@@ -33,11 +33,6 @@ export interface EncryptedMessage {
     timestamp: string;
 }
 
-export interface MessageHistoryResponse {
-    messages: EncryptedMessage[];
-    hasMore: boolean;
-}
-
 /** P-256 ECDH public key registered by a member's device for this hub. */
 export interface MemberDeviceKey {
     id: string;
@@ -85,12 +80,4 @@ export interface EphemeralMessage {
     message: string;
     alias: string;
     timestamp?: string;
-}
-
-/** Channel key rotation flag */
-export interface ChannelRotationFlag {
-    channelId: string;
-    rotationNeeded: boolean;
-    rotationNeededSince?: string;
-    removedUserId?: string;
 }

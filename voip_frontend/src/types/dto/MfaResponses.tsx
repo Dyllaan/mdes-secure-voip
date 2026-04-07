@@ -4,8 +4,3 @@ export type MfaSetupResponse = {
   backupCodes: string[];
   message: string;
 }
-
-export type MfaStatus = {
-  enabled: boolean;
-  verified: boolean;
-}

@@ -4,13 +4,17 @@ import type { Socket } from 'socket.io-client';
 import config from '@/config/config';
 import { useAuth } from '@/hooks/useAuth';
 import { SignalProtocolClient } from '@/utils/SignalProtocolClient';
+import { RoomClient } from '@/utils/RoomClient';
 import { CryptKeyManager } from '@/utils/CryptKeyManager';
-import useHubAPI from '@/hooks/hub/useHubAPI';
+import useHubClient from '@/hooks/hub/useHubClient';
+import type { HubClient } from '@/hooks/hub/useHubClient';
 
 interface ConnectionContextType {
     socket: Socket | null;
     signalClient: SignalProtocolClient | null;
+    roomClient: RoomClient | null;
     channelKeyManager: CryptKeyManager | null;
+    hubClient: HubClient;
     isConnected: boolean;
     assignedPeerId: string | null;
 }
@@ -18,7 +22,9 @@ interface ConnectionContextType {
 const ConnectionContext = createContext<ConnectionContextType>({
     socket: null,
     signalClient: null,
+    roomClient: null,
     channelKeyManager: null,
+    hubClient: {} as HubClient,
     isConnected: false,
     assignedPeerId: null,
 });
@@ -32,28 +38,24 @@ export default function ConnectionProvider({ children }: { children: React.React
     const username = user?.username ?? null;
     const accessToken = user?.accessToken ?? null;
 
-    const hubAPI = useHubAPI();
+    const hubClient = useHubClient();
 
     const [socket, setSocket] = useState<Socket | null>(null);
     const [signalClient, setSignalClient] = useState<SignalProtocolClient | null>(null);
+    const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
     const [channelKeyManager, setChannelKeyManager] = useState<CryptKeyManager | null>(null);
     const [isConnected, setIsConnected] = useState(false);
     const [assignedPeerId, setAssignedPeerId] = useState<string | null>(null);
 
     const socketRef = useRef<Socket | null>(null);
     const signalClientRef = useRef<SignalProtocolClient | null>(null);
+    const roomClientRef = useRef<RoomClient | null>(null);
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
-    // Keep hubAPI ref so the connect handler can always access latest tokens
-    const hubAPIRef = useRef(hubAPI);
+    const hubClientRef = useRef(hubClient);
 
-    useEffect(() => {
-        accessTokenRef.current = accessToken;
-    }, [accessToken]);
-
-    useEffect(() => {
-        hubAPIRef.current = hubAPI;
-    }, [hubAPI]);
+    useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
+    useEffect(() => { hubClientRef.current = hubClient; }, [hubClient]);
 
     useEffect(() => {
         if (!signedIn || !accessToken || !username) return;
@@ -73,8 +75,6 @@ export default function ConnectionProvider({ children }: { children: React.React
         socketRef.current = voipSocket;
         setSocket(voipSocket);
 
-        // Capture peer-assigned immediately - this fires right on connect
-        // before any child components have mounted their listeners
         voipSocket.on('peer-assigned', ({ peerId }: { peerId: string }) => {
             if (!cancelled) {
                 console.log('Peer ID assigned by server:', peerId);
@@ -89,42 +89,41 @@ export default function ConnectionProvider({ children }: { children: React.React
 
             if (!username) return;
 
-            // 1. Initialize Signal Protocol client (ephemeral room encryption)
             try {
                 const client = new SignalProtocolClient(username, voipSocket);
                 signalClientRef.current = client;
                 await client.initialize('persistent');
                 if (!cancelled) setSignalClient(client);
             } catch (error) {
-                console.error('Failed to initialize Signal Protocol encryption:', error);
+                console.error('Failed to initialize Signal Protocol:', error);
             }
 
-            // 2. Initialize CryptKeyManager (persistent channel encryption)
             try {
-                const api = hubAPIRef.current;
+                const client = new RoomClient(voipSocket);
+                roomClientRef.current = client;
+                await client.initialize();
+                if (!cancelled) setRoomClient(client);
+            } catch (error) {
+                console.error('Failed to initialize RoomClient:', error);
+            }
 
-                // Fetch all hubs this user belongs to so we can register our device key
-                const hubs: Array<{ id: string }> = await api.listHubs();
+            try {
+                const client = hubClientRef.current;
+                const hubs: Array<{ id: string }> = await client.listHubs();
                 const hubIds = hubs.map((h) => h.id);
-
-                const manager = await CryptKeyManager.create(api, hubIds);
+                const manager = await CryptKeyManager.create(client, hubIds);
                 channelKeyManagerRef.current = manager;
 
                 if (!cancelled) {
                     setChannelKeyManager(manager);
-
-                    // Eagerly sync any key bundles that were distributed while we were offline
                     for (const sid of hubIds) {
-                        manager.syncKeyBundles(sid, undefined, api).catch((err) =>
-                            console.warn(
-                                `[CryptKeyManager] Background bundle sync failed for hub ${sid}:`,
-                                err
-                            )
+                        manager.syncKeyBundles(sid, undefined, client).catch((err) =>
+                            console.warn(`[CryptKeyManager] Background bundle sync failed for hub ${sid}:`, err)
                         );
                     }
                 }
             } catch (error) {
-                console.error('Failed to initialize channel key manager:', error);
+                console.error('Failed to initialize CryptKeyManager:', error);
             }
         });
 
@@ -141,12 +140,15 @@ export default function ConnectionProvider({ children }: { children: React.React
         return () => {
             cancelled = true;
             signalClientRef.current?.cleanup();
+            roomClientRef.current?.cleanup();
             voipSocket.disconnect();
             socketRef.current = null;
             signalClientRef.current = null;
+            roomClientRef.current = null;
             channelKeyManagerRef.current = null;
             setSocket(null);
             setSignalClient(null);
+            setRoomClient(null);
             setChannelKeyManager(null);
             setIsConnected(false);
             setAssignedPeerId(null);
@@ -154,7 +156,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     }, [signedIn, accessToken, username]);
 
     return (
-        <ConnectionContext.Provider value={{ socket, signalClient, channelKeyManager, isConnected, assignedPeerId }}>
+        <ConnectionContext.Provider value={{ socket, signalClient, roomClient, channelKeyManager, hubClient, isConnected, assignedPeerId }}>
             {children}
         </ConnectionContext.Provider>
     );

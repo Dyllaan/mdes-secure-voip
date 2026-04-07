@@ -1,6 +1,11 @@
 import { createContext, useContext } from 'react';
 import type { Hub, Channel, EncryptedMessage, Member } from '@/types/hub.types';
-import type { UseEphemeralChatReturn } from '@/hooks/hub/useEphemeralChat';
+import type { EphemeralSession } from '@/hooks/hub/useEphemeralSession';
+
+interface EphemeralContextSlice extends EphemeralSession {
+    open: boolean;
+    setOpen: (v: boolean) => void;
+}
 
 interface HubLayoutContextValue {
     hub: Hub | null;
@@ -30,7 +35,7 @@ interface HubLayoutContextValue {
     onLoadOlder: () => void;
     onInputChange: (value: string) => void;
     onSend: () => void;
-    ephem: UseEphemeralChatReturn;
+    ephem: EphemeralContextSlice;
     isConnected: boolean;
     onBotJoined: () => void;
     kickMember: (memberId: string) => void;
