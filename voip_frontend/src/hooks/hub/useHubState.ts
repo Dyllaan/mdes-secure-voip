@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import useHubAPI from '@/hooks/hub/useHubAPI';
-import { useAuth } from '@/hooks/auth/useAuth';
+import { useAuth } from '@/hooks/useAuth';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { Hub, Channel, Member } from '@/types/hub.types';
 
-interface UseHubDataReturn {
+interface UseHubStateReturn {
     hub: Hub | null;
     channels: Channel[];
     members: Member[];
@@ -14,14 +13,12 @@ interface UseHubDataReturn {
     hasMusicman: boolean;
     refreshChannels: () => Promise<void>;
     refreshMembers: () => Promise<void>;
-    kickMember: (memberId: string) => Promise<void>;
 }
 
-export default function useHubData(hubId: string | undefined): UseHubDataReturn {
+export default function useHubState(hubId: string | undefined): UseHubStateReturn {
     const { user } = useAuth();
-    const { socket, channelKeyManager } = useConnection();
-    const hubAPI = useHubAPI();
-    const { getHub, listChannels, listMembers, kickMember } = hubAPI;
+    const { socket, channelKeyManager, hubClient } = useConnection();
+    const { getHub, listChannels, listMembers } = hubClient;
 
     const [hub, setHub] = useState<Hub | null>(null);
     const [channels, setChannels] = useState<Channel[]>([]);
@@ -47,9 +44,7 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
                 setMembers(memberData);
                 setError(null);
             } catch (err) {
-                if (!cancelled) {
-                    setError(err instanceof Error ? err.message : 'Failed to load hub');
-                }
+                if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load hub');
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -71,18 +66,12 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
         setMembers(updated);
     }, [hubId, listMembers]);
 
-    // ------------------------------------------------------------------
-    // Real-time: join the hub's socket room so server can scope broadcasts
-    // ------------------------------------------------------------------
     useEffect(() => {
         if (!socket || !hubId) return;
         socket.emit('hub:join', hubId);
         return () => { socket.emit('hub:leave', hubId); };
     }, [socket, hubId]);
 
-    // ------------------------------------------------------------------
-    // Real-time: channel lifecycle events
-    // ------------------------------------------------------------------
     useEffect(() => {
         if (!socket || !hubId) return;
 
@@ -90,7 +79,7 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
             if (data.hubId !== hubId) return;
             listChannels(hubId)
                 .then(setChannels)
-                .catch(err => console.warn('[useHubData] Failed to refresh channels:', err));
+                .catch(err => console.warn('[useHubState] Failed to refresh channels:', err));
         };
 
         socket.on('channel-created', onChannelChanged);
@@ -101,9 +90,6 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
         };
     }, [socket, hubId, listChannels]);
 
-    // ------------------------------------------------------------------
-    // Real-time: member lifecycle events
-    // ------------------------------------------------------------------
     useEffect(() => {
         if (!socket || !hubId) return;
 
@@ -111,16 +97,14 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
             if (data.hubId !== hubId) return;
             listMembers(hubId)
                 .then(setMembers)
-                .catch(err => console.warn('[useHubData] Failed to refresh members after member-joined:', err));
+                .catch(err => console.warn('[useHubState] Failed to refresh members:', err));
 
-            // Top up key distribution for all channels so the new member's devices
-            // can receive encrypted messages going forward
             if (channelKeyManager) {
                 for (const ch of channels) {
-                    channelKeyManager.topUpChannelKey(ch.id, hubId, hubAPI, (event) => {
+                    channelKeyManager.topUpChannelKey(ch.id, hubId, hubClient, (event) => {
                         socket?.emit('channel-key-rotated', event);
                     }).catch(err =>
-                        console.warn('[useHubData] Key top-up failed for channel', ch.id, ':', err)
+                        console.warn('[useHubState] Key top-up failed for channel', ch.id, ':', err)
                     );
                 }
             }
@@ -128,21 +112,10 @@ export default function useHubData(hubId: string | undefined): UseHubDataReturn 
 
         socket.on('member-joined', onMemberJoined);
         return () => { socket.off('member-joined', onMemberJoined); };
-    }, [socket, hubId, listMembers, channels, channelKeyManager]);
+    }, [socket, hubId, listMembers, channels, channelKeyManager, hubClient]);
 
     const isOwner = hub != null && hub.ownerId === user?.sub;
     const hasMusicman = members.some(m => m.role === 'bot');
 
-    const handleKickMember = useCallback(async (memberId: string) => {
-        if (!hubId) return;
-        if (!isOwner) {
-            setError('Only the hub owner can kick members');
-            return;
-        }
-        await kickMember(hubId, memberId);
-        setMembers(members.filter(m => m.id !== memberId));
-    }, [hubId, isOwner, kickMember]);
-
-
-    return { hub, channels, members, loading, error, isOwner, hasMusicman, refreshChannels, refreshMembers, kickMember: handleKickMember };
+    return { hub, channels, members, loading, error, isOwner, hasMusicman, refreshChannels, refreshMembers };
 }

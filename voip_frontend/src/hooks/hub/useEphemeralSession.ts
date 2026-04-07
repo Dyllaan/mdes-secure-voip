@@ -1,40 +1,32 @@
 import { useEffect, useState } from 'react';
-import useHubAPI from '@/hooks/hub/useHubAPI';
 import { useAuth } from '@/hooks/useAuth';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EphemeralMessage } from '@/types/hub.types';
 
-export interface UseEphemeralChatReturn {
+export interface EphemeralSession {
     active: boolean;
     joined: boolean;
-    open: boolean;
     messages: EphemeralMessage[];
-    input: string;
     timeLeft: string;
-    setOpen: (v: boolean) => void;
-    setInput: (v: string) => void;
-    handleStart: () => Promise<void>;
-    handleJoin: () => Promise<void>;
-    handleLeave: () => void;
-    handleEnd: () => Promise<void>;
-    handleSend: () => Promise<void>;
+    start: () => Promise<void>;
+    join: () => Promise<void>;
+    leave: () => void;
+    end: () => Promise<void>;
+    send: (text: string) => Promise<void>;
 }
 
-export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatReturn {
+export function useEphemeralSession(hubId: string | undefined): EphemeralSession {
     const { user } = useAuth();
-    const { socket, roomClient } = useConnection();
-    const { startEphemeral, getEphemeral, endEphemeral } = useHubAPI();
+    const { socket, roomClient, hubClient } = useConnection();
+    const { startEphemeral, getEphemeral, endEphemeral } = hubClient;
 
     const [roomId, setRoomId]       = useState<string | null>(null);
     const [active, setActive]       = useState(false);
-    const [open, setOpen]           = useState(false);
     const [joined, setJoined]       = useState(false);
     const [messages, setMessages]   = useState<EphemeralMessage[]>([]);
-    const [input, setInput]         = useState('');
     const [expiresAt, setExpiresAt] = useState<number | null>(null);
     const [timeLeft, setTimeLeft]   = useState('');
 
-    // Poll server every 5 s for ephemeral room status
     useEffect(() => {
         if (!hubId) return;
 
@@ -49,15 +41,12 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
                     setRoomId(null);
                     setExpiresAt(null);
                     setJoined(prev => {
-                        if (prev) {
-                            setOpen(false);
-                            setMessages([]);
-                        }
+                        if (prev) setMessages([]);
                         return false;
                     });
                 }
             } catch {
-                // ignore transient errors
+                // ignore transient poll errors
             }
         };
 
@@ -66,7 +55,6 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
         return () => clearInterval(id);
     }, [hubId, getEphemeral]);
 
-    // Countdown timer
     useEffect(() => {
         if (!expiresAt) {
             setTimeLeft('');
@@ -86,7 +74,6 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
         return () => clearInterval(id);
     }, [expiresAt]);
 
-    // Room client message callback
     useEffect(() => {
         if (!roomClient || !joined) return;
 
@@ -102,19 +89,18 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
         return () => { roomClient.onRoomMessageDecrypted = undefined; };
     }, [roomClient, joined]);
 
-    const handleStart = async () => {
+    const start = async () => {
         if (!hubId) return;
-        const newRoomId = `ephemeral-${hubId}`;
         try {
-            const data = await startEphemeral(hubId, newRoomId);
+            const data = await startEphemeral(hubId, `ephemeral-${hubId}`);
             setRoomId(data.roomId);
             setActive(true);
         } catch (err) {
-            console.error('[useEphemeralChat] Failed to start:', err);
+            console.error('[useEphemeralSession] Failed to start:', err);
         }
     };
 
-    const handleJoin = async () => {
+    const join = async () => {
         if (!roomId || !socket || !roomClient) return;
         try {
             const existingUsers = await new Promise<string[]>((resolve) => {
@@ -130,51 +116,43 @@ export function useEphemeralChat(hubId: string | undefined): UseEphemeralChatRet
 
             await roomClient.joinRoom(roomId, existingUsers);
             setJoined(true);
-            setOpen(true);
         } catch (err) {
-            console.error('[useEphemeralChat] Failed to join:', err);
+            console.error('[useEphemeralSession] Failed to join:', err);
         }
     };
 
-    const handleLeave = () => {
+    const leave = () => {
         if (socket && roomId) socket.emit('leave-room', { roomId });
         roomClient?.leaveRoom();
         setJoined(false);
-        setOpen(false);
         setMessages([]);
     };
 
-    const handleEnd = async () => {
+    const end = async () => {
         if (!hubId) return;
-        handleLeave();
+        leave();
         try {
             await endEphemeral(hubId);
             setActive(false);
             setRoomId(null);
         } catch (err) {
-            console.error('[useEphemeralChat] Failed to end:', err);
+            console.error('[useEphemeralSession] Failed to end:', err);
         }
     };
 
-    const handleSend = async () => {
-        if (!roomClient || !input.trim()) return;
-        const text = input.trim();
+    const send = async (text: string) => {
+        if (!roomClient || !text.trim()) return;
         try {
-            await roomClient.sendMessage(text);
+            await roomClient.sendMessage(text.trim());
             setMessages(prev => [...prev, {
                 sender: 'me',
-                message: text,
+                message: text.trim(),
                 alias: user?.username ?? 'Me',
             }]);
-            setInput('');
         } catch (err) {
-            console.error('[useEphemeralChat] Failed to send:', err);
+            console.error('[useEphemeralSession] Failed to send:', err);
         }
     };
 
-    return {
-        active, joined, open, messages, input, timeLeft,
-        setOpen, setInput,
-        handleStart, handleJoin, handleLeave, handleEnd, handleSend,
-    };
+    return { active, joined, messages, timeLeft, start, join, leave, end, send };
 }

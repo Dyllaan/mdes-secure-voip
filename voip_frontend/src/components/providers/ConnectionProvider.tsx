@@ -6,13 +6,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { SignalProtocolClient } from '@/utils/SignalProtocolClient';
 import { RoomClient } from '@/utils/RoomClient';
 import { CryptKeyManager } from '@/utils/CryptKeyManager';
-import useHubAPI from '@/hooks/hub/useHubAPI';
+import useHubClient from '@/hooks/hub/useHubClient';
+import type { HubClient } from '@/hooks/hub/useHubClient';
 
 interface ConnectionContextType {
     socket: Socket | null;
     signalClient: SignalProtocolClient | null;
     roomClient: RoomClient | null;
     channelKeyManager: CryptKeyManager | null;
+    hubClient: HubClient;
     isConnected: boolean;
     assignedPeerId: string | null;
 }
@@ -22,6 +24,7 @@ const ConnectionContext = createContext<ConnectionContextType>({
     signalClient: null,
     roomClient: null,
     channelKeyManager: null,
+    hubClient: {} as HubClient,
     isConnected: false,
     assignedPeerId: null,
 });
@@ -35,7 +38,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     const username = user?.username ?? null;
     const accessToken = user?.accessToken ?? null;
 
-    const hubAPI = useHubAPI();
+    const hubClient = useHubClient();
 
     const [socket, setSocket] = useState<Socket | null>(null);
     const [signalClient, setSignalClient] = useState<SignalProtocolClient | null>(null);
@@ -49,10 +52,10 @@ export default function ConnectionProvider({ children }: { children: React.React
     const roomClientRef = useRef<RoomClient | null>(null);
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
-    const hubAPIRef = useRef(hubAPI);
+    const hubClientRef = useRef(hubClient);
 
     useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
-    useEffect(() => { hubAPIRef.current = hubAPI; }, [hubAPI]);
+    useEffect(() => { hubClientRef.current = hubClient; }, [hubClient]);
 
     useEffect(() => {
         if (!signedIn || !accessToken || !username) return;
@@ -105,16 +108,16 @@ export default function ConnectionProvider({ children }: { children: React.React
             }
 
             try {
-                const api = hubAPIRef.current;
-                const hubs: Array<{ id: string }> = await api.listHubs();
+                const client = hubClientRef.current;
+                const hubs: Array<{ id: string }> = await client.listHubs();
                 const hubIds = hubs.map((h) => h.id);
-                const manager = await CryptKeyManager.create(api, hubIds);
+                const manager = await CryptKeyManager.create(client, hubIds);
                 channelKeyManagerRef.current = manager;
 
                 if (!cancelled) {
                     setChannelKeyManager(manager);
                     for (const sid of hubIds) {
-                        manager.syncKeyBundles(sid, undefined, api).catch((err) =>
+                        manager.syncKeyBundles(sid, undefined, client).catch((err) =>
                             console.warn(`[CryptKeyManager] Background bundle sync failed for hub ${sid}:`, err)
                         );
                     }
@@ -153,7 +156,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     }, [signedIn, accessToken, username]);
 
     return (
-        <ConnectionContext.Provider value={{ socket, signalClient, roomClient, channelKeyManager, isConnected, assignedPeerId }}>
+        <ConnectionContext.Provider value={{ socket, signalClient, roomClient, channelKeyManager, hubClient, isConnected, assignedPeerId }}>
             {children}
         </ConnectionContext.Provider>
     );
