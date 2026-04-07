@@ -19,6 +19,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import ToS from './page/ToS';
 import Privacy from './page/Privacy';
 import RootRoute from './components/auth/routes/RootRoute';
+import ProfilePage from './page/ProfilePage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,6 +56,7 @@ function App() {
                 </Route>
 
                 <Route element={<ProtectedRoute />}>
+                  <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/keys" element={<KeySetupPage />} />
                   <Route element={<KeysRequired />}>
                     <Route element={
