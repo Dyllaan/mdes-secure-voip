@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Server, ArrowRight, Phone } from 'lucide-react';
+import { Plus, Server, ArrowRight, User } from 'lucide-react';
 import type { Hub } from '@/types/hub.types';
 import Logout from '@/components/auth/Logout';
 import Page from '@/components/layout/Page';
@@ -78,7 +78,7 @@ export default function HubList() {
     };
 
     return (
-        <Page>
+        <Page header footer>
             <div className="flex flex-col max-w-md mx-auto space-y-6 mt-20">
             <div className="flex gap-2">
                 <Input
@@ -147,13 +147,13 @@ export default function HubList() {
                 )}
             </div>
 
-            <div className="pt-4 border-t flex-flex-col items-center justify-center gap-2">
+            <div className="pt-4 border-t flex flex-row items-center justify-center gap-2">
                 <button
-                    onClick={() => navigate('/call')}
+                    onClick={() => navigate('/profile')}
                     className="w-full flex items-center justify-center gap-2 p-3 rounded-lg text-sm text-muted-foreground hover:bg-muted/50 transition-colors"
                 >
-                    <Phone className="h-4 w-4" />
-                    Join an ephemeral call instead
+                    <User className="h-4 w-4" />
+                    Profile
                 </button>
                 <Logout />
             </div>
