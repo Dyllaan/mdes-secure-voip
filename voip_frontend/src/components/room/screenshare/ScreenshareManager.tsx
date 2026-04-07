@@ -140,28 +140,30 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
 
       {visibleScreens.length > 0 && primary && (
         <div className="flex gap-2 p-3 items-start">
-          <div className="relative flex-1 min-w-0 rounded-lg overflow-hidden bg-black ring-1 ring-[#7ee8a2]/20" style={{ maxHeight: "45vh" }}>
-            <PrimaryVideo stream={primary.stream} muted={primary.isLocal} />
+          <div className="relative mx-auto flex-1 min-w-0" style={{ aspectRatio: "16 / 9", maxWidth: "min(100%, calc(45vh * 16 / 9))" }}>
+            <div className="absolute inset-0 rounded-lg overflow-hidden bg-black ring-1 ring-[#7ee8a2]/20">
+              <PrimaryVideo stream={primary.stream} muted={primary.isLocal} />
 
-            <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm rounded px-2 py-0.5 pointer-events-none">
-              <Crown className="h-3 w-3 text-[#7ee8a2]" />
-              <span className="text-[10px] text-[#7ee8a2] tracking-wide">
-                {primary.isLocal ? "You" : primary.label}
-              </span>
-            </div>
-
-            {!primary.isLocal && (
-              <div className="absolute top-2 right-2 z-10 opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-100">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 bg-black/70 hover:bg-black/90 text-white border-0 text-[10px] tracking-wide rounded"
-                  onClick={() => dismissScreenShare(primary.id)}
-                >
-                  <EyeOff className="h-3 w-3" /> Dismiss
-                </Button>
+              <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-black/70 backdrop-blur-sm rounded px-2 py-0.5 pointer-events-none">
+                <Crown className="h-3 w-3 text-[#7ee8a2]" />
+                <span className="text-[10px] text-[#7ee8a2] tracking-wide">
+                  {primary.isLocal ? "You" : primary.label}
+                </span>
               </div>
-            )}
+
+              {!primary.isLocal && (
+                <div className="absolute top-2 right-2 z-10 opacity-0 hover:opacity-100 transition-opacity group-hover:opacity-100">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 bg-black/70 hover:bg-black/90 text-white border-0 text-[10px] tracking-wide rounded"
+                    onClick={() => dismissScreenShare(primary.id)}
+                  >
+                    <EyeOff className="h-3 w-3" /> Dismiss
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
 
           {thumbnails.length > 0 && (

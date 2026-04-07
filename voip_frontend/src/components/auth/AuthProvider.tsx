@@ -6,6 +6,7 @@ import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
 import config from '@/config/config';
+
 type AuthContextType = {
   user: User | null;
   setUser: (user: User | null) => void;
@@ -22,6 +23,7 @@ type AuthContextType = {
   changeUserIsMfaEnabled: (enabled: boolean) => void;
   updatePassword: (oldPassword: string, newPassword: string, mfaCode?: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
   isLoading: boolean;
+  turnCredentials: { username: string; password: string; ttl: number } | null;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,6 +33,7 @@ interface AuthProviderProps {
 }
 
 const BASE_URL = config.AUTH_URL;
+const GATEWAY_URL = config.GATEWAY_URL;
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useLocalStorage<User | null>('user', null);
@@ -39,12 +42,21 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaStatus, setMfaStatus] = useState<MfaStatus | null>(null);
+  const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
 
   useEffect(() => {
     if (user?.accessToken) {
       fetchMfaStatus();
     }
   }, [user?.accessToken]);
+
+  useEffect(() => {
+    if (user?.accessToken && signedIn && !isLoading) {
+      fetchTurnCredentials(user.accessToken);
+    } else if (!signedIn) {
+      setTurnCredentials(null);
+    }
+  }, [user?.accessToken, signedIn, isLoading]);
 
   const changeUserIsMfaEnabled = (enabled: boolean) => {
     if (user) {
@@ -60,21 +72,27 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setMfaStatus(null);
   }
 
-  useEffect(() => {
-    checkToken().then((isValid) => {
-      if (!isValid) logout();
-    }).finally(() => {
-      setIsLoading(false); // done regardless of outcome
-    });
-  }, []);
+  const fetchTurnCredentials = async (token: string) => {
+    try {
+      const response = await axios.get(`${GATEWAY_URL}/turn-credentials`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = response.data as { username: string; password: string; ttl: number };
+      setTurnCredentials(prev =>
+        prev?.username === data.username && prev?.password === data.password
+          ? prev
+          : data
+      );
+    } catch {
+      console.error('Failed to fetch TURN credentials');
+    }
+  };
 
   const fetchMfaStatus = async () => {
     if (!user?.accessToken) return;
-
     const response = await axios.get(`${BASE_URL}/mfa/status`, {
       headers: { Authorization: `Bearer ${user.accessToken}` }
     });
-
     if (response.status === 200) {
       setMfaStatus(response.data as MfaStatus);
     }
@@ -92,7 +110,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       const response = await axios.get(`${BASE_URL}/user/me`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-
       const responseData = response.data as MeResponse;
       changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
       setSignedIn(true);
@@ -110,11 +127,18 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           // Refresh failed
         }
       }
-
       setSignedIn(false);
       return false;
     }
   };
+
+  useEffect(() => {
+    checkToken().then((isValid) => {
+      if (!isValid) logout();
+    }).finally(() => {
+      setIsLoading(false);
+    });
+  }, []);
 
   const login = async (username: string, password: string, mfaCode?: string, trustDevice?: boolean): Promise<LoginResult> => {
     try {
@@ -226,7 +250,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         logout();
         setSignedIn(false);
       }
-
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('An unexpected error occurred');
@@ -299,7 +322,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     disableMfa,
     changeUserIsMfaEnabled,
     updatePassword,
-    isLoading
+    isLoading,
+    turnCredentials,
   };
 
   return (

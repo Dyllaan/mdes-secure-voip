@@ -12,6 +12,8 @@ const REQUIRED = [
   'PEER_SERVICE_URL',
   'HUB_SERVICE_URL',
   'MUSICMAN_URL',
+  'TURN_SECRET',
+  'JWT_SECRET',
 ];
 
 const missing = REQUIRED.filter(k => !process.env[k]);
@@ -29,6 +31,8 @@ const config = {
   PEER_SERVICE_URL: process.env.PEER_SERVICE_URL as string,
   HUB_SERVICE_URL: process.env.HUB_SERVICE_URL as string,
   MUSICMAN_URL: process.env.MUSICMAN_URL as string,
+  TURN_SECRET: process.env.TURN_SECRET as string,
+  JWT_SECRET: process.env.JWT_SECRET as string,
 };
 
 const logger = pino({ level: config.LOG_LEVEL });

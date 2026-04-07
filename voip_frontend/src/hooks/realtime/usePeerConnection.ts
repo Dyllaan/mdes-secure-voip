@@ -25,6 +25,7 @@ interface UsePeerConnectionOptions {
   stream: MediaStream | null;
   peerId: string;
   peerConfig: PeerConfig;
+  turnCredentials: { username: string; password: string } | null;
 }
 
 interface UsePeerConnectionReturn {
@@ -39,6 +40,7 @@ const usePeerConnection = ({
   stream,
   peerId,
   peerConfig,
+  turnCredentials,
 }: UsePeerConnectionOptions): UsePeerConnectionReturn => {
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
@@ -101,7 +103,17 @@ const usePeerConnection = ({
   }, [addRemoteStream, removeRemoteStream]);
 
   useEffect(() => {
-    if (!peerId || !stream) return;
+    if (!peerId || !stream || !turnCredentials) return;
+
+    const iceServers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: 'turn:mdes.sh:3478?transport=udp',
+        username: turnCredentials.username,
+        credential: turnCredentials.password,
+      },
+    ];
 
     const p = new Peer(peerId, {
       host: peerConfig.host,
@@ -109,25 +121,15 @@ const usePeerConnection = ({
       port: peerConfig.port,
       path: peerConfig.path,
       debug: 1,
-      config: {
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-          {
-            urls: "turn:192.168.1.245:3478?transport=udp",
-            username: "talk",
-            credential: "talkpass",
-          },
-        ],
-      },
+      config: { iceServers },
     });
 
     peerRef.current = p;
 
-    p.on("open", () => { isOpenRef.current = true; });
-    p.on("error", err => console.error("PeerJS error:", err));
+    p.on('open', () => { isOpenRef.current = true; });
+    p.on('error', err => console.error('PeerJS error:', err));
 
-    p.on("call", (incoming: MediaConnection) => {
+    p.on('call', (incoming: MediaConnection) => {
       connectionsRef.current.set(incoming.peer, incoming);
       const answer = () => {
         if (streamRef.current) {
@@ -137,9 +139,9 @@ const usePeerConnection = ({
         }
       };
       answer();
-      incoming.on("stream", s => addRemoteStream(incoming.peer, s));
-      incoming.on("close", () => removeRemoteStream(incoming.peer));
-      incoming.on("error", () => removeRemoteStream(incoming.peer));
+      incoming.on('stream', s => addRemoteStream(incoming.peer, s));
+      incoming.on('close', () => removeRemoteStream(incoming.peer));
+      incoming.on('error', () => removeRemoteStream(incoming.peer));
     });
 
     return () => {
@@ -148,7 +150,7 @@ const usePeerConnection = ({
       p.destroy();
       peerRef.current = null;
     };
-  }, [peerId, stream, peerConfig.host, peerConfig.port, peerConfig.path, peerConfig.secure, addRemoteStream, removeRemoteStream, closeAll]);
+  }, [peerId, stream, turnCredentials, peerConfig.host, peerConfig.port, peerConfig.path, peerConfig.secure, addRemoteStream, removeRemoteStream, closeAll]);
 
   return { remoteStreams, callPeer, removeRemoteStream, closeAll, waitForOpen };
 };

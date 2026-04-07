@@ -16,6 +16,8 @@ import {
   circuitBreaker,
   requestId,
 } from './middleware';
+import { turnCredentials } from './turnCredentials';
+import { requireAuth } from './authMiddleware';
 
 const app = express();
 
@@ -152,6 +154,8 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   onError: (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
 });
 app.use('/peerjs', peerJsProxy);
+
+app.get('/turn-credentials', generalLimiter, requireAuth, turnCredentials);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });

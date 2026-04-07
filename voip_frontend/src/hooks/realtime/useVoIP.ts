@@ -20,7 +20,7 @@ const PEER_CONFIG = {
 };
 
 const useVoIP = () => {
-  const { user, signedIn } = useAuth();
+  const { user, signedIn, turnCredentials } = useAuth();
   const { socket, signalClient, roomClient, isConnected, assignedPeerId } = useConnection();
   const username = user?.username ?? null;
 
@@ -36,6 +36,7 @@ const useVoIP = () => {
     stream: mic.stream,
     peerId: assignedPeerId ?? "",
     peerConfig: PEER_CONFIG,
+    turnCredentials,
   });
 
   const screenshare = useScreenshare({
@@ -114,7 +115,7 @@ const useVoIP = () => {
   }, [roomClient]);
 
   const joinRoom = useCallback(async (roomId: string): Promise<void> => {
-    if (!socket || !isConnected) return;
+    if (!socket || !isConnected || !turnCredentials) return;
 
     const micOk = await mic.acquire();
     if (!micOk) return;
@@ -126,7 +127,7 @@ const useVoIP = () => {
     peerConn.closeAll();
     socket.emit("join-room", { roomId, alias: username, userId: username });
     setCurrentRoomId(roomId);
-  }, [socket, isConnected, mic.acquire, peerConn.waitForOpen, peerConn.closeAll, screenshare.clearRoomState, username]);
+  }, [socket, isConnected, turnCredentials, mic.acquire, peerConn.waitForOpen, peerConn.closeAll, screenshare.clearRoomState, username]);
 
   const leaveRoom = useCallback((): void => {
     if (socket && currentRoomId) {
@@ -185,6 +186,7 @@ const useVoIP = () => {
     socket,
     signalClient,
     user,
+    turnCredentials,
   };
 };
 

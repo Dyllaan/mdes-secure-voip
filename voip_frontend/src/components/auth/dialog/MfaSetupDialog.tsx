@@ -111,12 +111,12 @@ export default function MfaSetupDialog({
   const handleDownloadBackupCodes = () => {
     if (!setupData?.backupCodes) return;
 
-    const content = `Talk Backup Codes\nGenerated: ${new Date().toLocaleString()}\n\n${setupData.backupCodes.join('\n')}\n\nKeep these codes safe. Each code can only be used once.`;
+    const content = `MDES Backup Codes\nGenerated: ${new Date().toLocaleString()}\n\n${setupData.backupCodes.join('\n')}\n\nKeep these codes safe. Each code can only be used once.`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'talk-backup-codes.txt';
+    a.download = 'mdes-backup-codes.txt';
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Backup codes downloaded');

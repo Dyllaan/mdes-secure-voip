@@ -114,7 +114,7 @@ function formatMs(ms: number): string {
 }
 
 const MAX_QUEUE   = 27;
-const STORAGE_KEY = (roomId: string) => `talk:queue:${roomId}`;
+const STORAGE_KEY = (roomId: string) => `mdes:queue:${roomId}`;
 
 function loadQueue(roomId: string): PlaylistItem[] {
     try {
