@@ -84,7 +84,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           : data
       );
     } catch {
-      console.error('Failed to fetch TURN credentials');
+      console.error('Failed to fetch TURN credentials refresh');
     }
   };
 
