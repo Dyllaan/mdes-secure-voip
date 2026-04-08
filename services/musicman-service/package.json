@@ -9,7 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
+    "dotenv": "^17.4.1",
     "express": "^4.19.2",
     "socket.io-client": "^4.7.5",
     "uuid": "^9.0.1",
