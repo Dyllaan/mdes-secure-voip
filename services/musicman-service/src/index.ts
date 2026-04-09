@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { spawn } from 'child_process';
 import { config } from './config';
-import { login, startTokenRefresh, getToken, fetchTurnCredentials, getTurnCredentials } from './Auth';
+import { register, login, startTokenRefresh, getToken, fetchTurnCredentials, getTurnCredentials } from './Auth';
 import { BotInstance } from './BotInstance';
 import { HubHandler } from './HubHandler';
 
@@ -311,6 +311,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 (async () => {
     try {
+        await register();
         await login();
         await fetchTurnCredentials();
         startTokenRefresh();
