@@ -100,7 +100,6 @@ func GetHub(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Hub not found")
 		return
 	}
-
 	writeJSON(w, http.StatusOK, hub)
 }
 
