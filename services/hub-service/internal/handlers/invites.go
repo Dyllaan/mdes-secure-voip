@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +15,16 @@ import (
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
 )
+
+func inviteTTL() time.Duration {
+	hours := 24
+	if v := os.Getenv("INVITE_TTL_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			hours = n
+		}
+	}
+	return time.Duration(hours) * time.Hour
+}
 
 func CreateInvite(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
@@ -24,15 +36,17 @@ func CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bytes := make([]byte, 4)
+	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	code := hex.EncodeToString(bytes)
 
+	now := time.Now()
 	invite := structs.InviteCode{
 		ID:        uuid.New().String(),
 		HubID:     hubID,
 		Code:      code,
-		CreatedAt: time.Now(),
+		CreatedAt: now,
+		ExpiresAt: now.Add(inviteTTL()),
 	}
 
 	if err := db.DB.Create(&invite).Error; err != nil {
@@ -50,6 +64,11 @@ func RedeemInvite(w http.ResponseWriter, r *http.Request) {
 	var invite structs.InviteCode
 	if err := db.DB.First(&invite, "code = ?", code).Error; err != nil {
 		writeError(w, http.StatusNotFound, "Invalid invite code")
+		return
+	}
+
+	if time.Now().After(invite.ExpiresAt) {
+		writeError(w, http.StatusGone, "Invite code has expired")
 		return
 	}
 

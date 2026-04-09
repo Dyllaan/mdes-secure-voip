@@ -63,6 +63,14 @@ class RoomKeyHandler {
             socket.emit('signal-error', { message: 'Invalid user ID' });
             return;
         }
+
+        // Only share RSA keys between users who are in the same room.
+        const targetSocket = this.findSocketByUserId(userId);
+        if (!targetSocket || !socket.roomId || targetSocket.roomId !== socket.roomId) {
+            socket.emit('signal-error', { message: 'User not found in your current room' });
+            return;
+        }
+
         const publicKey = this.rsaPublicKeys.get(userId);
         if (!publicKey) {
             socket.emit('signal-error', { message: 'RSA public key not found for user' });

@@ -6,6 +6,48 @@ import { login, startTokenRefresh, getToken, fetchTurnCredentials, getTurnCreden
 import { BotInstance } from './BotInstance';
 import { HubHandler } from './HubHandler';
 
+// ── Media URL allowlist ───────────────────────────────────────────────────────
+const ALLOWED_MEDIA_DOMAINS = (process.env.ALLOWED_MEDIA_DOMAINS ?? 'youtube.com,youtu.be,soundcloud.com,spotify.com')
+    .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+
+function isAllowedUrl(url: string): boolean {
+    try {
+        const { hostname } = new URL(url);
+        const h = hostname.toLowerCase();
+        return ALLOWED_MEDIA_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`));
+    } catch {
+        return false;
+    }
+}
+
+// ── Per-user rate limiting ────────────────────────────────────────────────────
+const USER_PLAY_LIMIT = 5;
+const USER_PLAY_WINDOW_MS = 60_000;
+const userPlayLimits = new Map<string, { count: number; resetAt: number }>();
+
+function extractUserId(authHeader: string | undefined): string {
+    // Decode JWT payload (Base64url) to extract sub — no sig check needed for rate keying.
+    // Auth enforcement happens at the gateway level.
+    if (!authHeader?.startsWith('Bearer ')) return 'anonymous';
+    const parts = authHeader.slice(7).split('.');
+    if (parts.length !== 3) return 'anonymous';
+    try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        return typeof payload.sub === 'string' && payload.sub ? payload.sub : 'anonymous';
+    } catch {
+        return 'anonymous';
+    }
+}
+
+function checkUserRateLimit(userId: string): boolean {
+    const now = Date.now();
+    const entry = userPlayLimits.get(userId) ?? { count: 0, resetAt: now + USER_PLAY_WINDOW_MS };
+    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + USER_PLAY_WINDOW_MS; }
+    entry.count++;
+    userPlayLimits.set(userId, entry);
+    return entry.count <= USER_PLAY_LIMIT;
+}
+
 interface ResolvedItem {
     id:         string;
     url:        string;
@@ -33,10 +75,12 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
         })();
         const useFlatPlaylist = !isSCSingle;
 
+        const maxMb = process.env.YTDLP_MAX_FILESIZE_MB ?? '50';
         const args = [
             ...(useFlatPlaylist ? ['--flat-playlist'] : []),
             '-J',
             '--no-warnings',
+            '--max-filesize', `${maxMb}M`,
             '--js-runtimes', 'quickjs:/usr/bin/qjs',
             '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
         ];
@@ -121,6 +165,11 @@ app.post('/join', async (req: Request, res: Response) => {
     if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
     if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
 
+    if (!isAllowedUrl(youtubeUrl)) return res.status(400).json({ error: 'URL domain not permitted' });
+
+    const userId = extractUserId(req.headers.authorization);
+    if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
+
     if (bots.has(roomId)) {
         return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
     }
@@ -149,6 +198,11 @@ app.post('/play', async (req: Request, res: Response) => {
 
     if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
     if (!youtubeUrl) return res.status(400).json({ error: 'youtubeUrl is required' });
+
+    if (!isAllowedUrl(youtubeUrl)) return res.status(400).json({ error: 'URL domain not permitted' });
+
+    const userId = extractUserId(req.headers.authorization);
+    if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
     const existing = bots.get(roomId);
     if (existing) {
@@ -224,6 +278,11 @@ app.post('/seek', (req: Request, res: Response) => {
 app.post('/resolve', async (req: Request, res: Response) => {
     const { url } = req.body as { url?: string };
     if (!url) return res.status(400).json({ error: 'url is required' });
+
+    if (!isAllowedUrl(url)) return res.status(400).json({ error: 'URL domain not permitted' });
+
+    const userId = extractUserId(req.headers.authorization);
+    if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
     try {
         const items = await resolveUrl(url);

@@ -9,6 +9,7 @@ import ChatHandler from './ChatHandler';
 import UserHandler from './UserHandler';
 import { RealtimeConfig } from '../config';
 import { AuthenticatedSocket, RateLimitEntry, Service, ChatMessage, SignalKeyBundle } from '../types';
+import { getRedis } from '../redis';
 
 class SocketEventHandlers {
     private service: Service;
@@ -61,9 +62,12 @@ class SocketEventHandlers {
 
         this.io.on('connection', (rawSocket: Socket) => {
             const socket = rawSocket as AuthenticatedSocket;
-            this.socketRateLimits.set(socket.id, new Map());
+            // Rate limit keyed by userId so multiple tabs share the same bucket.
+            if (!this.socketRateLimits.has(socket.userId)) {
+                this.socketRateLimits.set(socket.userId, new Map());
+            }
 
-            const peerId = this.generateSecurePeerId(socket.username);
+            const peerId = this.generateSecurePeerId();
             socket.peerId = peerId;
             socket.emit('peer-assigned', { peerId });
 
@@ -84,9 +88,9 @@ class SocketEventHandlers {
             socket.on('screenshare-started',    (d) => rl('screenshare', 10, 10000) && this.user.handleScreenshareStarted(socket, d));
             socket.on('screenshare-stopped',    ()  => rl('screenshare', 10, 10000) && this.user.handleScreenshareStopped(socket));
 
-            socket.on('webrtc-offer',           (d) => rl('webrtc-offer')           && this.webrtc.handleOffer(socket, d));
-            socket.on('webrtc-answer',          (d) => rl('webrtc-answer')          && this.webrtc.handleAnswer(socket, d));
-            socket.on('webrtc-ice-candidate',   (d) => rl('webrtc-ice-candidate')   && this.webrtc.handleIceCandidate(socket, d));
+            socket.on('webrtc-offer',           (d) => rl('webrtc-offer', 10, 60_000)         && this.webrtc.handleOffer(socket, d));
+            socket.on('webrtc-answer',          (d) => rl('webrtc-answer', 10, 60_000)        && this.webrtc.handleAnswer(socket, d));
+            socket.on('webrtc-ice-candidate',   (d) => rl('webrtc-ice-candidate', 50, 10_000) && this.webrtc.handleIceCandidate(socket, d));
 
             socket.on('signal-register-keys',   (d) => rl('signal-register-keys', 5, 60000)     && this.signal.handleRegisterKeys(socket, d));
             socket.on('signal-request-bundle',  (d) => rl('signal-request-bundle', 30, 60000)   && this.signal.handleRequestBundle(socket, d));
@@ -120,7 +124,34 @@ class SocketEventHandlers {
             socket.on('musicman:track-ended',   (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-ended', d); });
             socket.on('musicman:state-changed', (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:state-changed', d); });
 
-            socket.on('disconnect', () => this.handleDisconnect(socket));
+            // Phase 4+13: Periodically re-validate room access; kick and purge queued messages if revoked.
+            const REVALIDATION_MS = 5 * 60 * 1000;
+            const revalidationTimer = setInterval(async () => {
+                if (!socket.roomId) return;
+                const allowed = await this.roomManager.checkChannelAccess(socket.roomId, socket.token);
+                if (!allowed) {
+                    this.messageQueues.delete(socket.username);
+                    this.roomManager.forceLeaveRoom(socket);
+                }
+            }, REVALIDATION_MS);
+
+            // Phase 10: Re-verify JWT every 15 min; disconnect if expired/invalid.
+            const REAUTH_MS = 15 * 60 * 1000;
+            const jwtSecret = Buffer.from(this.config.jwt.secret, 'base64');
+            const reauthTimer = setInterval(() => {
+                try {
+                    jwt.verify(socket.token, jwtSecret, { algorithms: ['HS256'] });
+                } catch {
+                    socket.emit('session-expired', { message: 'Session expired, please log in again' });
+                    socket.disconnect(true);
+                }
+            }, REAUTH_MS);
+
+            socket.on('disconnect', () => {
+                clearInterval(revalidationTimer);
+                clearInterval(reauthTimer);
+                this.handleDisconnect(socket);
+            });
         });
     }
 
@@ -130,7 +161,7 @@ class SocketEventHandlers {
         max: number = this.config.security.socketRateLimitMax,
         windowMs: number = this.config.security.socketRateLimitWindow
     ): boolean {
-        const socketLimits = this.socketRateLimits.get(socket.id);
+        const socketLimits = this.socketRateLimits.get(socket.userId);
         if (!socketLimits) return false;
 
         const now = Date.now();
@@ -163,16 +194,25 @@ class SocketEventHandlers {
         } else {
             this.roomManager.removeUser(socket.id);
         }
-        this.socketRateLimits.delete(socket.id);
+        // Only clear rate limit bucket when this user has no remaining sockets.
+        const stillConnected = Array.from(this.io.sockets.sockets.values()).some(
+            (s) => s.id !== socket.id && (s as AuthenticatedSocket).userId === socket.userId
+        );
+        if (!stillConnected) {
+            this.socketRateLimits.delete(socket.userId);
+        }
     }
 
     startCleanupInterval(): void {
         setInterval(() => {
             const now = Date.now();
 
-            for (const [socketId] of this.socketRateLimits.entries()) {
-                if (!this.io.sockets.sockets.get(socketId)) {
-                    this.socketRateLimits.delete(socketId);
+            const connectedUserIds = new Set(
+                Array.from(this.io.sockets.sockets.values()).map((s) => (s as AuthenticatedSocket).userId)
+            );
+            for (const [userId] of this.socketRateLimits.entries()) {
+                if (!connectedUserIds.has(userId)) {
+                    this.socketRateLimits.delete(userId);
                 }
             }
 
@@ -201,13 +241,43 @@ class SocketEventHandlers {
                     this.signalKeys.delete(userId);
                 }
             }
+
+            // Persist signal key snapshot to Redis for warm restart recovery.
+            const redis = getRedis();
+            if (redis) {
+                for (const [userId, bundle] of this.signalKeys.entries()) {
+                    const serialized = JSON.stringify({
+                        ...bundle,
+                        preKeys: Array.from(bundle.preKeys.entries()),
+                    });
+                    redis.set(`signalkeys:${userId}`, serialized, 'EX', 90 * 24 * 3600).catch(() => {});
+                }
+            }
         }, 5 * 60 * 1000);
     }
 
-    generateSecurePeerId(userId: string): string {
-        const timestamp = Date.now();
-        const random = crypto.randomBytes(8).toString('hex');
-        return `${userId}-${timestamp}-${random}`;
+    async loadSignalKeysFromRedis(): Promise<void> {
+        const redis = getRedis();
+        if (!redis) return;
+        try {
+            const keys = await redis.keys('signalkeys:*');
+            for (const key of keys) {
+                const raw = await redis.get(key);
+                if (!raw) continue;
+                const data = JSON.parse(raw);
+                data.preKeys = new Map<number, { keyId: number; publicKey: string }>(data.preKeys);
+                this.signalKeys.set(data.userId, data as SignalKeyBundle);
+            }
+            if (keys.length > 0) {
+                console.log(`[Redis] Restored ${keys.length} signal key bundles`);
+            }
+        } catch (err) {
+            console.error('[Redis] Failed to load signal keys:', (err as Error).message);
+        }
+    }
+
+    generateSecurePeerId(): string {
+        return crypto.randomUUID();
     }
 
     findSocketByPeerId(peerId: string): AuthenticatedSocket | null {

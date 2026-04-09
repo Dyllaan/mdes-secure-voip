@@ -11,16 +11,7 @@ interface AuthenticatedRequest extends Request {
 
 function setupRoutes(app: Application, config: RealtimeConfig, socketHandlers: SocketHandlers): void {
     app.get('/health', (_req: Request, res: Response) => {
-        const { roomManager, signalKeys, messageQueues } = socketHandlers;
-        res.json({
-            status: 'healthy',
-            services: ['signaling', 'voip', 'encrypted-chat'],
-            activeRooms: roomManager.rooms.size,
-            activeUsers: roomManager.users.size,
-            signalKeysRegistered: signalKeys.size,
-            queuedMessages: Array.from(messageQueues.values()).reduce((sum, q) => sum + q.length, 0),
-            timestamp: new Date().toISOString()
-        });
+        res.json({ status: 'healthy' });
     });
 
     app.use('/api', authenticateRequest(config));

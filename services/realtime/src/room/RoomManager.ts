@@ -115,6 +115,12 @@ class RoomManager {
         return user;
     }
 
+    forceLeaveRoom(socket: AuthenticatedSocket): void {
+        if (!socket.roomId) return;
+        this.leaveRoom(socket, socket.roomId);
+        socket.emit('kicked-from-room', { reason: 'access-revoked' });
+    }
+
     removeUser(socketId: string): void {
         this.users.delete(socketId);
     }

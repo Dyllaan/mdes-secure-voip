@@ -30,6 +30,7 @@ type InviteCode struct {
 	HubID     string    `json:"hubId" gorm:"not null;index;constraint:OnDelete:CASCADE"`
 	Code      string    `json:"code" gorm:"not null;uniqueIndex"`
 	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt" gorm:"not null;index"`
 }
 
 type Channel struct {
