@@ -17,7 +17,7 @@ services:
       - HUB_SERVICE_URL=http://hub-service:8080
       - MUSICMAN_URL=http://musicman-service:4000
       - CORS_ORIGIN=${ALLOWED_ORIGINS}
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${SECRET_KEY}
       - TURN_SECRET=${TURN_SECRET}
     depends_on:
       - p2p-voip-realtime-service
@@ -52,7 +52,7 @@ services:
       - "9001"
       - "9000"
     environment:
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${SECRET_KEY}
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
@@ -73,7 +73,7 @@ services:
       - "8080"
     environment:
       - DATABASE_URL=postgres://postgres:${HUB_DB_PASSWORD}@hub-service-db:5432/hub-service?sslmode=disable
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${SECRET_KEY}
       - PORT=8080
       - BOT_SECRET=${BOT_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
@@ -120,11 +120,12 @@ services:
     expose:
       - "4000"
     environment:
+      - GATEWAY_URL=http://voip-gateway:3000
       - SIGNALING_URL=http://voip-gateway:3000
       - AUTH_URL=http://voip-gateway:3000/auth
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
       - BOT_SECRET=${BOT_SECRET}
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${SECRET_KEY}
       - PEER_HOST=voip-gateway
       - PEER_PORT=3000
       - PEER_PATH=/peerjs
