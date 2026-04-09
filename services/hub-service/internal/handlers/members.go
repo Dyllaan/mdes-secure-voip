@@ -93,6 +93,20 @@ func KickMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Key rotation upon member kick
+	var channels []structs.Channel
+	if err := db.DB.Where("hub_id = ?", hubID).Find(&channels).Error; err == nil {
+		now := time.Now()
+		for _, ch := range channels {
+			flag := structs.ChannelKeyRotationFlag{
+				ChannelID:           ch.ID,
+				RotationNeeded:      true,
+				RotationNeededSince: now,
+			}
+			db.DB.Save(&flag)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -134,6 +148,20 @@ func LeaveHub(w http.ResponseWriter, r *http.Request) {
 	if err := db.DB.Delete(&member).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to leave hub")
 		return
+	}
+
+	// Key rotation upon leaving hub
+	var channels []structs.Channel
+	if err := db.DB.Where("hub_id = ?", hubID).Find(&channels).Error; err == nil {
+		now := time.Now()
+		for _, ch := range channels {
+			flag := structs.ChannelKeyRotationFlag{
+				ChannelID:           ch.ID,
+				RotationNeeded:      true,
+				RotationNeededSince: now,
+			}
+			db.DB.Save(&flag)
+		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -128,7 +129,10 @@ func DeleteHub(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/hubs/{hubID}/bot-join
 func BotJoinHub(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("X-Bot-Secret") != os.Getenv("BOT_SECRET") {
+	given := r.Header.Get("X-Bot-Secret")
+	expected := os.Getenv("BOT_SECRET")
+	// Compare every byte at once instead of single byte comparison
+	if len(given) == 0 || subtle.ConstantTimeCompare([]byte(given), []byte(expected)) != 1 {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
