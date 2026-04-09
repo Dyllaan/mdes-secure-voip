@@ -37,6 +37,7 @@ jobs:
               - 'services/VoIPServer/**'
               - 'Dockerfile.voip-server'
             hub:
+              - 'services/hub-service/**'
               - 'Dockerfile.hub-service'
             musicman:
               - 'services/musicman-service/**'
