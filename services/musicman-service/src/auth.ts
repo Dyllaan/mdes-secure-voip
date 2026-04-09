@@ -1,10 +1,3 @@
-/**
- * Bot authentication
- *
- * Handles login against the auth service with retry logic, in-memory token
- * storage, and a background refresh interval to keep the token alive.
- */
-
 import { config } from './config';
 
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
@@ -13,6 +6,7 @@ const RETRY_DELAY_MS = 3000;
 
 let _token: string | null = null;
 let _refreshTimer: NodeJS.Timeout | null = null;
+let _turnCredentials: { username: string; password: string; ttl: number } | null = null;
 
 export async function login(): Promise<string> {
     const url  = `${config.AUTH_URL}/user/login`;
@@ -46,9 +40,28 @@ export async function login(): Promise<string> {
     throw new Error('Login failed after all retries');
 }
 
+export async function fetchTurnCredentials(): Promise<void> {
+    if (!_token) throw new Error('Not authenticated - call login() first');
+
+    const res = await fetch(`${config.GATEWAY_URL}/turn-credentials`, {
+        headers: { Authorization: `Bearer ${_token}` },
+    });
+
+    if (!res.ok) throw new Error(`Failed to fetch TURN credentials [${res.status}]`);
+
+    const data = await res.json() as { username: string; password: string; ttl: number };
+    _turnCredentials = data;
+    console.log('[Auth] TURN credentials fetched, expires in', data.ttl, 'seconds');
+}
+
 export function getToken(): string {
     if (!_token) throw new Error('Not authenticated - call login() first');
     return _token;
+}
+
+export function getTurnCredentials(): { username: string; password: string; ttl: number } {
+    if (!_turnCredentials) throw new Error('TURN credentials not fetched - call fetchTurnCredentials() first');
+    return _turnCredentials;
 }
 
 export function startTokenRefresh(): void {
@@ -56,6 +69,7 @@ export function startTokenRefresh(): void {
     _refreshTimer = setInterval(async () => {
         try {
             await login();
+            await fetchTurnCredentials();
         } catch (err) {
             console.error('[Auth] Background token refresh failed:', err);
         }

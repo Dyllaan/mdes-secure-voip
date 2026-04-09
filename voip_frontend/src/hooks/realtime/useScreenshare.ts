@@ -2,6 +2,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
 import type { Socket } from "socket.io-client";
+import useIceServers from "./useIceServers";
+import { toast } from "sonner";
 
 interface RemoteScreenStream {
   peerId: string;
@@ -45,9 +47,12 @@ const useScreenshare = ({
   const allowedScreenPeerIds = useRef<Set<string>>(new Set());
   const peerScreenPeerIds = useRef<Map<string, string>>(new Map());
   const pendingAliasRef = useRef<Map<string, string>>(new Map());
+  const iceServers = useIceServers();
+  const iceServersRef = useRef(iceServers);
 
   useEffect(() => { currentRoomIdRef.current = currentRoomId; }, [currentRoomId]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
+  useEffect(() => { iceServersRef.current = iceServers; }, [iceServers]);
 
   const clearRoomState = useCallback(() => {
     allowedScreenPeerIds.current.clear();
@@ -162,12 +167,17 @@ const useScreenshare = ({
     socket.emit("request-screen-peer-id");
 
     const handleScreenPeerAssigned = ({ peerId }: { peerId: string }) => {
+      if (!iceServersRef.current) {
+        toast.error("Failed to initialize screen share peer: Please refresh.");
+        return;
+      }
       const screenPeer = new Peer(peerId, {
         host: peerHost,
         secure: peerSecure,
         port: peerPort,
         path: peerPath,
         debug: 1,
+        config: { iceServers: iceServersRef.current },
       });
 
       screenPeer.on("open", id => { screenPeerIdRef.current = id; });
@@ -179,17 +189,14 @@ const useScreenshare = ({
         }
         incomingCall.answer();
         incomingCall.on("stream", (remoteStream: MediaStream) => {
-          const alias =
-            pendingAliasRef.current.get(incomingCall.peer) ?? incomingCall.peer;
+          const alias = pendingAliasRef.current.get(incomingCall.peer) ?? incomingCall.peer;
           if (remoteStream.getAudioTracks().length > 0) {
             const existing = screenAudioElsRef.current.get(incomingCall.peer);
             if (existing) { existing.srcObject = null; }
             const audioEl = new Audio();
             audioEl.srcObject = remoteStream;
             audioEl.autoplay = true;
-            audioEl.play().catch(e =>
-              console.warn("Screen audio autoplay blocked:", e)
-            );
+            audioEl.play().catch(e => console.warn("Screen audio autoplay blocked:", e));
             screenAudioElsRef.current.set(incomingCall.peer, audioEl);
           }
           setRemoteScreenStreams(prev =>

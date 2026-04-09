@@ -1,26 +1,8 @@
-/**
- * Musicman HTTP service
- *
- * Express server that manages BotInstance lifecycle per voice room.
- * Handles hub joining, playback control (play, pause, resume, seek, leave),
- * URL resolution via yt-dlp, and graceful shutdown.
- *
- * Video screenshare mode
- * Pass `"videoMode": true` in the body of /join or /play to stream the YouTube
- * video as a peer screenshare in addition to audio. The bot will request a
- * screen peer ID from the signaling server, open a second PeerJS connection for
- * it, and emit 'screenshare-started' so other room members automatically
- * connect to the screen peer for video.
- *
- * Video mode is set at join time and cannot be toggled mid-session.  To switch
- * modes, call /leave then /join again with the desired flag.
- */
-
 import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { spawn } from 'child_process';
 import { config } from './config';
-import { login, startTokenRefresh, getToken } from './auth';
+import { login, startTokenRefresh, getToken, fetchTurnCredentials, getTurnCredentials } from './Auth';
 import { BotInstance } from './BotInstance';
 import { HubHandler } from './HubHandler';
 
@@ -103,6 +85,10 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
     });
 }
 
+function makeBotInstance(roomId: string, youtubeUrl: string, videoMode: boolean): BotInstance {
+    return new BotInstance(roomId, youtubeUrl, getToken(), getTurnCredentials(), videoMode);
+}
+
 const app  = express();
 const bots = new Map<string, BotInstance>();
 
@@ -139,17 +125,10 @@ app.post('/join', async (req: Request, res: Response) => {
         return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
     }
 
-    let token: string;
-    try {
-        token = getToken();
-    } catch {
-        return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
-    }
-
-    const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    const bot = makeBotInstance(roomId, youtubeUrl, videoMode);
     bot.setAutoLeaveCallback(() => {
-      bot.destroy();
-      bots.delete(roomId);
+        bot.destroy();
+        bots.delete(roomId);
     });
     bots.set(roomId, bot);
 
@@ -177,17 +156,10 @@ app.post('/play', async (req: Request, res: Response) => {
         return res.json({ ok: true, roomId, action: 'changeTrack' });
     }
 
-    let token: string;
-    try {
-        token = getToken();
-    } catch {
-        return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
-    }
-
-    const bot = new BotInstance(roomId, youtubeUrl, token, videoMode);
+    const bot = makeBotInstance(roomId, youtubeUrl, videoMode);
     bot.setAutoLeaveCallback(() => {
-      bot.destroy();
-      bots.delete(roomId);
+        bot.destroy();
+        bots.delete(roomId);
     });
     bots.set(roomId, bot);
 
@@ -281,12 +253,13 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 (async () => {
     try {
         await login();
+        await fetchTurnCredentials();
         startTokenRefresh();
         app.listen(config.PORT, () => {
             console.log(`[Boot] Musicman listening on :${config.PORT}`);
         });
     } catch (err) {
-        console.error('[Boot] Fatal - failed to authenticate:', err);
+        console.error('[Boot] Fatal:', err);
         process.exit(1);
     }
 })();

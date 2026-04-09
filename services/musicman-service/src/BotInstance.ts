@@ -18,8 +18,6 @@ import { config } from './config';
 
 const OPUS_PAYLOAD_TYPE = 111;
 
-// Audio-only peer (non-video mode)
-
 interface PeerConn {
   pc:           RTCPeerConnection;
   track:        MediaStreamTrack;
@@ -53,10 +51,16 @@ type IceEntry = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
 type AllUsersPayload      = Array<{ peerId: string; alias: string; userId: string }>;
 type UserConnectedPayload = { peerId: string; alias: string };
 
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'turn:10.10.10.10:3478', username: 'talk', credential: 'talkpass' },
-];
+interface TurnCredentials {
+  username: string;
+  password: string;
+}
+
+interface IceServer {
+  urls: string;
+  username?: string;
+  credential?: string;
+}
 
 const VP8_MAX_RTP_PAYLOAD = 1_200;
 
@@ -83,15 +87,35 @@ export class BotInstance {
   private screenHbTimer: NodeJS.Timeout | null = null;
 
   private onAutoLeave: (() => void) | null = null;
+  private turnCredentials: TurnCredentials;
 
   readonly roomId: string;
 
-  constructor(roomId: string, youtubeUrl: string, private readonly token: string, videoMode = false) {
-    this.roomId     = roomId;
-    this.youtubeUrl = youtubeUrl;
-    this.videoMode  = videoMode;
-    this.pipeline   = new AudioPipeline(youtubeUrl);
+  constructor(
+    roomId: string,
+    youtubeUrl: string,
+    private readonly token: string,
+    turnCredentials: TurnCredentials,
+    videoMode = false,
+  ) {
+    this.roomId           = roomId;
+    this.youtubeUrl       = youtubeUrl;
+    this.turnCredentials  = turnCredentials;
+    this.videoMode        = videoMode;
+    this.pipeline         = new AudioPipeline(youtubeUrl);
     if (videoMode) this.avPipeline = new AVPipeline(youtubeUrl);
+  }
+
+  private buildIceServers(): IceServer[] {
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: `turn:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
+        username: this.turnCredentials.username,
+        credential: this.turnCredentials.password,
+      },
+    ];
   }
 
   setAutoLeaveCallback(cb: () => void): void {
@@ -100,7 +124,6 @@ export class BotInstance {
 
   private readonly onAudioFrame = (frame: OpusFrame) => {
     if (this.videoMode) {
-      // In video mode audio goes through the AV peer connections
       for (const conn of this.avConns.values()) this.sendOpusFrameAV(conn, frame);
     } else {
       if (this.isConnected) {
@@ -254,10 +277,6 @@ export class BotInstance {
     }
   }
 
-  private getPeerCount(): number {
-    return this.videoMode ? this.avConns.size : this.conns.size;
-  }
-
   private connectSignaling(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.socket = io(config.SIGNALING_URL, {
@@ -361,8 +380,6 @@ export class BotInstance {
     });
   }
 
-  // ── Audio-only PeerJS WS (non-video mode) ────────────────────────────────
-
   private connectPeerWs(peerId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const { PEER_HOST, PEER_PORT, PEER_PATH, PEER_SECURE } = config;
@@ -396,16 +413,14 @@ export class BotInstance {
         switch (msg.type) {
           case 'OPEN':     clearTimeout(timer); console.log(`[PeerWS ${this.roomId}] Open ✓`); resolve(); break;
           case 'OFFER':
-            // In video mode, audio+video are handled through the screen peer WS.
-            // Ignore incoming audio-only offers from the frontend.
             if (!this.videoMode) await this.onOffer(msg.src, msg.payload);
             break;
-          case 'ANSWER':   await this.onAnswer(msg.src, msg.payload);   break;
+          case 'ANSWER':    await this.onAnswer(msg.src, msg.payload);    break;
           case 'CANDIDATE': await this.onCandidate(msg.src, msg.payload); break;
           case 'LEAVE':
-          case 'EXPIRE':   this.closePeer(msg.src); break;
-          case 'ERROR':    console.error(`[PeerWS ${this.roomId}] Server error:`, msg.payload); break;
-          case 'ID-TAKEN': reject(new Error(`[Bot ${this.roomId}] Peer ID already taken: ${peerId}`)); break;
+          case 'EXPIRE':    this.closePeer(msg.src); break;
+          case 'ERROR':     console.error(`[PeerWS ${this.roomId}] Server error:`, msg.payload); break;
+          case 'ID-TAKEN':  reject(new Error(`[Bot ${this.roomId}] Peer ID already taken: ${peerId}`)); break;
         }
       });
 
@@ -422,10 +437,8 @@ export class BotInstance {
     this.peerWs.send(JSON.stringify({ type, src: this.myPeerId, dst, payload }));
   }
 
-  // ── Audio-only peer connections (non-video mode) ──────────────────────────
-
   private makePc(remotePeerId: string, connectionId: string): PeerConn {
-    const pc          = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc          = new RTCPeerConnection({ iceServers: this.buildIceServers() });
     const track       = new MediaStreamTrack({ kind: 'audio' });
     const transceiver = pc.addTransceiver(track, { direction: 'sendonly' });
 
@@ -619,10 +632,8 @@ export class BotInstance {
     this.screenPeerWs.send(JSON.stringify({ type, src: this.screenPeerId, dst, payload }));
   }
 
-  // peer connections: one PC, two transceivers
-
   private makeAVPc(remotePeerId: string, connectionId: string): AVPeerConn {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: this.buildIceServers() });
 
     // Both tracks on the same PC - the browser's RTCP SR mechanism syncs them.
     const audioTrack       = new MediaStreamTrack({ kind: 'audio' });
