@@ -35,9 +35,32 @@ interface AuthProviderProps {
 const BASE_URL = config.AUTH_URL;
 const GATEWAY_URL = config.GATEWAY_URL;
 
+// Non-sensitive user fields persisted to localStorage.
+// accessToken is kept only in React state (in-memory) so XSS cannot steal it from storage.
+type PersistedUser = Omit<User, 'accessToken'>;
+
 export default function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useLocalStorage<User | null>('user', null);
-  const [signedIn, setSignedIn] = useState(!!user);
+  const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  // Derive the full User object in-memory — accessToken is never written to localStorage.
+  const user: User | null = persistedUser && accessToken
+    ? { ...persistedUser, accessToken }
+    : null;
+
+  // setUser splits the user object: non-sensitive fields → localStorage, accessToken → state.
+  const setUser = (userData: User | null) => {
+    if (userData === null) {
+      setPersistedUser(null);
+      setAccessToken(null);
+    } else {
+      const { accessToken: at, ...rest } = userData;
+      setPersistedUser(rest);
+      setAccessToken(at);
+    }
+  };
+
+  const [signedIn, setSignedIn] = useState(!!persistedUser);
   const [mfaRequired, setMfaRequired] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
@@ -45,27 +68,28 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
 
   useEffect(() => {
-    if (user?.accessToken) {
+    if (accessToken) {
       fetchMfaStatus();
     }
-  }, [user?.accessToken]);
+  }, [accessToken]);
 
   useEffect(() => {
-    if (user?.accessToken && signedIn && !isLoading) {
-      fetchTurnCredentials(user.accessToken);
+    if (accessToken && signedIn && !isLoading) {
+      fetchTurnCredentials(accessToken);
     } else if (!signedIn) {
       setTurnCredentials(null);
     }
-  }, [user?.accessToken, signedIn, isLoading]);
+  }, [accessToken, signedIn, isLoading]);
 
   const changeUserIsMfaEnabled = (enabled: boolean) => {
-    if (user) {
-      setUser({ ...user, mfaEnabled: enabled });
+    if (persistedUser) {
+      setPersistedUser({ ...persistedUser, mfaEnabled: enabled });
     }
   };
 
   function logout() {
-    setUser(null);
+    setPersistedUser(null);
+    setAccessToken(null);
     setSignedIn(false);
     setMfaRequired(false);
     setPendingMfaToken(null);
@@ -89,9 +113,9 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const fetchMfaStatus = async () => {
-    if (!user?.accessToken) return;
+    if (!accessToken) return;
     const response = await axios.get(`${BASE_URL}/mfa/status`, {
-      headers: { Authorization: `Bearer ${user.accessToken}` }
+      headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (response.status === 200) {
       setMfaStatus(response.data as MfaStatus);
@@ -99,37 +123,44 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const checkToken = async () => {
-    const { accessToken, refreshToken } = user ?? {};
+    // On page reload accessToken is null (in-memory only).
+    // Use persistedUser.refreshToken to obtain a new accessToken.
+    const storedRefreshToken = persistedUser?.refreshToken;
 
-    if (!accessToken) {
+    if (!accessToken && !storedRefreshToken) {
       setSignedIn(false);
       return false;
     }
 
-    try {
-      const response = await axios.get(`${BASE_URL}/user/me`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      const responseData = response.data as MeResponse;
-      changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
-      setSignedIn(true);
-      return true;
-    } catch {
-      if (refreshToken) {
-        try {
-          const refreshResponse = await axios.post(`${BASE_URL}/user/refresh`, { token: refreshToken });
-          const userData = refreshResponse.data as User;
-          setUser(userData);
-          setSignedIn(true);
-          setMfaStatus({ enabled: userData.mfaEnabled ?? false, verified: true });
-          return true;
-        } catch {
-          // Refresh failed
-        }
+    if (accessToken) {
+      try {
+        const response = await axios.get(`${BASE_URL}/user/me`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const responseData = response.data as MeResponse;
+        changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
+        setSignedIn(true);
+        return true;
+      } catch {
+        // Access token invalid — fall through to refresh
       }
-      setSignedIn(false);
-      return false;
     }
+
+    if (storedRefreshToken) {
+      try {
+        const refreshResponse = await axios.post(`${BASE_URL}/user/refresh`, { token: storedRefreshToken });
+        const userData = refreshResponse.data as User;
+        setUser(userData);
+        setSignedIn(true);
+        setMfaStatus({ enabled: userData.mfaEnabled ?? false, verified: true });
+        return true;
+      } catch {
+        // Refresh failed
+      }
+    }
+
+    setSignedIn(false);
+    return false;
   };
 
   useEffect(() => {
@@ -238,7 +269,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const deleteUser = async (mfaCode?: string) => {
     try {
       const response = await axios.delete(`${BASE_URL}/user/delete`, {
-        headers: { Authorization: `Bearer ${user?.accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
         data: { mfaCode },
         validateStatus: () => true
       });
@@ -259,7 +290,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const disableMfa = async (mfaCode: string) => {
     try {
       const response = await axios.post(`${BASE_URL}/mfa/disable`, { code: mfaCode }, {
-        headers: { Authorization: `Bearer ${user?.accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
         validateStatus: () => true
       });
 
@@ -282,7 +313,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         newPassword,
         ...(mfaCode && { mfaCode })
       }, {
-        headers: { Authorization: `Bearer ${user?.accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
         validateStatus: () => true
       });
 

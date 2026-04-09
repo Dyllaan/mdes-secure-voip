@@ -1,9 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -13,9 +18,63 @@ import (
 	"hub-service/internal/middleware"
 )
 
+// redeemEntry tracks invite redemption attempts per IP.
+type redeemEntry struct {
+	count   int
+	resetAt time.Time
+}
+
+var (
+	redeemLimiters   = make(map[string]*redeemEntry)
+	redeemLimitersMu sync.Mutex
+)
+
+const (
+	redeemMaxAttempts = 10
+	redeemWindow      = time.Hour
+)
+
+func redeemRateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+
+		redeemLimitersMu.Lock()
+		entry, ok := redeemLimiters[ip]
+		now := time.Now()
+		if !ok || now.After(entry.resetAt) {
+			entry = &redeemEntry{count: 0, resetAt: now.Add(redeemWindow)}
+			redeemLimiters[ip] = entry
+		}
+		entry.count++
+		exceeded := entry.count > redeemMaxAttempts
+		redeemLimitersMu.Unlock()
+
+		if exceeded {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "too many redemption attempts, try again later"})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
+	}
+
+	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOriginsEnv == "" {
+		log.Fatal("ALLOWED_ORIGINS environment variable is required")
+	}
+	allowedSet := make(map[string]struct{})
+	for _, o := range strings.Split(allowedOriginsEnv, ",") {
+		allowedSet[strings.TrimSpace(o)] = struct{}{}
 	}
 
 	middleware.InitAuth()
@@ -28,12 +87,16 @@ func main() {
 
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			origin := r.Header.Get("Origin")
+			if _, ok := allowedSet[origin]; ok {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 			if r.Method == "OPTIONS" {
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 
@@ -74,7 +137,7 @@ func main() {
 		r.Delete("/hubs/{hubID}/ephemeral", handlers.EndEphemeral)
 
 		r.Post("/hubs/{hubID}/invites", handlers.CreateInvite)
-		r.Post("/invites/{code}/redeem", handlers.RedeemInvite)
+		r.With(redeemRateLimitMiddleware).Post("/invites/{code}/redeem", handlers.RedeemInvite)
 
 		r.Put("/hubs/{hubID}/device-key", handlers.RegisterDeviceKey)
 		r.Get("/hubs/{hubID}/device-keys", handlers.GetDeviceKeys)

@@ -16,7 +16,9 @@ services:
       - PEER_SERVICE_URL=http://voip-realtime:9000
       - HUB_SERVICE_URL=http://hub-service:8080
       - MUSICMAN_URL=http://musicman-service:4000
-      - CORS_ORIGIN=http://localhost:5173
+      - CORS_ORIGIN=${ALLOWED_ORIGINS}
+      - JWT_SECRET=${JWT_SECRET}
+      - TURN_SECRET=${TURN_SECRET}
     depends_on:
       - p2p-voip-realtime-service
     networks:
@@ -32,10 +34,10 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
       - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
       - SPRING_DATASOURCE_USERNAME=nanny
-      - SPRING_DATASOURCE_PASSWORD=nannybox
+      - SPRING_DATASOURCE_PASSWORD=${AUTH_DB_PASSWORD}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - SECRET_KEY=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
-      - TEMP_MFA_SECRET_KEY=6j8zCi35bHRUm8ZwiU6VqHLiE9K6kYRHuvyeWYmoHPu
+      - SECRET_KEY=${SECRET_KEY}
+      - TEMP_MFA_SECRET_KEY=${TEMP_MFA_SECRET_KEY}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
     restart: always
     networks:
@@ -50,11 +52,14 @@ services:
       - "9001"
       - "9000"
     environment:
-      - JWT_SECRET=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
+      - JWT_SECRET=${JWT_SECRET}
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
-      - ALLOWED_ORIGINS=http://localhost:5173
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - REDIS_URL=redis://p2p-redis:6379
+    depends_on:
+      - p2p-redis
     networks:
       - voip-network
     restart: unless-stopped
@@ -67,10 +72,12 @@ services:
     expose:
       - "8080"
     environment:
-      - DATABASE_URL=postgres://postgres:jimmyneutron@hub-service-db:5432/hub-service?sslmode=disable
-      - JWT_SECRET=9Ujp46gt7qL3VXtwmdPyyEe5F4j4EyGB6UtvZO5155a
+      - DATABASE_URL=postgres://postgres:${HUB_DB_PASSWORD}@hub-service-db:5432/hub-service?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET}
       - PORT=8080
-      - BOT_SECRET=ZHJpxkPrHvEtyBCmF8OK5w2qloCAXJNweVCzJDqjRIG
+      - BOT_SECRET=${BOT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - INVITE_TTL_HOURS=24
     depends_on:
       - p2p-hub-service-db
     networks:
@@ -82,7 +89,7 @@ services:
     container_name: hub-service-db
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=jimmyneutron
+      - POSTGRES_PASSWORD=${HUB_DB_PASSWORD}
       - POSTGRES_DB=hub-service
     volumes:
       - hub-service-db-data:/var/lib/postgresql/data
@@ -95,7 +102,7 @@ services:
     container_name: auth-db
     environment:
       - POSTGRES_USER=nanny
-      - POSTGRES_PASSWORD=nannybox
+      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
       - POSTGRES_DB=postgres
     volumes:
       - auth-db-data:/var/lib/postgresql
@@ -116,18 +123,21 @@ services:
       - SIGNALING_URL=http://voip-gateway:3000
       - AUTH_URL=http://voip-gateway:3000/auth
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
-      - BOT_SECRET=ZHJpxkPrHvEtyBCmF8OK5w2qloCAXJNweVCzJDqjRIG
+      - BOT_SECRET=${BOT_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
       - PEER_HOST=voip-gateway
       - PEER_PORT=3000
       - PEER_PATH=/peerjs
       - PEER_SECURE=false
       - BOT_USERNAME=musicman
-      - BOT_PASSWORD=wefrikjonhf12@L
+      - BOT_PASSWORD=${BOT_PASSWORD}
       - PORT=4000
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
       - DEBUG_BOT=1
       - DEBUG_AV=1
+      - ALLOWED_MEDIA_DOMAINS=${ALLOWED_MEDIA_DOMAINS}
+      - YTDLP_MAX_FILESIZE_MB=${YTDLP_MAX_FILESIZE_MB}
     depends_on:
       - p2p-voip-gateway
       - p2p-auth-service
@@ -150,13 +160,22 @@ services:
       --no-cli
       --no-tls
       --no-dtls
-      --realm=talkpass
-      --user=talk:talkpass
+      --realm=${COTURN_REALM}
+      --user=${COTURN_USER}:${COTURN_PASS}
       --allow-loopback-peers
-      --external-ip=192.168.1.245
+      --external-ip=${COTURN_EXTERNAL_IP}
     networks:
       voip-network:
         ipv4_address: 10.10.10.10
+    restart: unless-stopped
+
+  p2p-redis:
+    image: redis:7-alpine
+    container_name: p2p-redis
+    expose:
+      - "6379"
+    networks:
+      - voip-network
     restart: unless-stopped
 
 volumes:
