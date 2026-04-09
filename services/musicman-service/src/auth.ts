@@ -8,6 +8,25 @@ let _token: string | null = null;
 let _refreshTimer: NodeJS.Timeout | null = null;
 let _turnCredentials: { username: string; password: string; ttl: number } | null = null;
 
+export async function register(): Promise<void> {
+    const url  = `${config.AUTH_URL}/user/register`;
+    const body = JSON.stringify({ username: config.BOT_USERNAME, password: config.BOT_PASSWORD });
+
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+
+    if (res.status === 409) {
+        console.log('[Auth] Bot user already exists');
+        return;
+    }
+
+    if (!res.ok) {
+        const rawBody = await res.text().catch(() => '(could not read body)');
+        throw new Error(`Bot registration failed [${res.status}]: ${rawBody}`);
+    }
+
+    console.log('[Auth] Bot user registered');
+}
+
 export async function login(): Promise<string> {
     const url  = `${config.AUTH_URL}/user/login`;
     const body = JSON.stringify({ username: config.BOT_USERNAME, password: config.BOT_PASSWORD });
