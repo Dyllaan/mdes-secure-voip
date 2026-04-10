@@ -157,6 +157,27 @@ class UserHandler {
         const screenPeerId = `screen-${socket.username}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
         (socket as any).screenPeerId = screenPeerId;
         socket.emit('screen-peer-assigned', { peerId: screenPeerId });
+
+        // If the user is already in a room, notify any active screensharers so they can call
+        // this peer. This covers the race where join-room is processed before request-screen-peer-id,
+        // which would otherwise leave the screensharer with no peers to call.
+        const { roomId } = socket;
+        if (!roomId) return;
+        const room = this.roomManager.rooms.get(roomId);
+        if (!room) return;
+        const activeScreenShares = (room as any).activeScreenShares as Map<string, ScreenShare> | undefined;
+        if (!activeScreenShares || activeScreenShares.size === 0) return;
+
+        for (const { peerId: sharerPeerId } of activeScreenShares.values()) {
+            if (sharerPeerId === socket.peerId) continue;
+            const sharerSocket = this._findSocketByPeerId(sharerPeerId);
+            if (sharerSocket) {
+                sharerSocket.emit('new-screen-peer', {
+                    screenPeerId,
+                    alias: (socket as any).alias ?? socket.username,
+                });
+            }
+        }
     }
 
     handleScreenshareStarted(socket: AuthenticatedSocket, data: ScreenshareStartedData): void {
