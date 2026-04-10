@@ -12,11 +12,6 @@ interface ScreenShare {
     screenPeerId: string;
 }
 
-
-interface QueuedMessage {
-    [key: string]: unknown;
-}
-
 interface JoinRoomData {
     roomId: string;
     alias: string;
@@ -203,16 +198,17 @@ class UserHandler {
         });
 
         const roomScreenPeers: { screenPeerId: string; alias: string }[] = [];
-        room.users.forEach((userInfo) => {
+            room.users.forEach((userInfo) => {
             if (userInfo.socketId === socket.id) return;
-            const memberSocket = this.io.sockets.sockets.get(userInfo.socketId) as AuthenticatedSocket | undefined;
-            if ((memberSocket as any)?.screenPeerId) {
-                roomScreenPeers.push({
-                    screenPeerId: (memberSocket as any).screenPeerId,
-                    alias: userInfo.alias
-                });
-            }
-        });
+                const memberSocket = this.io.sockets.sockets.get(userInfo.socketId) as AuthenticatedSocket | undefined;
+                console.log(`[screenshare] checking member ${userInfo.alias} socket=${!!memberSocket} screenPeerId=${(memberSocket as any)?.screenPeerId}`);
+                if ((memberSocket as any)?.screenPeerId) {
+                    roomScreenPeers.push({
+                        screenPeerId: (memberSocket as any).screenPeerId,
+                        alias: userInfo.alias
+                    });
+                }
+            });
 
         socket.emit('room-screen-peers', { peers: roomScreenPeers });
     }

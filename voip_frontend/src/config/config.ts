@@ -9,5 +9,7 @@ const config = {
   GATEWAY_URL: import.meta.env.VITE_GATEWAY_URL || 'http://localhost:4000',
   MUSICMAN_URL: import.meta.env.VITE_MUSICMAN_URL ?? 'http://localhost:4000',
   GITHUB_URL: import.meta.env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/voip_and_content_synchronisation',
+  TURN_HOST: import.meta.env.VITE_TURN_HOST || window.location.hostname,
+  TURN_PORT: import.meta.env.VITE_TURN_PORT || '3478',
 };
 export default config;

@@ -82,6 +82,7 @@ class SocketEventHandlers {
                 this.checkSocketRateLimit(socket, action, max, window);
 
             socket.on('join-room',              (d) => rl('join-room', 5, 60000)    && this.user.handleJoinRoom(socket, d));
+            socket.on('leave-room',             () => rl('leave-room', 5, 60000)   && this.handleLeaveRoom(socket));
             socket.on('user-update',            (d) => rl('user-update', 5, 60000)  && this.user.handleUserUpdate(socket, d));
 
             socket.on('request-screen-peer-id', ()  => rl('screen-peer', 5, 60000) && this.user.handleRequestScreenPeerId(socket));
@@ -294,6 +295,25 @@ class SocketEventHandlers {
             if (s.username === username) return s;
         }
         return null;
+    }
+
+    handleLeaveRoom(socket: AuthenticatedSocket): void {
+        const { roomId } = socket;
+        if (!roomId) return;
+
+        const room = this.roomManager.rooms.get(roomId);
+        if (room) {
+            const activeScreenShares = (room as any).activeScreenShares as Map<string, { peerId: string; screenPeerId: string }> | undefined;
+            const share = activeScreenShares?.get(socket.peerId);
+            if (share) {
+                socket.to(roomId).emit('peer-screenshare-stopped', { peerId: socket.peerId, screenPeerId: share.screenPeerId });
+                activeScreenShares!.delete(socket.peerId);
+            }
+        }
+
+        socket.to(roomId).emit('user-disconnected', socket.peerId);
+        this.roomManager.leaveRoom(socket, roomId);
+        socket.roomId = undefined;
     }
 }
 

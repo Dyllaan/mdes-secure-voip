@@ -136,9 +136,10 @@ services:
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
       - DEBUG_BOT=1
-      - DEBUG_AV=1
       - ALLOWED_MEDIA_DOMAINS=${ALLOWED_MEDIA_DOMAINS}
       - YTDLP_MAX_FILESIZE_MB=${YTDLP_MAX_FILESIZE_MB}
+      - TURN_HOST=${TURN_HOST}
+      - TURN_PORT=${TURN_PORT}
     depends_on:
       - p2p-voip-gateway
       - p2p-auth-service
@@ -162,7 +163,7 @@ services:
       --no-tls
       --no-dtls
       --realm=${COTURN_REALM}
-      --user=${COTURN_USER}:${COTURN_PASS}
+      --static-auth-secret=${TURN_SECRET}
       --allow-loopback-peers
       --external-ip=${COTURN_EXTERNAL_IP}
     networks:

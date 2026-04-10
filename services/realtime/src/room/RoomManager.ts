@@ -1,17 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { RealtimeConfig } from '../config';
-
-interface UserInfo {
-    userId: string;
-    username: string;
-    peerId: string;
-    alias: string;
-    socketId: string;
-}
-
-interface RoomUser extends UserInfo {
-    roomId: string;
-}
+import { AuthenticatedSocket, RoomUser, UserInfo } from '../types';
 
 interface Room {
     id: string;
@@ -19,18 +8,6 @@ interface Room {
     createdBy: string;
     createdAt: number;
 }
-
-interface AuthenticatedSocket {
-    id: string;
-    token: string;
-    roomId?: string;
-    peerId?: string;
-    join: (room: string) => void;
-    leave: (room: string) => void;
-    emit: (event: string, data: unknown) => void;
-    to: (room: string) => { emit: (event: string, data: unknown) => void };
-}
-
 class RoomManager {
     private config: RealtimeConfig;
     private io: SocketIOServer;
