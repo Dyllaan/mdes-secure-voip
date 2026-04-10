@@ -6,6 +6,8 @@ import {
   RTCSessionDescription,
   RTCIceCandidate,
   MediaStreamTrack,
+  useVP8,
+  useOPUS,
   type RTCRtpTransceiver,
 } from 'werift';
 import {
@@ -633,7 +635,13 @@ export class BotInstance {
   }
 
   private makeAVPc(remotePeerId: string, connectionId: string): AVPeerConn {
-    const pc = new RTCPeerConnection({ iceServers: this.buildIceServers() });
+    const pc = new RTCPeerConnection({
+      iceServers: this.buildIceServers(),
+      codecs: {
+        video: [useVP8({ payloadType: VP8_PAYLOAD_TYPE })],
+        audio: [useOPUS({ payloadType: OPUS_PAYLOAD_TYPE })],
+      },
+    });
 
     // Both tracks on the same PC - the browser's RTCP SR mechanism syncs them.
     const audioTrack       = new MediaStreamTrack({ kind: 'audio' });
