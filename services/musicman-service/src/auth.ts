@@ -12,19 +12,29 @@ export async function register(): Promise<void> {
     const url  = `${config.AUTH_URL}/user/register`;
     const body = JSON.stringify({ username: config.BOT_USERNAME, password: config.BOT_PASSWORD });
 
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
 
-    if (res.status === 409) {
-        console.log('[Auth] Bot user already exists');
-        return;
+            if (res.status === 409) {
+                console.log('[Auth] Bot user already exists');
+                return;
+            }
+
+            if (res.ok) {
+                console.log('[Auth] Bot user registered');
+                return;
+            }
+
+            const rawBody = await res.text().catch(() => '(could not read body)');
+            throw new Error(`Bot registration failed [${res.status}]: ${rawBody}`);
+        } catch (err) {
+            if (attempt === MAX_RETRIES) throw err;
+            await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+        }
     }
 
-    if (!res.ok) {
-        const rawBody = await res.text().catch(() => '(could not read body)');
-        throw new Error(`Bot registration failed [${res.status}]: ${rawBody}`);
-    }
-
-    console.log('[Auth] Bot user registered');
+    throw new Error('Registration failed after all retries');
 }
 
 export async function login(): Promise<string> {
