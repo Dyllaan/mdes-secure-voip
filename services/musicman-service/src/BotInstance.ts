@@ -30,10 +30,6 @@ interface PeerConn {
   timestamp:    number;
 }
 
-/** AV peer (video mode) = one PC, both tracks
-    Audio and video share a single RTCPeerConnection so the browser receives
-    Without this desync errors will fry you **/
-
 interface AVPeerConn {
   pc:               RTCPeerConnection;
   audioTrack:       MediaStreamTrack;
@@ -292,10 +288,10 @@ export class BotInstance {
       );
 
       this.socket.on(config.PEER_ID_EVENT, async (payload: Record<string, string>) => {
-        clearTimeout(timer);
         const peerId = payload[config.PEER_ID_KEY];
 
         if (!peerId) {
+          clearTimeout(timer);
           return reject(new Error(
             `[Bot ${this.roomId}] '${config.PEER_ID_EVENT}' fired but key '${config.PEER_ID_KEY}' was missing. Payload: ${JSON.stringify(payload)}`,
           ));
@@ -306,31 +302,39 @@ export class BotInstance {
 
         try {
           await this.connectPeerWs(peerId);
-          this.socket!.emit('join-room', {
-            roomId: this.roomId,
-            alias:  '🎵 Music Bot',
-            userId: config.BOT_USERNAME,
-          });
-
-          if (this.videoMode && this.avPipeline) {
-            const screenPeerId = await this.requestScreenPeerId();
-            this.screenPeerId = screenPeerId;
-            await this.connectScreenPeerWs(screenPeerId);
-            this.avPipeline.start();
-            this.socket!.emit('screenshare-started', { screenPeerId });
-            console.log(`[Bot ${this.roomId}] AV stream started - screen peer: ${screenPeerId}`);
-          } else {
-            this.pipeline.start();
-          }
-
-          resolve();
         } catch (err) {
-          reject(err);
+          clearTimeout(timer);
+          return reject(err);
         }
-      });
 
-      this.socket.on('all-users', (users: AllUsersPayload) => {
-        console.log(`[Bot ${this.roomId}] all-users (${users.length}):`, users.map(u => u.alias));
+        // Set up all-users listener before emitting join-room so we know
+        // socket.roomId is set server-side before we emit screenshare-started
+        this.socket!.once('all-users', async (users: AllUsersPayload) => {
+          clearTimeout(timer);
+          console.log(`[Bot ${this.roomId}] all-users (${users.length}):`, users.map(u => u.alias));
+
+          try {
+            if (this.videoMode && this.avPipeline) {
+              const screenPeerId = await this.requestScreenPeerId();
+              this.screenPeerId = screenPeerId;
+              await this.connectScreenPeerWs(screenPeerId);
+              this.avPipeline.start();
+              this.socket!.emit('screenshare-started', { screenPeerId });
+              console.log(`[Bot ${this.roomId}] AV stream started - screen peer: ${screenPeerId}`);
+            } else {
+              this.pipeline.start();
+            }
+            resolve();
+          } catch (err) {
+            reject(err);
+          }
+        });
+
+        this.socket!.emit('join-room', {
+          roomId: this.roomId,
+          alias:  '🎵 Music Bot',
+          userId: config.BOT_USERNAME,
+        });
       });
 
       this.socket.on('user-connected', ({ peerId, alias }: UserConnectedPayload) => {
@@ -362,6 +366,10 @@ export class BotInstance {
       this.socket.on('connect_error', (err: Error) => {
         clearTimeout(timer);
         reject(err);
+      });
+
+      this.socket.on('peer-screenshare-stopped', ({ screenPeerId }: { screenPeerId?: string }) => {
+          if (screenPeerId) this.closeAVPeer(screenPeerId);
       });
     });
   }
@@ -643,7 +651,6 @@ export class BotInstance {
       },
     });
 
-    // Both tracks on the same PC - the browser's RTCP SR mechanism syncs them.
     const audioTrack       = new MediaStreamTrack({ kind: 'audio' });
     const audioTransceiver = pc.addTransceiver(audioTrack, { direction: 'sendonly' });
     const videoTrack       = new MediaStreamTrack({ kind: 'video' });
@@ -681,13 +688,17 @@ export class BotInstance {
   }
 
   private async callFrontendScreenPeer(frontendScreenPeerId: string, alias: string): Promise<void> {
+    const existing = this.avConns.get(frontendScreenPeerId);
+    if (existing) {
+      try { existing.pc.close(); } catch {}
+      this.avConns.delete(frontendScreenPeerId);
+      this.avIceBuf.delete(frontendScreenPeerId);
+      console.log(`[Bot ${this.roomId}] Replaced stale AV peer: ${frontendScreenPeerId}`);
+    }
     if (this.destroyed) return;
-    if (this.avConns.has(frontendScreenPeerId)) return;
-
     const connectionId = `screen-${uuid()}`;
     console.log(`[Bot ${this.roomId}] → Calling frontend screen peer ${frontendScreenPeerId} (${alias}) with audio+video`);
     const conn = this.makeAVPc(frontendScreenPeerId, connectionId);
-
     try {
       const offer = await conn.pc.createOffer();
       await conn.pc.setLocalDescription(offer);
