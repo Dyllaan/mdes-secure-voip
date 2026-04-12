@@ -157,7 +157,7 @@ describe('SignalProtocolHandler', () => {
     });
 
     it('should emit signal-prekeys-low on recipient socket when fewer than 10 prekeys remain', () => {
-      // Register 10 prekeys → after consuming one → 9 remain → should emit low
+      // Register 10 prekeys -> after consuming one -> 9 remain -> should emit low
       const socket = createMockSocket();
       const signalKeys = new Map<string, SignalKeyBundle>();
       const recipientSocket = createMockSocket({ userId: 'user-002' });
@@ -174,7 +174,7 @@ describe('SignalProtocolHandler', () => {
       const signalKeys = new Map<string, SignalKeyBundle>();
       const recipientSocket = createMockSocket({ userId: 'user-002' });
       const handler = makeHandler(signalKeys, (id) => id === 'user-002' ? recipientSocket : null);
-      // 20 prekeys → after consuming one → 19 remain → no low warning
+      // 20 prekeys -> after consuming one -> 19 remain -> no low warning
       handler.handleRegisterKeys(recipientSocket as any, validBundle());
 
       handler.handleRequestBundle(socket as any, { recipientUserId: 'user-002' });
@@ -191,7 +191,7 @@ describe('SignalProtocolHandler', () => {
       // Consume the only prekey
       handler.handleRequestBundle(socket as any, { recipientUserId: 'user-002' });
       (socket.emit as jest.Mock).mockClear();
-      // Second request → no prekeys left
+      // Second request -> no prekeys left
       handler.handleRequestBundle(socket as any, { recipientUserId: 'user-002' });
       const bundleCall = (socket.emit as jest.Mock).mock.calls.find(([e]: [string]) => e === 'signal-prekey-bundle');
       expect(bundleCall![1].preKey).toBeNull();

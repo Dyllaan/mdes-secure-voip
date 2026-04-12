@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -13,16 +14,14 @@ import (
 	"hub-service/internal/structs"
 )
 
-// ---- InviteMember ----
-
 func TestInviteMember_Happy201(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	// Target not a member
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
-	mock.ExpectExec(`INSERT INTO "members"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
+		WithArgs(sqlmock.AnyArg(), testUser2ID, testHubID, string(structs.RoleMember), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/members",
@@ -118,7 +117,7 @@ func TestInviteMember_DBCreateError(t *testing.T) {
 		WillReturnRows(hubRow(mock, testHub))
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
-	mock.ExpectExec(`INSERT INTO "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/members",
 		map[string]string{"userId": testUser2ID},
@@ -128,24 +127,22 @@ func TestInviteMember_DBCreateError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- KickMember ----
-
 func TestKickMember_Happy204WithRotation(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	// The member being kicked (not the owner)
 	targetMember := structs.Member{ID: testMem2ID, UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
 			targetMember.ID, targetMember.UserID, targetMember.HubID,
 			string(targetMember.Role), targetMember.JoinedAt))
-	mock.ExpectExec(`DELETE FROM "members"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).
+		WithArgs(testMem2ID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Channel rotation
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`"channel_key_rotation_flags"`).
+	mock.ExpectExec(`INSERT INTO "channel_key_rotation_flags"`).
+		WithArgs(testChanID, testHubID, true, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete,
@@ -228,7 +225,7 @@ func TestKickMember_DBDeleteError(t *testing.T) {
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
 			targetMember.ID, targetMember.UserID, targetMember.HubID,
 			string(targetMember.Role), targetMember.JoinedAt))
-	mock.ExpectExec(`DELETE FROM "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodDelete,
 		"/api/hubs/"+testHubID+"/members/"+testMem2ID, nil,
@@ -238,14 +235,10 @@ func TestKickMember_DBDeleteError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- ListMembers ----
-
 func TestListMembers_Happy200(t *testing.T) {
 	mock := newMockDB(t)
-	// Requester check
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	// All members
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
 
@@ -286,18 +279,17 @@ func TestListMembers_DBError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- LeaveHub ----
-
 func TestLeaveHub_Happy204WithRotation(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`DELETE FROM "members"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).
+		WithArgs(testMemID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Channel rotation
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`"channel_key_rotation_flags"`).
+	mock.ExpectExec(`INSERT INTO "channel_key_rotation_flags"`).
+		WithArgs(testChanID, testHubID, true, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete, "/api/hubs/"+testHubID+"/leave", nil,
@@ -337,7 +329,7 @@ func TestLeaveHub_DBDeleteError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`DELETE FROM "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodDelete, "/api/hubs/"+testHubID+"/leave", nil,
 		map[string]string{"hubID": testHubID}, testUserID)

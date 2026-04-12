@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -13,8 +14,6 @@ import (
 
 	"hub-service/internal/structs"
 )
-
-// ---- inviteTTL ----
 
 func TestInviteTTL_Default24h(t *testing.T) {
 	t.Setenv("INVITE_TTL_HOURS", "")
@@ -40,13 +39,12 @@ func TestInviteTTL_ZeroValueFallsBack(t *testing.T) {
 	assert.Equal(t, 24*time.Hour, ttl)
 }
 
-// ---- CreateInvite ----
-
 func TestCreateInvite_Happy201(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`INSERT INTO "invite_codes"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "invite_codes"`)).
+		WithArgs(sqlmock.AnyArg(), testHubID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/invites", nil,
@@ -78,7 +76,7 @@ func TestCreateInvite_DBError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`INSERT INTO "invite_codes"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "invite_codes"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/invites", nil,
 		map[string]string{"hubID": testHubID}, testUserID)
@@ -86,8 +84,6 @@ func TestCreateInvite_DBError(t *testing.T) {
 	CreateInvite(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
-
-// ---- RedeemInvite ----
 
 const testInviteCode = "abcdef1234567890abcdef1234567890"
 
@@ -111,13 +107,10 @@ func TestRedeemInvite_Happy200(t *testing.T) {
 	// FOR UPDATE invite select
 	mock.ExpectQuery(`SELECT .+ FROM "invite_codes"`).
 		WillReturnRows(inviteCodeRow(mock, testInviteCode, testHubID, false))
-	// Check not already member — empty = not a member
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
-	// Create member
-	mock.ExpectExec(`INSERT INTO "members"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Fetch hub
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
 	mock.ExpectCommit()
@@ -190,7 +183,7 @@ func TestRedeemInvite_DBErrorInTransaction(t *testing.T) {
 		WillReturnRows(inviteCodeRow(mock, testInviteCode, testHubID, false))
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
-	mock.ExpectExec(`INSERT INTO "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).WillReturnError(errDB)
 	mock.ExpectRollback()
 
 	req := buildRequest(t, http.MethodPost, "/api/invites/"+testInviteCode+"/redeem", nil,

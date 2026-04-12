@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -13,16 +14,14 @@ import (
 	"hub-service/internal/structs"
 )
 
-// ---- CreateChannel ----
-
 func TestCreateChannel_Happy201TextDefault(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testOwnerMember))
-	// Channel uniqueness check — not found (good)
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(emptyRows(mock, chanCols))
-	mock.ExpectExec(`INSERT INTO "channels"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "channels"`)).
+		WithArgs(sqlmock.AnyArg(), "general", testHubID, "text", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channels",
@@ -44,7 +43,8 @@ func TestCreateChannel_Happy201VoiceExplicit(t *testing.T) {
 		WillReturnRows(memberRow(mock, testOwnerMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(emptyRows(mock, chanCols))
-	mock.ExpectExec(`INSERT INTO "channels"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "channels"`)).
+		WithArgs(sqlmock.AnyArg(), "voice-room", testHubID, "voice", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channels",
@@ -66,7 +66,8 @@ func TestCreateChannel_Happy201AdminRole(t *testing.T) {
 		WillReturnRows(memberRow(mock, testAdminMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(emptyRows(mock, chanCols))
-	mock.ExpectExec(`INSERT INTO "channels"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "channels"`)).
+		WithArgs(sqlmock.AnyArg(), "admin-chan", testHubID, "text", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channels",
@@ -159,7 +160,6 @@ func TestCreateChannel_DuplicateName409(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testOwnerMember))
-	// Channel exists
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
 
@@ -177,7 +177,7 @@ func TestCreateChannel_DBError(t *testing.T) {
 		WillReturnRows(memberRow(mock, testOwnerMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(emptyRows(mock, chanCols))
-	mock.ExpectExec(`INSERT INTO "channels"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "channels"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channels",
 		map[string]string{"name": "chan"}, map[string]string{"hubID": testHubID}, testUserID)
@@ -185,8 +185,6 @@ func TestCreateChannel_DBError(t *testing.T) {
 	CreateChannel(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
-
-// ---- ListChannels ----
 
 func TestListChannels_Happy200(t *testing.T) {
 	mock := newMockDB(t)
@@ -249,15 +247,14 @@ func TestListChannels_EmptyList(t *testing.T) {
 	assert.Empty(t, chans)
 }
 
-// ---- DeleteChannel ----
-
 func TestDeleteChannel_Happy204(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testOwnerMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`DELETE FROM "channels"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "channels"`)).
+		WithArgs(testChanID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete,
@@ -317,7 +314,7 @@ func TestDeleteChannel_DBDeleteError(t *testing.T) {
 		WillReturnRows(memberRow(mock, testOwnerMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`DELETE FROM "channels"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "channels"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodDelete,
 		"/api/hubs/"+testHubID+"/channels/"+testChanID, nil,
@@ -326,8 +323,6 @@ func TestDeleteChannel_DBDeleteError(t *testing.T) {
 	DeleteChannel(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
-
-// ---- CheckChannelAccess ----
 
 func TestCheckChannelAccess_EphemeralHappyPath(t *testing.T) {
 	mock := newMockDB(t)

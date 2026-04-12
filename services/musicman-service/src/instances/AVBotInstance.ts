@@ -105,7 +105,7 @@ export class AVBotInstance extends BotInstance {
 
   override changeTrack(url: string): void {
     if (this.destroyed) return;
-    console.log(`[AVBot ${this.roomId}] changeTrack → ${url}`);
+    console.log(`[AVBot ${this.roomId}] changeTrack -> ${url}`);
     this.youtubeUrl = url;
 
     this.unwireAVPipeline();
@@ -286,7 +286,7 @@ export class AVBotInstance extends BotInstance {
 
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      console.log(`[AVPC ${this.roomId}→${remotePeerId}] state: ${state}`);
+      console.log(`[AVPC ${this.roomId}->${remotePeerId}] state: ${state}`);
       if (state === 'failed' || state === 'closed') this.closeAVPeer(remotePeerId);
     });
 
@@ -313,7 +313,7 @@ export class AVBotInstance extends BotInstance {
     }
     if (this.destroyed) return;
     const connectionId = `screen-${uuid()}`;
-    console.log(`[AVBot ${this.roomId}] → Calling frontend screen peer ${frontendScreenPeerId} (${alias}) with audio+video`);
+    console.log(`[AVBot ${this.roomId}] -> Calling frontend screen peer ${frontendScreenPeerId} (${alias}) with audio+video`);
     const conn = this.makeAVPc(frontendScreenPeerId, connectionId);
     try {
       const offer = await conn.pc.createOffer();

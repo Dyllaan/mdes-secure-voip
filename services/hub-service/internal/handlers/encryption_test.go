@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,16 +28,14 @@ var testDeviceKey = structs.MemberDeviceKey{
 	UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 }
 
-// ---- RegisterDeviceKey ----
-
 func TestRegisterDeviceKey_Happy201Create(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	// No existing key
 	mock.ExpectQuery(`SELECT .+ FROM "member_device_keys"`).
 		WillReturnRows(emptyRows(mock, devKeyCols))
-	mock.ExpectExec(`INSERT INTO "member_device_keys"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "member_device_keys"`)).
+		WithArgs(sqlmock.AnyArg(), testUserID, testDeviceID, testHubID, "newkey==", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
@@ -49,15 +50,16 @@ func TestRegisterDeviceKey_Happy201Create(t *testing.T) {
 
 func TestRegisterDeviceKey_Happy200Update(t *testing.T) {
 	mock := newMockDB(t)
+
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WithArgs(testUserID, testHubID, sqlmock.AnyArg()).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	// Existing key found
 	mock.ExpectQuery(`SELECT .+ FROM "member_device_keys"`).
+		WithArgs(testUserID, testDeviceID, testHubID, sqlmock.AnyArg()).
 		WillReturnRows(mock.NewRows(devKeyCols).AddRow(
 			testDeviceKey.ID, testDeviceKey.UserID, testDeviceKey.DeviceID,
 			testDeviceKey.HubID, testDeviceKey.PublicKey, testDeviceKey.UpdatedAt))
-	// Save (update) the key
-	mock.ExpectExec(`"member_device_keys"`).
+	mock.ExpectExec(`UPDATE "member_device_keys" SET .+`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
@@ -65,11 +67,25 @@ func TestRegisterDeviceKey_Happy200Update(t *testing.T) {
 		map[string]string{"hubID": testHubID}, testUserID)
 	rr := httptest.NewRecorder()
 	RegisterDeviceKey(rr, req)
+	t.Logf("Unmet expectations: %v", mock.ExpectationsWereMet())
 
+	if rr.Code != http.StatusOK {
+		t.Logf("Response Body: %s", rr.Body.String())
+	}
 	assert.Equal(t, http.StatusOK, rr.Code)
 	var dk structs.MemberDeviceKey
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&dk))
 	assert.Equal(t, "updatedkey==", dk.PublicKey)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Helper to inject URL vars if your buildRequest doesn't do it perfectly
+func addURLVars(r *http.Request, vars map[string]string) *http.Request {
+	ctx := chi.NewRouteContext() // Change this to your router's context if not chi
+	for k, v := range vars {
+		ctx.URLParams.Add(k, v)
+	}
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, ctx))
 }
 
 func TestRegisterDeviceKey_NotAMember403(t *testing.T) {
@@ -159,8 +175,6 @@ func TestRegisterDeviceKey_DBCreateError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- GetDeviceKeys ----
-
 func TestGetDeviceKeys_Happy200(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
@@ -224,8 +238,6 @@ func TestGetDeviceKeys_EmptyResult(t *testing.T) {
 	assert.Empty(t, keys)
 }
 
-// ---- PostKeyBundles ----
-
 func makePostKeyBundlesReq(t *testing.T, req structs.PostKeyBundlesRequest) *http.Request {
 	t.Helper()
 	return buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channel-keys/bundles",
@@ -254,10 +266,11 @@ func expectBundleHappyPath(mock sqlmock.Sqlmock) {
 func TestPostKeyBundles_Happy201CreateAll(t *testing.T) {
 	mock := newMockDB(t)
 	expectBundleHappyPath(mock)
-	// No existing bundle
 	mock.ExpectQuery(`SELECT .+ FROM "channel_key_bundles"`).
 		WillReturnRows(emptyRows(mock, bundleCols))
 	mock.ExpectExec(`INSERT INTO "channel_key_bundles"`).
+		WithArgs(sqlmock.AnyArg(), testChanID, testHubID, testUserID, testDeviceID, int32(1),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := makePostKeyBundlesReq(t, structs.PostKeyBundlesRequest{
@@ -287,8 +300,7 @@ func TestPostKeyBundles_Happy201UpsertExisting(t *testing.T) {
 			existingBundle.ID, existingBundle.ChannelID, existingBundle.HubID,
 			existingBundle.RecipientUserID, existingBundle.RecipientDeviceID,
 			existingBundle.KeyVersion, "oldeph", "oldcipher", "oldiv", time.Now()))
-	// Save/update
-	mock.ExpectExec(`"channel_key_bundles"`).
+	mock.ExpectExec(`UPDATE "channel_key_bundles"`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := makePostKeyBundlesReq(t, structs.PostKeyBundlesRequest{
@@ -411,7 +423,6 @@ func TestPostKeyBundles_RecipientNotHubMember400(t *testing.T) {
 		WillReturnRows(memberRow(mock, testRegularMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	// Hub members — empty (so recipient is not in the set)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
 
@@ -434,10 +445,9 @@ func TestPostKeyBundles_BundleMissingField400(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
 
-	// Bundle missing RecipientUserID
 	badBundle := structs.ChannelKeyBundlePayload{
-		RecipientUserID:   "",
-		RecipientDeviceID: testDeviceID,
+		RecipientUserID:    "",
+		RecipientDeviceID:  testDeviceID,
 		SenderEphemeralPub: "eph",
 		Ciphertext:         "ciph",
 		IV:                 "iv",
@@ -451,20 +461,18 @@ func TestPostKeyBundles_BundleMissingField400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
-// ---- GetKeyBundles ----
-
 func testBundle() structs.ChannelKeyBundle {
 	return structs.ChannelKeyBundle{
-		ID:                "bundle-001",
-		ChannelID:         testChanID,
-		HubID:             testHubID,
-		RecipientUserID:   testUserID,
-		RecipientDeviceID: testDeviceID,
-		KeyVersion:        1,
+		ID:                 "bundle-001",
+		ChannelID:          testChanID,
+		HubID:              testHubID,
+		RecipientUserID:    testUserID,
+		RecipientDeviceID:  testDeviceID,
+		KeyVersion:         1,
 		SenderEphemeralPub: "ephpub",
-		Ciphertext:        "ciph",
-		IV:                "iv",
-		CreatedAt:         time.Now(),
+		Ciphertext:         "ciph",
+		IV:                 "iv",
+		CreatedAt:          time.Now(),
 	}
 }
 
@@ -530,13 +538,11 @@ func TestGetKeyBundles_DBError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- SetRotationNeeded ----
-
 func TestSetRotationNeeded_Happy200(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`"channel_key_rotation_flags"`).
+	mock.ExpectExec(`UPDATE "channel_key_rotation_flags"`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost,
@@ -577,8 +583,6 @@ func TestSetRotationNeeded_DBError(t *testing.T) {
 	SetRotationNeeded(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
-
-// ---- GetRotationNeeded ----
 
 func TestGetRotationNeeded_FlagExists(t *testing.T) {
 	mock := newMockDB(t)
@@ -632,13 +636,12 @@ func TestGetRotationNeeded_NotAMember403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
-// ---- ClearRotationNeeded ----
-
 func TestClearRotationNeeded_Happy204(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	mock.ExpectExec(`DELETE FROM "channel_key_rotation_flags"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "channel_key_rotation_flags"`)).
+		WithArgs(testChanID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete,
@@ -668,8 +671,7 @@ func TestClearRotationNeeded_IdempotentWhenNotFound(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
-	// DELETE on non-existent flag still returns 0 rows affected but no error
-	mock.ExpectExec(`DELETE FROM "channel_key_rotation_flags"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "channel_key_rotation_flags"`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	req := buildRequest(t, http.MethodDelete,

@@ -1,8 +1,6 @@
 package handlers
 
-// testhelpers_test.go — shared test utilities for handler tests.
-// This file is in package handlers (not handlers_test) so it can also
-// be used by ephemeral_test.go which needs access to unexported vars.
+// shared test utilities for handler tests.
 
 import (
 	"bytes"
@@ -115,12 +113,13 @@ func init() {
 // newMockDB sets up a GORM DB backed by go-sqlmock and installs it as the global db.DB.
 func newMockDB(t *testing.T) sqlmock.Sqlmock {
 	t.Helper()
-	sqlDB, mock, err := sqlmock.New()
+	sqlDB, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 
 	dialector := postgres.New(postgres.Config{Conn: sqlDB})
 	gormDB, err := gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger:                 logger.Default.LogMode(logger.Warn),
+		SkipDefaultTransaction: true,
 	})
 	require.NoError(t, err)
 

@@ -159,7 +159,6 @@ func TestRedeemRateLimit_WindowResetAllowsNewRequests(t *testing.T) {
 
 func TestRedeemRateLimit_InvalidRemoteAddr(t *testing.T) {
 	resetRateLimiter()
-	// RemoteAddr without port — SplitHostPort will fail, uses full string as key
 	req := httptest.NewRequest(http.MethodPost, "/test", nil)
 	req.RemoteAddr = "noport"
 	rr := httptest.NewRecorder()

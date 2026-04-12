@@ -26,8 +26,6 @@ func jsonDecodeBody(rr *httptest.ResponseRecorder, v interface{}) error {
 	return json.NewDecoder(rr.Body).Decode(v)
 }
 
-// ---- StartEphemeral ----
-
 func TestStartEphemeral_Happy201Created(t *testing.T) {
 	resetEphemeral()
 	mock := newMockDB(t)
@@ -172,8 +170,6 @@ func TestStartEphemeral_ResponseContainsExpiresAt(t *testing.T) {
 	assert.GreaterOrEqual(t, int64(expiresAt), before+defaultMaxAge)
 }
 
-// ---- GetEphemeral ----
-
 func TestGetEphemeral_ActiveRoom200(t *testing.T) {
 	resetEphemeral()
 	ephemeralMu.Lock()
@@ -260,8 +256,6 @@ func TestGetEphemeral_NotAMember403(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
 
-// ---- EndEphemeral ----
-
 func TestEndEphemeral_Happy204(t *testing.T) {
 	resetEphemeral()
 	ephemeralMu.Lock()
@@ -310,8 +304,6 @@ func TestEndEphemeral_NotAMember403(t *testing.T) {
 	EndEphemeral(rr, req)
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 }
-
-// ---- Concurrency ----
 
 func TestEphemeralRooms_ConcurrentAccessNoDataRace(t *testing.T) {
 	resetEphemeral()

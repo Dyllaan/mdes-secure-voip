@@ -9,11 +9,10 @@ import { turnCredentials } from '../turnCredentials';
 
 const mockRandomBytes = randomBytes as jest.MockedFunction<typeof randomBytes>;
 
-// Fixed test values
 const FIXED_TIMESTAMP_MS = 1_700_000_000_000;
 const FIXED_TIMESTAMP_S  = Math.floor(FIXED_TIMESTAMP_MS / 1000);
 const FIXED_NONCE_BYTE   = 0xab;
-const FIXED_NONCE_HEX    = 'ab'.repeat(8); // 8 bytes → 16 hex chars
+const FIXED_NONCE_HEX    = 'ab'.repeat(8);
 const TURN_SECRET        = 'test-turn-secret';
 
 function mockReq(sub: string) {

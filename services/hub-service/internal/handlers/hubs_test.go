@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -13,12 +14,14 @@ import (
 	"hub-service/internal/structs"
 )
 
-// ---- CreateHub ----
-
 func TestCreateHub_Happy201(t *testing.T) {
 	mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO "hubs"`).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(`INSERT INTO "members"`).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "hubs"`)).
+		WithArgs(sqlmock.AnyArg(), "My Hub", testUserID, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
+		WithArgs(sqlmock.AnyArg(), testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "My Hub"}, nil, testUserID)
 	rr := httptest.NewRecorder()
@@ -52,7 +55,7 @@ func TestCreateHub_EmptyName(t *testing.T) {
 
 func TestCreateHub_DBErrorOnHubInsert(t *testing.T) {
 	mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO "hubs"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "hubs"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "Fail Hub"}, nil, testUserID)
 	rr := httptest.NewRecorder()
@@ -63,8 +66,12 @@ func TestCreateHub_DBErrorOnHubInsert(t *testing.T) {
 
 func TestCreateHub_DBErrorOnMemberInsert(t *testing.T) {
 	mock := newMockDB(t)
-	mock.ExpectExec(`INSERT INTO "hubs"`).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(`INSERT INTO "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "hubs"`)).
+		WithArgs(sqlmock.AnyArg(), "Fail Hub", testUserID, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
+		WithArgs(sqlmock.AnyArg(), testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
+		WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "Fail Hub"}, nil, testUserID)
 	rr := httptest.NewRecorder()
@@ -72,8 +79,6 @@ func TestCreateHub_DBErrorOnMemberInsert(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 	assertErrorBody(t, rr, "Failed to add owner membership")
 }
-
-// ---- ListHubs ----
 
 func TestListHubs_Happy200WithHubs(t *testing.T) {
 	mock := newMockDB(t)
@@ -134,8 +139,6 @@ func TestListHubs_DBErrorOnHubsFetch(t *testing.T) {
 	assertErrorBody(t, rr, "Failed to fetch hubs")
 }
 
-// ---- GetHub ----
-
 func TestGetHub_Happy200(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
@@ -182,13 +185,12 @@ func TestGetHub_HubNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
-// ---- DeleteHub ----
-
 func TestDeleteHub_Happy204(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	mock.ExpectExec(`DELETE FROM "hubs"`).
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "hubs"`)).
+		WithArgs(testHubID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete, "/api/hubs/"+testHubID, nil,
@@ -230,7 +232,7 @@ func TestDeleteHub_DBDeleteError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	mock.ExpectExec(`DELETE FROM "hubs"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "hubs"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodDelete, "/api/hubs/"+testHubID, nil,
 		map[string]string{"hubID": testHubID}, testUserID)
@@ -239,14 +241,14 @@ func TestDeleteHub_DBDeleteError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
 
-// ---- BotJoinHub ----
-
 func TestBotJoinHub_Happy201Creates(t *testing.T) {
 	t.Setenv("BOT_SECRET", "supersecret")
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WithArgs(testUserID, testHubID, 1). // GORM appends LIMIT as an arg
 		WillReturnRows(emptyRows(mock, memberCols))
-	mock.ExpectExec(`INSERT INTO "members"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
+		WithArgs(sqlmock.AnyArg(), testUserID, testHubID, string(structs.RoleBot), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
@@ -299,7 +301,7 @@ func TestBotJoinHub_SameLengthWrongContent(t *testing.T) {
 	_ = newMockDB(t)
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
 		map[string]string{"hubID": testHubID}, testUserID)
-	req.Header.Set("X-Bot-Secret", "exactlytwelve?") // same length, different content
+	req.Header.Set("X-Bot-Secret", "exactlytwelve?")
 	rr := httptest.NewRecorder()
 	BotJoinHub(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
@@ -310,7 +312,7 @@ func TestBotJoinHub_DBCreateError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
-	mock.ExpectExec(`INSERT INTO "members"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
 		map[string]string{"hubID": testHubID}, testUserID)

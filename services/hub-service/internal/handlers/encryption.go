@@ -44,12 +44,14 @@ func RegisterDeviceKey(w http.ResponseWriter, r *http.Request) {
 	result := db.DB.First(&existing, "user_id = ? AND device_id = ? AND hub_id = ?", userID, req.DeviceID, hubID)
 
 	if result.Error == nil {
-		existing.PublicKey = req.PublicKey
-		existing.UpdatedAt = time.Now()
-		if err := db.DB.Save(&existing).Error; err != nil {
+		if err := db.DB.Model(&existing).Updates(map[string]interface{}{
+			"public_key": req.PublicKey,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to update device key")
 			return
 		}
+		existing.PublicKey = req.PublicKey
 		writeJSON(w, http.StatusOK, existing)
 		return
 	}

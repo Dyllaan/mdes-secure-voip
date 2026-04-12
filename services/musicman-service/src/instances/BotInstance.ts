@@ -143,7 +143,7 @@ export class BotInstance {
 
   changeTrack(url: string): void {
     if (this.destroyed) return;
-    console.log(`[Bot ${this.roomId}] changeTrack → ${url}`);
+    console.log(`[Bot ${this.roomId}] changeTrack -> ${url}`);
     this.youtubeUrl = url;
 
     this.unwirePipeline();
@@ -274,7 +274,7 @@ export class BotInstance {
       const path  = PEER_PATH.endsWith('/') ? PEER_PATH : `${PEER_PATH}/`;
       const wsUrl = `${proto}://${PEER_HOST}:${PEER_PORT}${path}peerjs?key=peerjs&id=${encodeURIComponent(peerId)}&token=${uuid()}`;
 
-      console.log(`[PeerWS ${this.roomId}] Connecting → ${wsUrl}`);
+      console.log(`[PeerWS ${this.roomId}] Connecting -> ${wsUrl}`);
       this.peerWs = new WebSocket(wsUrl);
 
       const timer = setTimeout(
@@ -339,7 +339,7 @@ export class BotInstance {
 
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      console.log(`[PC ${this.roomId}→${remotePeerId}] state: ${state}`);
+      console.log(`[PC ${this.roomId}->${remotePeerId}] state: ${state}`);
       if (state === 'connected') {
         this.isConnected = true;
         const conn = this.conns.get(remotePeerId);

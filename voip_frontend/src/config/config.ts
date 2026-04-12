@@ -3,13 +3,13 @@ const config = {
   HUB_SERVICE_URL: import.meta.env.VITE_HUB_SERVICE_URL || 'http://localhost:8080/api',
   SIGNALING_SERVER: import.meta.env.VITE_SOCKET_URL || window.location.origin,
   PEER_HOST: import.meta.env.VITE_PEER_HOST || window.location.hostname,
-  PEER_PORT: import.meta.env.VITE_PEER_PORT || (window.location.port || '80'),
-  PEER_SECURE: import.meta.env.VITE_PEER_SECURE || (window.location.protocol === 'https:' ? 'true' : 'false'),
+  PEER_PORT: Number(import.meta.env.VITE_PEER_PORT || window.location.port || 80),
+  PEER_SECURE: (import.meta.env.VITE_PEER_SECURE ?? (window.location.protocol === 'https:' ? 'true' : 'false')) === 'true',
   PEER_PATH: import.meta.env.VITE_PEER_PATH || '/peerjs',
   GATEWAY_URL: import.meta.env.VITE_GATEWAY_URL || 'http://localhost:4000',
   MUSICMAN_URL: import.meta.env.VITE_MUSICMAN_URL ?? 'http://localhost:4000',
   GITHUB_URL: import.meta.env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/voip_and_content_synchronisation',
   TURN_HOST: import.meta.env.VITE_TURN_HOST || window.location.hostname,
-  TURN_PORT: import.meta.env.VITE_TURN_PORT || '3478',
+  TURN_PORT: Number(import.meta.env.VITE_TURN_PORT || 3478),
 };
 export default config;

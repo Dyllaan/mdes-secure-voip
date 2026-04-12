@@ -1,51 +1,33 @@
-import { createContext, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from "sonner";
 import useLocalStorage from '@/hooks/useLocalStorage';
-import axios from 'axios';
+import { setAccessToken as setModuleAccessToken } from '@/axios/api';
 import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
-import config from '@/config/config';
 import { authApi, gateway } from '@/axios/api';
-
-type AuthContextType = {
-  user: User | null;
-  setUser: (user: User | null) => void;
-  login: (username: string, password: string, mfaCode?: string, trustDevice?: boolean) => Promise<LoginResult>;
-  verifyMfa: (mfaCode: string, trustDevice: boolean) => Promise<LoginResult>;
-  logout: () => void;
-  signedIn: boolean;
-  mfaRequired: boolean;
-  pendingMfaToken: string | null;
-  mfaStatus: MfaStatus | null;
-  fetchMfaStatus: () => Promise<void>;
-  deleteUser: (mfaCode: string) => Promise<void>;
-  disableMfa: (mfaCode: string) => Promise<void>;
-  changeUserIsMfaEnabled: (enabled: boolean) => void;
-  updatePassword: (oldPassword: string, newPassword: string, mfaCode?: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
-  isLoading: boolean;
-  turnCredentials: { username: string; password: string; ttl: number } | null;
-}
-
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import type { AuthContextType } from '@/types/AuthContextType';
+import { AuthContext } from '@/contexts/AuthContext';
 
 interface AuthProviderProps {
   children: React.ReactNode;
 }
 
-// Non-sensitive user fields persisted to localStorage.
-// accessToken is kept only in React state (in-memory) so XSS cannot steal it from storage.
 type PersistedUser = Omit<User, 'accessToken'>;
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accessToken, _setAccessToken] = useState<string | null>(null);
 
   const user: User | null = persistedUser && accessToken
     ? { ...persistedUser, accessToken }
     : null;
 
-  // setUser splits the user of non-sensitive fields
+  const setAccessToken = (token: string | null) => {
+    _setAccessToken(token);
+    setModuleAccessToken(token);
+  };
+
   const setUser = (userData: User | null) => {
     if (userData === null) {
       setPersistedUser(null);
@@ -65,14 +47,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
 
   useEffect(() => {
-    if (accessToken) {
-      fetchMfaStatus();
-    }
+    if (accessToken) fetchMfaStatus();
   }, [accessToken]);
 
   useEffect(() => {
     if (accessToken && signedIn && !isLoading) {
-      fetchTurnCredentials(accessToken);
+      fetchTurnCredentials();
     } else if (!signedIn) {
       setTurnCredentials(null);
     }
@@ -93,11 +73,9 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setMfaStatus(null);
   }
 
-  const fetchTurnCredentials = async (token: string) => {
+  const fetchTurnCredentials = async () => {
     try {
-      const response = await authApi.get('/turn-credentials', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await gateway.get('/turn-credentials');
       const data = response.data as { username: string; password: string; ttl: number };
       setTurnCredentials(prev =>
         prev?.username === data.username && prev?.password === data.password
@@ -105,15 +83,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
           : data
       );
     } catch {
-      console.error('Failed to fetch TURN credentials refresh');
+      console.error('Failed to fetch TURN credentials');
     }
   };
 
   const fetchMfaStatus = async () => {
     if (!accessToken) return;
-    const response = await authApi.get('/mfa/status', {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    const response = await authApi.get('/mfa/status');
     if (response.status === 200) {
       setMfaStatus(response.data as MfaStatus);
     }
@@ -129,28 +105,26 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
     if (accessToken) {
       try {
-        const response = await authApi.get('/user/me', {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const response = await authApi.get('/user/me');
         const responseData = response.data as MeResponse;
         changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
         setSignedIn(true);
         return true;
       } catch {
-        // Access token invalid
+        // access token invalid
       }
     }
 
     if (storedRefreshToken) {
       try {
-        const refreshResponse = await authApi.post('/user/refresh', { token: storedRefreshToken });
+        const refreshResponse = await authApi.post('/user/refresh', { refreshToken: storedRefreshToken });
         const userData = refreshResponse.data as User;
         setUser(userData);
         setSignedIn(true);
         setMfaStatus({ enabled: userData.mfaEnabled ?? false, verified: true });
         return true;
       } catch {
-        // Refresh failed
+        // refresh failed
       }
     }
 
@@ -264,7 +238,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const deleteUser = async (mfaCode?: string) => {
     try {
       const response = await authApi.delete('/user/delete', {
-        headers: { Authorization: `Bearer ${accessToken}` },
         data: { mfaCode },
         validateStatus: () => true
       });
@@ -274,7 +247,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       } else if (response.status === 200) {
         toast.success('User account deleted successfully');
         logout();
-        setSignedIn(false);
       }
     } catch (error) {
       console.error('Delete error:', error);
@@ -285,7 +257,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const disableMfa = async (mfaCode: string) => {
     try {
       const response = await authApi.post('/mfa/disable', { code: mfaCode }, {
-        headers: { Authorization: `Bearer ${accessToken}` },
         validateStatus: () => true
       });
 
@@ -307,10 +278,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         oldPassword,
         newPassword,
         ...(mfaCode && { mfaCode })
-      }, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        validateStatus: () => true
-      });
+      }, { validateStatus: () => true });
 
       if (response.status === 400) {
         const errorData = response.data as { cause?: string };

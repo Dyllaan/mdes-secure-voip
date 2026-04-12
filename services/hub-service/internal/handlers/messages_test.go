@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
@@ -15,15 +16,14 @@ import (
 	"hub-service/internal/structs"
 )
 
-// ---- SendMessage ----
-
 func TestSendMessage_Happy201(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(memberRow(mock, testRegularMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`INSERT INTO "messages"`).
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "messages"`)).
+		WithArgs(sqlmock.AnyArg(), testChanID, testUserID, "enc-data", "iv-data", "v1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	body := map[string]string{
@@ -171,7 +171,7 @@ func TestSendMessage_DBError(t *testing.T) {
 		WillReturnRows(memberRow(mock, testRegularMember))
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
-	mock.ExpectExec(`INSERT INTO "messages"`).WillReturnError(errDB)
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "messages"`)).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPost,
 		"/api/hubs/"+testHubID+"/channels/"+testChanID+"/messages",
@@ -182,8 +182,6 @@ func TestSendMessage_DBError(t *testing.T) {
 	SendMessage(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
 }
-
-// ---- GetMessages ----
 
 func msgRows(mock sqlmock.Sqlmock, count int) *sqlmock.Rows {
 	rows := mock.NewRows(msgCols)

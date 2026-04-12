@@ -520,7 +520,7 @@ export class AVPipeline extends EventEmitter {
       avWarn('_pipeYtdlpToFfmpeg: ytdlp or ffmpeg not available');
       return;
     }
-    avLog('ytdlp: resuming stdout → piping to ffmpeg stdin');
+    avLog('ytdlp: resuming stdout -> piping to ffmpeg stdin');
     this.ytdlp.stdout.pipe(this.ffmpeg.stdin);
     this.ytdlp.stdout.resume();
   }
