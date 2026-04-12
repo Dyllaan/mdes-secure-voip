@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { useConnection } from "@/components/providers/ConnectionProvider";
 import type { DecryptedRoomMessage } from "@/utils/RoomClient";
 import type { ChatMessage } from "@/types/voip.types";
@@ -36,7 +37,6 @@ const useVoIP = () => {
     stream: mic.stream,
     peerId: assignedPeerId ?? "",
     peerConfig: PEER_CONFIG,
-    turnCredentials,
   });
 
   const screenshare = useScreenshare({
@@ -125,7 +125,7 @@ const useVoIP = () => {
 
     screenshare.clearRoomState();
     peerConn.closeAll();
-    socket.emit("join-room", { roomId, alias: username, userId: username });
+    socket.emit("join-room", { roomId, alias: username, userId: user?.sub });
     setCurrentRoomId(roomId);
   }, [socket, isConnected, turnCredentials, mic.acquire, peerConn.waitForOpen, peerConn.closeAll, screenshare.clearRoomState, username]);
 

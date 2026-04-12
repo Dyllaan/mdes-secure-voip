@@ -1,7 +1,7 @@
 /**
  * Derives a stable device identity (P-256 ECDH keypair + UUID) from a BIP-39 mnemonic.
  *
- * Derivation: mnemonic → BIP-39 seed → HKDF-SHA256 → P-256 scalar + device UUID.
+ * Derivation: mnemonic -> BIP-39 seed -> HKDF-SHA256 -> P-256 scalar + device UUID.
  * Uses @noble/curves/p256 to compute public point (x,y) from the scalar because
  * Chrome's WebCrypto importKey('jwk') requires all JWK fields for ECDH.
  */

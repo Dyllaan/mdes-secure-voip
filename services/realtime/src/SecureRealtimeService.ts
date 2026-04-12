@@ -22,7 +22,8 @@ class SecureRealtimeService {
         this.socketHandlers = new SocketEventHandlers(this);
     }
 
-    start(): Promise<void> {
+    async start(): Promise<void> {
+        await this.socketHandlers.loadSignalKeysFromRedis();
         this.socketHandlers.setup();
         this.socketHandlers.startCleanupInterval();
         this.httpSetup.initialize(this.socketHandlers);

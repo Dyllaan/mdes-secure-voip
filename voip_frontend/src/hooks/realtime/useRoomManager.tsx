@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import config from "@/config/config";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import type { Socket } from "socket.io-client";
 
 export interface RoomInfo {

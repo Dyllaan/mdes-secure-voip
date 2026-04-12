@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useVoIPContext } from '@/components/providers/VoIPProvider';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';

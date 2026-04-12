@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Shield, Copy, Check, Download } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import axios from 'axios';
 import { toast } from 'sonner';
 import {

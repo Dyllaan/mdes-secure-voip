@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import MfaSetupDialog from '@/components/auth/dialog/MfaSetupDialog';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import type { User } from '@/types/User';
 import axios from 'axios';
 import config from '@/config/config';

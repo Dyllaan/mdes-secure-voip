@@ -12,11 +12,6 @@ interface ScreenShare {
     screenPeerId: string;
 }
 
-
-interface QueuedMessage {
-    [key: string]: unknown;
-}
-
 interface JoinRoomData {
     roomId: string;
     alias: string;
@@ -92,7 +87,7 @@ class UserHandler {
 
         const existingUsers = Array.from(room.users.values())
             .filter(user => user.socketId !== socket.id)
-            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.username }));
+            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.userId }));
 
         socket.emit('all-users', existingUsers);
 
@@ -117,21 +112,21 @@ class UserHandler {
             if (rsaKey) socket.emit('user-rsa-key', { userId: user.userId, publicKey: rsaKey });
         });
 
-        const newUserRSAKey = this.rsaPublicKeys.get(socket.username);
+        const newUserRSAKey = this.rsaPublicKeys.get(socket.userId);
         if (newUserRSAKey) {
-            socket.to(roomId).emit('user-rsa-key', { userId: socket.username, publicKey: newUserRSAKey });
+            socket.to(roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: newUserRSAKey });
         }
 
         socket.to(roomId).emit('user-connected', {
             peerId: socket.peerId,
             alias: (socket as any).alias,
-            userId: socket.username
+            userId: socket.userId
         });
 
-        const queue = this.messageQueues.get(socket.username);
+        const queue = this.messageQueues.get(socket.userId);
         if (queue && queue.length > 0) {
             socket.emit('queued-messages', { messages: queue });
-            this.messageQueues.delete(socket.username);
+            this.messageQueues.delete(socket.userId);
         }
 
         return true;
@@ -157,6 +152,27 @@ class UserHandler {
         const screenPeerId = `screen-${socket.username}-${Date.now()}-${crypto.randomBytes(8).toString('hex')}`;
         (socket as any).screenPeerId = screenPeerId;
         socket.emit('screen-peer-assigned', { peerId: screenPeerId });
+
+        // If the user is already in a room, notify any active screensharers so they can call
+        // this peer. This covers the race where join-room is processed before request-screen-peer-id,
+        // which would otherwise leave the screensharer with no peers to call.
+        const { roomId } = socket;
+        if (!roomId) return;
+        const room = this.roomManager.rooms.get(roomId);
+        if (!room) return;
+        const activeScreenShares = (room as any).activeScreenShares as Map<string, ScreenShare> | undefined;
+        if (!activeScreenShares || activeScreenShares.size === 0) return;
+
+        for (const { peerId: sharerPeerId } of activeScreenShares.values()) {
+            if (sharerPeerId === socket.peerId) continue;
+            const sharerSocket = this._findSocketByPeerId(sharerPeerId);
+            if (sharerSocket) {
+                sharerSocket.emit('new-screen-peer', {
+                    screenPeerId,
+                    alias: (socket as any).alias ?? socket.username,
+                });
+            }
+        }
     }
 
     handleScreenshareStarted(socket: AuthenticatedSocket, data: ScreenshareStartedData): void {
@@ -182,16 +198,17 @@ class UserHandler {
         });
 
         const roomScreenPeers: { screenPeerId: string; alias: string }[] = [];
-        room.users.forEach((userInfo) => {
+            room.users.forEach((userInfo) => {
             if (userInfo.socketId === socket.id) return;
-            const memberSocket = this.io.sockets.sockets.get(userInfo.socketId) as AuthenticatedSocket | undefined;
-            if ((memberSocket as any)?.screenPeerId) {
-                roomScreenPeers.push({
-                    screenPeerId: (memberSocket as any).screenPeerId,
-                    alias: userInfo.alias
-                });
-            }
-        });
+                const memberSocket = this.io.sockets.sockets.get(userInfo.socketId) as AuthenticatedSocket | undefined;
+                console.log(`[screenshare] checking member ${userInfo.alias} socket=${!!memberSocket} screenPeerId=${(memberSocket as any)?.screenPeerId}`);
+                if ((memberSocket as any)?.screenPeerId) {
+                    roomScreenPeers.push({
+                        screenPeerId: (memberSocket as any).screenPeerId,
+                        alias: userInfo.alias
+                    });
+                }
+            });
 
         socket.emit('room-screen-peers', { peers: roomScreenPeers });
     }

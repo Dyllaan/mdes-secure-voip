@@ -53,7 +53,7 @@ func Auth(next http.Handler) http.Handler {
 			return jwtSecret, nil
 		})
 
-		if err != nil {
+		if err != nil || !token.Valid {
 			log.Printf("token verification failed: %v", err)
 			writeError(w, http.StatusUnauthorized, "Invalid token")
 			return

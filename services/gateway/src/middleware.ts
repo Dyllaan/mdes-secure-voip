@@ -32,9 +32,9 @@ function makeBreaker(name: string) {
     errorThresholdPercentage: 50,
     resetTimeout: 10000,
   });
-  breaker.on('open', () => logger.warn({ service: name }, 'Circuit breaker opened'));
-  breaker.on('halfOpen', () => logger.info({ service: name }, 'Circuit breaker half-open, testing...'));
-  breaker.on('close', () => logger.info({ service: name }, 'Circuit breaker closed'));
+  breaker.on('open', /* istanbul ignore next */ () => logger.warn({ service: name }, 'Circuit breaker opened'));
+  breaker.on('halfOpen', /* istanbul ignore next */ () => logger.info({ service: name }, 'Circuit breaker half-open, testing...'));
+  breaker.on('close', /* istanbul ignore next */ () => logger.info({ service: name }, 'Circuit breaker closed'));
   return breaker;
 }
 

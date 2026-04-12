@@ -1,6 +1,7 @@
 import UnifiedItem from '@/components/layout/UnifiedItem';
 import { Shield } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { useState } from 'react';
 import MfaSetupDialog from '@/components/auth/dialog/MfaSetupDialog';
 import { useEffect } from 'react';

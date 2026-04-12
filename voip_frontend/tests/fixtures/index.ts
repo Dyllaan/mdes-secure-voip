@@ -1,9 +1,5 @@
 import type { Page } from '@playwright/test';
 
-// ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
 export const MOCK_USER = {
   id: 'test-user-id',
   sub: 'test-user-id',
@@ -85,10 +81,7 @@ export async function setupIDB(page: Page) {
     });
   });
 }
-
-// ---------------------------------------------------------------------------
 // Network route mocks
-// ---------------------------------------------------------------------------
 
 /**
  * Mocks the auth service endpoints that AuthProvider calls on every page load:

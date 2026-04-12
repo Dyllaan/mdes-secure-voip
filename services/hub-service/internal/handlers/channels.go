@@ -12,8 +12,13 @@ import (
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
 
+	"regexp"
 	"strings"
 )
+
+// ephemeralChannelRE validates the ephemeral-{uuid} format to prevent malformed IDs
+// from reaching the database query (e.g. ephemeral-../../etc).
+var ephemeralChannelRE = regexp.MustCompile(`^ephemeral-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func CreateChannel(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
@@ -76,6 +81,11 @@ func CheckChannelAccess(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "channelID")
 
 	if strings.HasPrefix(channelID, "ephemeral-") {
+		// Validate format: ephemeral-{uuid} before using the extracted hubID in a DB query.
+		if !ephemeralChannelRE.MatchString(channelID) {
+			writeError(w, http.StatusBadRequest, "Invalid ephemeral channel ID format")
+			return
+		}
 		// Format: ephemeral-{hubId}
 		// Strip "ephemeral-" prefix
 		hubID := strings.TrimPrefix(channelID, "ephemeral-")

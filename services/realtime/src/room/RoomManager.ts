@@ -1,17 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { RealtimeConfig } from '../config';
-
-interface UserInfo {
-    userId: string;
-    username: string;
-    peerId: string;
-    alias: string;
-    socketId: string;
-}
-
-interface RoomUser extends UserInfo {
-    roomId: string;
-}
+import { AuthenticatedSocket, RoomUser, UserInfo } from '../types';
 
 interface Room {
     id: string;
@@ -19,18 +8,6 @@ interface Room {
     createdBy: string;
     createdAt: number;
 }
-
-interface AuthenticatedSocket {
-    id: string;
-    token: string;
-    roomId?: string;
-    peerId?: string;
-    join: (room: string) => void;
-    leave: (room: string) => void;
-    emit: (event: string, data: unknown) => void;
-    to: (room: string) => { emit: (event: string, data: unknown) => void };
-}
-
 class RoomManager {
     private config: RealtimeConfig;
     private io: SocketIOServer;
@@ -51,7 +28,6 @@ class RoomManager {
             createdBy,
             createdAt: Date.now()
         });
-        console.log(`Room created: ${roomId} by user ${createdBy}`);
     }
 
     async joinRoom(socket: AuthenticatedSocket, roomId: string, userInfo: UserInfo): Promise<boolean> {
@@ -71,7 +47,6 @@ class RoomManager {
         room.users.set(socket.id, userInfo);
         this.users.set(socket.id, { ...userInfo, roomId });
 
-        console.log(`User ${userInfo.username} joined room ${roomId}`);
         this.broadcastRoomList();
         return true;
     }
@@ -87,7 +62,6 @@ class RoomManager {
 
         if (room.users.size === 0) {
             this.rooms.delete(roomId);
-            console.log(`Room deleted: ${roomId} (empty)`);
         }
 
         this.broadcastRoomList();
@@ -115,6 +89,12 @@ class RoomManager {
         return user;
     }
 
+    forceLeaveRoom(socket: AuthenticatedSocket): void {
+        if (!socket.roomId) return;
+        this.leaveRoom(socket, socket.roomId);
+        socket.emit('kicked-from-room', { reason: 'access-revoked' });
+    }
+
     removeUser(socketId: string): void {
         this.users.delete(socketId);
     }
@@ -133,18 +113,25 @@ class RoomManager {
     }
 
     async checkChannelAccess(channelId: string, token: string): Promise<boolean> {
-        console.log('checkChannelAccess:', { channelId, token: token ? 'present' : 'MISSING' });
         try {
             const res = await fetch(
                 `${this.config.hubServiceUrl}/channels/${channelId}/access`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            console.log('hub service response:', res.status);
-            const body = await res.json();
-            console.log('hub service body:', body);
             return res.ok;
-        } catch (err) {
-            console.error('Channel access check failed:', err);
+        } catch {
+            return false;
+        }
+    }
+
+    async checkHubMembership(hubId: string, token: string): Promise<boolean> {
+        try {
+            const res = await fetch(
+                `${this.config.hubServiceUrl}/hubs/${hubId}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            return res.ok;
+        } catch {
             return false;
         }
     }
