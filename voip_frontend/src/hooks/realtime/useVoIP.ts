@@ -15,8 +15,8 @@ import useRemoteAudio from "./useRemoteAudio";
 
 const PEER_CONFIG = {
   host: config.PEER_HOST,
-  secure: config.PEER_SECURE === "true",
-  port: parseInt(config.PEER_PORT, 10),
+  secure: config.PEER_SECURE,
+  port: config.PEER_PORT,
   path: config.PEER_PATH,
 };
 
