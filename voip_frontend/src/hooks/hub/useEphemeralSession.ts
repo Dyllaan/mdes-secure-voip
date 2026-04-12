@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EphemeralMessage } from '@/types/hub.types';
 
@@ -105,12 +106,12 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
         try {
             const existingUsers = await new Promise<string[]>((resolve) => {
                 socket.once('all-users', (users: { peerId: string; alias: string; userId: string }[]) => {
-                    resolve(users.map(u => u.userId));
+                    resolve(users.filter(u => u.alias !== 'musicman').map(u => u.userId));
                 });
                 socket.emit('join-room', {
                     roomId,
                     alias: user?.username || 'Anonymous',
-                    userId: user?.username,
+                    userId: user?.sub,
                 });
             });
 

@@ -13,11 +13,11 @@ import type { Socket } from "socket.io-client";
 import type { RoomClient } from "@/utils/RoomClient";
 import type { UserConnectedData } from "@/types/voip.types";
 
-const BOT_USER_IDS = ["musicman"];
+const BOT_ALIASES = ["musicman"];
 
-function isBotUser(userId?: string): boolean {
-  if (!userId) return false;
-  return BOT_USER_IDS.some(id => userId === id || userId.startsWith(id + "-"));
+function isBotAlias(alias?: string): boolean {
+  if (!alias) return false;
+  return BOT_ALIASES.some(a => alias === a || alias.startsWith(a + "-"));
 }
 
 interface UseRoomSessionOptions {
@@ -50,12 +50,12 @@ const useRoomSession = ({
       users: Array<{ peerId: string; alias: string; userId: string }>
     ) => {
       setConnectedPeers(users);
-      users.forEach(({ peerId, userId }) => {
-        if (!isBotUser(userId)) callPeer(peerId);
+      users.forEach(({ peerId, alias }) => {
+        if (!isBotAlias(alias)) callPeer(peerId);
       });
       if (!roomId.startsWith("ephemeral-") && roomClient) {
         try {
-          await roomClient.joinRoom(roomId, users.map(u => u.userId));
+          await roomClient.joinRoom(roomId, users.filter(u => !isBotAlias(u.alias)).map(u => u.userId));
           setIsEncryptionReady(roomClient.isRoomReady());
         } catch {
           setIsEncryptionReady(false);
@@ -63,11 +63,11 @@ const useRoomSession = ({
       }
     };
 
-    const handleUserConnected = ({ peerId, alias, userId }: UserConnectedData) => {
+    const handleUserConnected = ({ peerId, alias }: UserConnectedData) => {
       setConnectedPeers(prev =>
         prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]
       );
-      if (!isBotUser(userId)) callPeer(peerId);
+      if (!isBotAlias(alias)) callPeer(peerId);
     };
 
     const handleUserDisconnected = (peerId: string) => {

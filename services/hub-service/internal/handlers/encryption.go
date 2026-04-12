@@ -129,6 +129,18 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build a set of valid member user IDs for this hub so we can validate
+	// each bundle's recipient without a per-bundle DB round-trip.
+	var hubMembers []structs.Member
+	if err := db.DB.Where("hub_id = ?", hubID).Find(&hubMembers).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to verify hub membership")
+		return
+	}
+	memberSet := make(map[string]struct{}, len(hubMembers))
+	for _, m := range hubMembers {
+		memberSet[m.UserID] = struct{}{}
+	}
+
 	now := time.Now()
 	var created []structs.ChannelKeyBundle
 
@@ -136,6 +148,10 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 		if payload.RecipientUserID == "" || payload.RecipientDeviceID == "" ||
 			payload.SenderEphemeralPub == "" || payload.Ciphertext == "" || payload.IV == "" {
 			writeError(w, http.StatusBadRequest, "Each bundle must have recipientUserId, recipientDeviceId, senderEphemeralPub, ciphertext, and iv")
+			return
+		}
+		if _, ok := memberSet[payload.RecipientUserID]; !ok {
+			writeError(w, http.StatusBadRequest, "Recipient is not a member of this hub")
 			return
 		}
 

@@ -74,14 +74,14 @@ class ChatHandler {
             return;
         }
 
-        if (socket.roomId && recipientSocket.roomId && socket.roomId !== recipientSocket.roomId) {
+        if (!socket.roomId || !recipientSocket.roomId || socket.roomId !== recipientSocket.roomId) {
             socket.emit('chat-error', { message: 'Users not in same room' });
             return;
         }
 
         const message: ChatMessage = {
-            id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.username,
+            id: crypto.randomBytes(16).toString('hex'),
+            senderUserId: socket.userId,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),
@@ -91,7 +91,6 @@ class ChatHandler {
         };
 
         recipientSocket.emit('encrypted-chat-message', message);
-        console.log(`Encrypted message sent: ${socket.username} → ${recipientSocket.username}`);
 
         socket.emit('message-delivered', {
             messageId: message.id,
@@ -117,8 +116,8 @@ class ChatHandler {
         }
 
         const queued: ChatMessage = {
-            id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.username,
+            id: crypto.randomBytes(16).toString('hex'),
+            senderUserId: socket.userId,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),
@@ -129,7 +128,6 @@ class ChatHandler {
         };
 
         queue.push(queued);
-        console.log(`Message queued for offline user ${sanitizedRecipientId} (queue size: ${queue.length})`);
 
         socket.emit('message-queued', {
             messageId: queued.id,
@@ -163,8 +161,8 @@ class ChatHandler {
         }
 
         const message = {
-            id: crypto.randomBytes(8).toString('hex'),
-            senderUserId: socket.username,
+            id: crypto.randomBytes(16).toString('hex'),
+            senderUserId: socket.userId,
             senderPeerId: user.peerId,
             senderAlias: user.alias,
             ciphertext: sanitizeInput(ciphertext),
@@ -175,7 +173,6 @@ class ChatHandler {
         };
 
         socket.to(roomId).emit('room-chat-message', message);
-        console.log(`Room message broadcast in ${roomId} from ${socket.username}`);
     }
 }
 

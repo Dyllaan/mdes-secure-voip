@@ -228,7 +228,7 @@ const useScreenshare = ({
         screenPeer.on("call", (incomingCall: MediaConnection) => {
           console.log("[screenshare] incoming call from:", incomingCall.peer, "allowed:", allowedScreenPeerIds.current.has(incomingCall.peer));
           if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
-            console.warn("[screenshare] call queued — peer not yet in allowlist:", incomingCall.peer);
+            console.warn("[screenshare] call queued - peer not yet in allowlist:", incomingCall.peer);
             pendingCallsRef.current.set(incomingCall.peer, incomingCall);
             return;
           }
@@ -266,7 +266,7 @@ const useScreenshare = ({
       alias: string;
       screenPeerId: string;
     }) => {
-      console.log("[screenshare] peer-screenshare-started — peerId:", peerId, "alias:", alias, "screenPeerId:", screenPeerId);
+      console.log("[screenshare] peer-screenshare-started - peerId:", peerId, "alias:", alias, "screenPeerId:", screenPeerId);
       pendingAliasRef.current.set(screenPeerId, alias);
       peerScreenPeerIds.current.set(peerId, screenPeerId);
       allowedScreenPeerIds.current.add(screenPeerId);

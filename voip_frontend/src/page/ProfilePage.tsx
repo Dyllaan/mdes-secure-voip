@@ -1,5 +1,6 @@
 import ChangePasswordPage from '@/components/auth/page/ChangePassword';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import ManageMfa from '@/components/auth/page/ManageMfa';
 import Logout from '@/components/auth/Logout';
 import Page from '@/components/layout/Page';

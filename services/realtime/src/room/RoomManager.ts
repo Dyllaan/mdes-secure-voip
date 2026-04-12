@@ -28,7 +28,6 @@ class RoomManager {
             createdBy,
             createdAt: Date.now()
         });
-        console.log(`Room created: ${roomId} by user ${createdBy}`);
     }
 
     async joinRoom(socket: AuthenticatedSocket, roomId: string, userInfo: UserInfo): Promise<boolean> {
@@ -48,7 +47,6 @@ class RoomManager {
         room.users.set(socket.id, userInfo);
         this.users.set(socket.id, { ...userInfo, roomId });
 
-        console.log(`User ${userInfo.username} joined room ${roomId}`);
         this.broadcastRoomList();
         return true;
     }
@@ -64,7 +62,6 @@ class RoomManager {
 
         if (room.users.size === 0) {
             this.rooms.delete(roomId);
-            console.log(`Room deleted: ${roomId} (empty)`);
         }
 
         this.broadcastRoomList();
@@ -116,18 +113,25 @@ class RoomManager {
     }
 
     async checkChannelAccess(channelId: string, token: string): Promise<boolean> {
-        console.log('checkChannelAccess:', { channelId, token: token ? 'present' : 'MISSING' });
         try {
             const res = await fetch(
                 `${this.config.hubServiceUrl}/channels/${channelId}/access`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            console.log('hub service response:', res.status);
-            const body = await res.json();
-            console.log('hub service body:', body);
             return res.ok;
-        } catch (err) {
-            console.error('Channel access check failed:', err);
+        } catch {
+            return false;
+        }
+    }
+
+    async checkHubMembership(hubId: string, token: string): Promise<boolean> {
+        try {
+            const res = await fetch(
+                `${this.config.hubServiceUrl}/hubs/${hubId}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            return res.ok;
+        } catch {
             return false;
         }
     }

@@ -105,21 +105,53 @@ class SocketEventHandlers {
             socket.on('encrypted-chat-message', (d) => rl('encrypted-chat-message', 10, 10000) && this.chat.handleEncryptedMessage(socket, d));
             socket.on('room-chat-message',      (d) => rl('room-chat-message', 10, 10000)       && this.chat.handleRoomMessage(socket, d));
 
-            socket.on('channel-message-sent',   (d) => rl('channel-message-sent', 30, 10000) && socket.broadcast.emit('channel-message-sent', d));
+            socket.on('channel-message-sent', (d) => {
+                if (!rl('channel-message-sent', 30, 10000)) return;
+                if (typeof d?.hubId !== 'string' || !d.hubId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
+                socket.to(`hub:${d.hubId}`).emit('channel-message-sent', d);
+            });
 
-            socket.on('hub:join', (hubId: unknown) => {
+            socket.on('hub:join', async (hubId: unknown) => {
                 if (typeof hubId !== 'string' || !hubId) return;
+                if (!rl('hub:join', 10, 60000)) return;
+                const allowed = await this.roomManager.checkHubMembership(hubId, socket.token);
+                if (!allowed) {
+                    socket.emit('hub-join-error', { message: 'Not a member of this hub' });
+                    return;
+                }
                 socket.join(`hub:${hubId}`);
             });
             socket.on('hub:leave', (hubId: unknown) => {
                 if (typeof hubId !== 'string' || !hubId) return;
+                if (!rl('hub:leave', 10, 60000)) return;
                 socket.leave(`hub:${hubId}`);
             });
 
-            socket.on('channel-created',     (d) => rl('channel-created', 5, 60000)     && socket.to(`hub:${d.hubId}`).emit('channel-created', d));
-            socket.on('channel-deleted',     (d) => rl('channel-deleted', 5, 60000)     && socket.to(`hub:${d.hubId}`).emit('channel-deleted', d));
-            socket.on('member-joined',       (d) => rl('member-joined', 5, 60000)       && socket.to(`hub:${d.hubId}`).emit('member-joined', d));
-            socket.on('channel-key-rotated', (d) => rl('channel-key-rotated', 5, 60000) && socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', d));
+            socket.on('channel-created', (d) => {
+                if (!rl('channel-created', 5, 60000)) return;
+                if (typeof d?.hubId !== 'string' || !d.hubId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
+                socket.to(`hub:${d.hubId}`).emit('channel-created', d);
+            });
+            socket.on('channel-deleted', (d) => {
+                if (!rl('channel-deleted', 5, 60000)) return;
+                if (typeof d?.hubId !== 'string' || !d.hubId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
+                socket.to(`hub:${d.hubId}`).emit('channel-deleted', d);
+            });
+            socket.on('member-joined', (d) => {
+                if (!rl('member-joined', 5, 60000)) return;
+                if (typeof d?.hubId !== 'string' || !d.hubId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
+                socket.to(`hub:${d.hubId}`).emit('member-joined', d);
+            });
+            socket.on('channel-key-rotated', (d) => {
+                if (!rl('channel-key-rotated', 5, 60000)) return;
+                if (typeof d?.hubId !== 'string' || !d.hubId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
+                socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', d);
+            });
 
             socket.on('musicman:track-changed', (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-changed', d); });
             socket.on('musicman:track-ended',   (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-ended', d); });
@@ -131,7 +163,7 @@ class SocketEventHandlers {
                 if (!socket.roomId) return;
                 const allowed = await this.roomManager.checkChannelAccess(socket.roomId, socket.token);
                 if (!allowed) {
-                    this.messageQueues.delete(socket.username);
+                    this.messageQueues.delete(socket.userId);
                     this.roomManager.forceLeaveRoom(socket);
                 }
             }, REVALIDATION_MS);
@@ -289,10 +321,10 @@ class SocketEventHandlers {
         return null;
     }
 
-    findSocketByUserId(username: string): AuthenticatedSocket | null {
+    findSocketByUserId(userId: string): AuthenticatedSocket | null {
         for (const socket of this.io.sockets.sockets.values()) {
             const s = socket as AuthenticatedSocket;
-            if (s.username === username) return s;
+            if (s.userId === userId) return s;
         }
         return null;
     }

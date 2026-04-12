@@ -1,4 +1,5 @@
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { LogOut } from "lucide-react";
 
 export default function Logout() {

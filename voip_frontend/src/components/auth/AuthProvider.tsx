@@ -6,6 +6,7 @@ import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
 import config from '@/config/config';
+import { authApi, gateway } from '@/axios/api';
 
 type AuthContextType = {
   user: User | null;
@@ -32,9 +33,6 @@ interface AuthProviderProps {
   children: React.ReactNode;
 }
 
-const BASE_URL = config.AUTH_URL;
-const GATEWAY_URL = config.GATEWAY_URL;
-
 // Non-sensitive user fields persisted to localStorage.
 // accessToken is kept only in React state (in-memory) so XSS cannot steal it from storage.
 type PersistedUser = Omit<User, 'accessToken'>;
@@ -43,12 +41,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  // Derive the full User object in-memory — accessToken is never written to localStorage.
   const user: User | null = persistedUser && accessToken
     ? { ...persistedUser, accessToken }
     : null;
 
-  // setUser splits the user object: non-sensitive fields → localStorage, accessToken → state.
+  // setUser splits the user of non-sensitive fields
   const setUser = (userData: User | null) => {
     if (userData === null) {
       setPersistedUser(null);
@@ -98,7 +95,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const fetchTurnCredentials = async (token: string) => {
     try {
-      const response = await axios.get(`${GATEWAY_URL}/turn-credentials`, {
+      const response = await authApi.get('/turn-credentials', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = response.data as { username: string; password: string; ttl: number };
@@ -114,7 +111,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const fetchMfaStatus = async () => {
     if (!accessToken) return;
-    const response = await axios.get(`${BASE_URL}/mfa/status`, {
+    const response = await authApi.get('/mfa/status', {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (response.status === 200) {
@@ -123,8 +120,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const checkToken = async () => {
-    // On page reload accessToken is null (in-memory only).
-    // Use persistedUser.refreshToken to obtain a new accessToken.
     const storedRefreshToken = persistedUser?.refreshToken;
 
     if (!accessToken && !storedRefreshToken) {
@@ -134,7 +129,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
     if (accessToken) {
       try {
-        const response = await axios.get(`${BASE_URL}/user/me`, {
+        const response = await authApi.get('/user/me', {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         const responseData = response.data as MeResponse;
@@ -142,13 +137,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         setSignedIn(true);
         return true;
       } catch {
-        // Access token invalid — fall through to refresh
+        // Access token invalid
       }
     }
 
     if (storedRefreshToken) {
       try {
-        const refreshResponse = await axios.post(`${BASE_URL}/user/refresh`, { token: storedRefreshToken });
+        const refreshResponse = await authApi.post('/user/refresh', { token: storedRefreshToken });
         const userData = refreshResponse.data as User;
         setUser(userData);
         setSignedIn(true);
@@ -176,7 +171,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       const deviceFingerprint = await getDeviceFingerprint();
       const storedDeviceToken = localStorage.getItem('deviceToken');
 
-      const response = await axios.post(`${BASE_URL}/user/login`, {
+      const response = await authApi.post('/user/login', {
         username,
         password,
         deviceFingerprint,
@@ -230,7 +225,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
 
-      const response = await axios.post(`${BASE_URL}/user/verify-mfa`, {
+      const response = await authApi.post('/user/verify-mfa', {
         mfaToken: pendingMfaToken,
         code: mfaCode,
         deviceFingerprint,
@@ -268,7 +263,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const deleteUser = async (mfaCode?: string) => {
     try {
-      const response = await axios.delete(`${BASE_URL}/user/delete`, {
+      const response = await authApi.delete('/user/delete', {
         headers: { Authorization: `Bearer ${accessToken}` },
         data: { mfaCode },
         validateStatus: () => true
@@ -289,7 +284,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const disableMfa = async (mfaCode: string) => {
     try {
-      const response = await axios.post(`${BASE_URL}/mfa/disable`, { code: mfaCode }, {
+      const response = await authApi.post('/mfa/disable', { code: mfaCode }, {
         headers: { Authorization: `Bearer ${accessToken}` },
         validateStatus: () => true
       });
@@ -308,7 +303,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const updatePassword = async (oldPassword: string, newPassword: string, mfaCode?: string) => {
     try {
-      const response = await axios.post(`${BASE_URL}/user/update-password`, {
+      const response = await authApi.post('/user/update-password', {
         oldPassword,
         newPassword,
         ...(mfaCode && { mfaCode })

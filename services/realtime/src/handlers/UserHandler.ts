@@ -87,7 +87,7 @@ class UserHandler {
 
         const existingUsers = Array.from(room.users.values())
             .filter(user => user.socketId !== socket.id)
-            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.username }));
+            .map(user => ({ peerId: user.peerId, alias: user.alias, userId: user.userId }));
 
         socket.emit('all-users', existingUsers);
 
@@ -112,21 +112,21 @@ class UserHandler {
             if (rsaKey) socket.emit('user-rsa-key', { userId: user.userId, publicKey: rsaKey });
         });
 
-        const newUserRSAKey = this.rsaPublicKeys.get(socket.username);
+        const newUserRSAKey = this.rsaPublicKeys.get(socket.userId);
         if (newUserRSAKey) {
-            socket.to(roomId).emit('user-rsa-key', { userId: socket.username, publicKey: newUserRSAKey });
+            socket.to(roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: newUserRSAKey });
         }
 
         socket.to(roomId).emit('user-connected', {
             peerId: socket.peerId,
             alias: (socket as any).alias,
-            userId: socket.username
+            userId: socket.userId
         });
 
-        const queue = this.messageQueues.get(socket.username);
+        const queue = this.messageQueues.get(socket.userId);
         if (queue && queue.length > 0) {
             socket.emit('queued-messages', { messages: queue });
-            this.messageQueues.delete(socket.username);
+            this.messageQueues.delete(socket.userId);
         }
 
         return true;

@@ -63,26 +63,7 @@ func redeemRateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
-
-	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
-	if allowedOriginsEnv == "" {
-		log.Fatal("ALLOWED_ORIGINS environment variable is required")
-	}
-	allowedSet := make(map[string]struct{})
-	for _, o := range strings.Split(allowedOriginsEnv, ",") {
-		allowedSet[strings.TrimSpace(o)] = struct{}{}
-	}
-
-	middleware.InitAuth()
-
-	if err := db.Connect(); err != nil {
-		log.Fatal("Database connection failed:", err)
-	}
-
+func buildRouter(allowedSet map[string]struct{}) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(func(next http.Handler) http.Handler {
@@ -150,11 +131,34 @@ func main() {
 		r.Delete("/hubs/{hubID}/channels/{channelID}/rotation-needed", handlers.ClearRotationNeeded)
 	})
 
+	return r
+}
+
+func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using environment variables")
+	}
+
+	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOriginsEnv == "" {
+		log.Fatal("ALLOWED_ORIGINS environment variable is required")
+	}
+	allowedSet := make(map[string]struct{})
+	for _, o := range strings.Split(allowedOriginsEnv, ",") {
+		allowedSet[strings.TrimSpace(o)] = struct{}{}
+	}
+
+	middleware.InitAuth()
+
+	if err := db.Connect(); err != nil {
+		log.Fatal("Database connection failed:", err)
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
 	log.Printf("Hub Service listening on :%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	log.Fatal(http.ListenAndServe(":"+port, buildRouter(allowedSet)))
 }

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import config from '@/config/config';
 import type { ChannelType, PostKeyBundlesPayload } from '@/types/hub.types';
 

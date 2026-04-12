@@ -32,6 +32,9 @@ class RoomKeyHandler {
     private rsaPublicKeys: Map<string, string>;
     private roomManager: RoomManager;
     private findSocketByUserId: (username: string) => AuthenticatedSocket | null;
+    // Tracks which provider was asked to supply the room key for each requester.
+    // Prevents any other room member from intercepting and responding to a key request.
+    private pendingKeyProviders: Map<string, string> = new Map(); // requesterId -> providerUserId
 
     constructor(parent: Parent) {
         this.rsaPublicKeys = parent.rsaPublicKeys;
@@ -50,9 +53,9 @@ class RoomKeyHandler {
             return;
         }
         const sanitized = sanitizeInput(publicKey);
-        this.rsaPublicKeys.set(socket.username, sanitized);
+        this.rsaPublicKeys.set(socket.userId, sanitized);
         if (socket.roomId) {
-            socket.to(socket.roomId).emit('user-rsa-key', { userId: socket.username, publicKey: sanitized });
+            socket.to(socket.roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: sanitized });
         }
         socket.emit('rsa-key-registered', { success: true });
     }
@@ -90,7 +93,8 @@ class RoomKeyHandler {
             socket.emit('signal-error', { message: 'Key provider not found' });
             return;
         }
-        providerSocket.emit('request-room-key', { roomId, requesterId: socket.username });
+        this.pendingKeyProviders.set(socket.userId, fromUserId);
+        providerSocket.emit('request-room-key', { roomId, requesterId: socket.userId });
     }
 
     handleRoomKeyResponse(socket: AuthenticatedSocket, data: RoomKeyResponseData): void {
@@ -99,11 +103,18 @@ class RoomKeyHandler {
             socket.emit('signal-error', { message: 'Not in specified room' });
             return;
         }
+        const expectedProvider = this.pendingKeyProviders.get(requesterId);
+        if (!expectedProvider || expectedProvider !== socket.userId) {
+            socket.emit('signal-error', { message: 'Not authorized to respond to this key request' });
+            return;
+        }
         const requesterSocket = this.findSocketByUserId(requesterId);
         if (!requesterSocket) {
+            this.pendingKeyProviders.delete(requesterId);
             socket.emit('signal-error', { message: 'Requester not found' });
             return;
         }
+        this.pendingKeyProviders.delete(requesterId);
         requesterSocket.emit('room-key-response', {
             encryptedKey: sanitizeInput(encryptedKey),
             keyId: sanitizeInput(keyId),

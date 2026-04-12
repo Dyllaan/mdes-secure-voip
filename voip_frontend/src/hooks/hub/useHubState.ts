@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { Hub, Channel, Member } from '@/types/hub.types';
 

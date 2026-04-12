@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "tsx watch ./src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.16",
@@ -20,11 +22,14 @@
     "socket.io": "^4.6.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2",
-    "typescript": "^5.4.5",
-    "tsx": "^4.19.2",
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.2",
-    "@types/node": "^20.11.1"
+    "@types/node": "^20.11.1",
+    "jest": "^30.3.0",
+    "nodemon": "^3.0.2",
+    "ts-jest": "^29.4.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.4.5"
   }
 }

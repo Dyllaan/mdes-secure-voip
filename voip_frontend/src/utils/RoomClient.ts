@@ -12,15 +12,6 @@ interface RoomKey {
     keyId: string;
 }
 
-// User IDs that are bots and will never register RSA keys.
-// The bot userId is 'musicman' (config.BOT_USERNAME). We match exact ID
-// and the prefixed form musicman-<timestamp>-<hash> that the server assigns.
-const BOT_USER_IDS = ['musicman'];
-
-function isBotUser(userId: string): boolean {
-    return BOT_USER_IDS.some(id => userId === id || userId.startsWith(id + '-'));
-}
-
 export class RoomClient {
     private socket: Socket;
     private rsaKeyPair: CryptoKeyPair | null = null;
@@ -83,14 +74,9 @@ export class RoomClient {
     }
 
     async joinRoom(roomId: string, existingUsers: string[]): Promise<void> {
-        console.log('[RoomClient] joinRoom:', roomId, 'existingUsers:', existingUsers);
         this.currentRoomId = roomId;
 
-        // Bots cannot register RSA keys and cannot participate
-        // in the AES room key exchange.
-        const humanUsers = existingUsers.filter(id => !isBotUser(id));
-
-        if (humanUsers.length === 0) {
+        if (existingUsers.length === 0) {
             // Room is empty or only bots present so generate a fresh key.
             const key = await crypto.subtle.generateKey(
                 { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
@@ -98,7 +84,7 @@ export class RoomClient {
             this.roomKeys.set(roomId, { key, keyId: crypto.randomUUID() });
             console.log('[RoomClient] Room key generated');
         } else {
-            await this.requestRoomKey(roomId, humanUsers[0]);
+            await this.requestRoomKey(roomId, existingUsers[0]);
         }
     }
 

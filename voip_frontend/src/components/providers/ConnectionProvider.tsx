@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import config from '@/config/config';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from "@/hooks/auth/useAuth";
+
 import { SignalProtocolClient } from '@/utils/SignalProtocolClient';
 import { RoomClient } from '@/utils/RoomClient';
 import { CryptKeyManager } from '@/utils/CryptKeyManager';
@@ -90,7 +91,7 @@ export default function ConnectionProvider({ children }: { children: React.React
             if (!username) return;
 
             try {
-                const client = new SignalProtocolClient(username, voipSocket);
+                const client = new SignalProtocolClient(user?.sub ?? username ?? '', voipSocket);
                 signalClientRef.current = client;
                 await client.initialize('persistent');
                 if (!cancelled) setSignalClient(client);

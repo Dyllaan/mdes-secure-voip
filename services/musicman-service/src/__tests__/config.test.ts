@@ -1,0 +1,85 @@
+// Each test resets all env vars and re-imports the config module using jest.resetModules()
+
+const REQUIRED_VARS = ['SIGNALING_URL', 'HUB_SERVICE_URL', 'AUTH_URL', 'GATEWAY_URL', 'PEER_HOST', 'BOT_USERNAME', 'BOT_PASSWORD', 'BOT_SECRET', 'JWT_SECRET', 'TURN_HOST'];
+
+function setAllEnvVars() {
+  process.env.SIGNALING_URL   = 'http://signaling:3001';
+  process.env.HUB_SERVICE_URL = 'http://hub:3000';
+  process.env.AUTH_URL        = 'http://auth:4000';
+  process.env.GATEWAY_URL     = 'http://gateway:3000';
+  process.env.PEER_HOST       = 'peer.test';
+  process.env.BOT_USERNAME    = 'testbot';
+  process.env.BOT_PASSWORD    = 'testpass';
+  process.env.BOT_SECRET      = 'botsecret';
+  process.env.JWT_SECRET      = 'jwtsecret';
+  process.env.TURN_HOST       = 'turn.test';
+}
+
+afterEach(() => {
+  // Restore all required vars
+  setAllEnvVars();
+  jest.resetModules();
+});
+
+describe('config module', () => {
+  describe('required environment variables', () => {
+    for (const varName of REQUIRED_VARS) {
+      it(`should throw "Missing required env var: ${varName}" when ${varName} is absent`, () => {
+        setAllEnvVars();
+        delete process.env[varName];
+        jest.resetModules();
+        expect(() => require('../config')).toThrow(`Missing required env var: ${varName}`);
+      });
+    }
+  });
+
+  describe('optional variables with defaults', () => {
+    it('should default PEER_PORT to 443 when not set', () => {
+      setAllEnvVars();
+      delete process.env.PEER_PORT;
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PEER_PORT).toBe(443);
+    });
+
+    it('should parse PEER_PORT as integer when set', () => {
+      setAllEnvVars();
+      process.env.PEER_PORT = '9000';
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PEER_PORT).toBe(9000);
+    });
+
+    it('should default PEER_PATH to "/peerjs" when not set', () => {
+      setAllEnvVars();
+      delete process.env.PEER_PATH;
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PEER_PATH).toBe('/peerjs');
+    });
+
+    it('should default PEER_SECURE to true when PEER_SECURE is not set', () => {
+      setAllEnvVars();
+      delete process.env.PEER_SECURE;
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PEER_SECURE).toBe(true);
+    });
+
+    it('should set PEER_SECURE to false when PEER_SECURE=false', () => {
+      setAllEnvVars();
+      process.env.PEER_SECURE = 'false';
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PEER_SECURE).toBe(false);
+    });
+
+    it('should default PORT to 4000 when not set', () => {
+      setAllEnvVars();
+      delete process.env.PORT;
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.PORT).toBe(4000);
+    });
+  });
+});

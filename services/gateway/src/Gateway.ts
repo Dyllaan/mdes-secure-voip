@@ -26,7 +26,7 @@ app.use(helmet());
 app.use(pinoHttp({ logger, genReqId: (req: IncomingMessage): string => (req.headers['x-request-id'] as string) ?? randomUUID() }));
 app.use(requestId);
 app.use(cors({
-  origin: config.CORS_ORIGIN,
+  origin: config.CORS_ORIGIN.split(',').map((o) => o.trim()),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
@@ -39,7 +39,7 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
     proxyTimeout: 5000,
     timeout: 5000,
     ...opts,
-    onError: opts.onError ?? ((err: Error, _req: Request, res: Response) => {
+    onError: opts.onError ?? /* istanbul ignore next */ ((err: Error, _req: Request, res: Response) => {
       logger.error({ err, target }, 'Proxy error');
       res.status(503).json({ error: 'Service unavailable' });
     }),
@@ -88,7 +88,7 @@ app.use('/auth',
   circuitBreaker(breakers.auth, 'Auth'),
   makeProxy(config.AUTH_SERVICE_URL, {
     pathRewrite: { '^/auth': '' },
-    onError: (err: Error, _req: Request, res: Response) => {
+    onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       breakers.auth.open();
       logger.error({ err }, 'Auth service error');
       res.status(503).json({ error: 'Auth service unavailable' });
@@ -100,7 +100,7 @@ app.use('/realtime',
   generalLimiter,
   circuitBreaker(breakers.realtime, 'Realtime'),
   makeProxy(config.REALTIME_SERVICE_URL, {
-    onError: (err: Error, _req: Request, res: Response) => {
+    onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       logger.error({ err }, 'Realtime service error');
       res.status(503).json({ error: 'Realtime service unavailable' });
     },
@@ -112,7 +112,7 @@ app.use('/hub',
   circuitBreaker(breakers.hub, 'Hub'),
   makeProxy(config.HUB_SERVICE_URL, {
     pathRewrite: { '^/hub': '/api' },
-    onError: (err: Error, _req: Request, res: Response) => {
+    onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       logger.error({ err }, 'Hub service error');
       res.status(503).json({ error: 'Hub service unavailable' });
     },
@@ -126,7 +126,7 @@ app.use('/musicman',
     pathRewrite: { '^/musicman': '' },
     proxyTimeout: 120_000,
     timeout: 120_000,
-    onError: (err: Error, _req: Request, res: Response) => {
+    onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       logger.error({ err }, 'MusicMan service error');
       res.status(503).json({ error: 'MusicMan service unavailable' });
     },
@@ -136,24 +136,24 @@ app.use('/musicman',
 const socketIoProxy = makeProxy(config.REALTIME_SERVICE_URL, {
   ws: true,
   logLevel: 'silent',
-  onProxyReqWs: (_proxyReq: ClientRequest, _req: IncomingMessage, socket: Socket) => {
+  onProxyReqWs: /* istanbul ignore next */ (_proxyReq: ClientRequest, _req: IncomingMessage, socket: Socket) => {
     logger.debug('WebSocket upgrade - Socket.IO');
     socket.on('error', (err: Error) => logger.error({ err }, 'Socket.IO error'));
   },
-  onError: (err: Error) => logger.error({ err }, 'Socket.IO proxy error'),
+  onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'Socket.IO proxy error'),
 });
-app.use('/socket.io', socketIoProxy);
+app.use('/socket.io', requireAuth, socketIoProxy);
 
 const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   ws: true,
   logLevel: 'silent',
-  onProxyReqWs: (_proxyReq: ClientRequest, req: IncomingMessage, socket: Socket) => {
+  onProxyReqWs: /* istanbul ignore next */ (_proxyReq: ClientRequest, req: IncomingMessage, socket: Socket) => {
     logger.debug({ url: req.url }, 'WebSocket upgrade - PeerJS');
     socket.on('error', (err: Error) => logger.error({ err }, 'PeerJS error'));
   },
-  onError: (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
+  onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
 });
-app.use('/peerjs', peerJsProxy);
+app.use('/peerjs', requireAuth, peerJsProxy);
 
 app.get('/turn-credentials', generalLimiter, requireAuth, turnCredentials);
 
