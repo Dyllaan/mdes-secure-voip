@@ -26,17 +26,13 @@ export const authApi = axios.create({
   validateStatus: () => true,
 });
 
-type RefreshCallback = (token: string) => void;
 type LogoutCallback = () => void;
 
-let onTokenRefreshed: RefreshCallback | null = null;
 let onLogout: LogoutCallback | null = null;
 
 export const setupInterceptors = (
-  refreshCallback: RefreshCallback,
   logoutCallback: LogoutCallback
 ) => {
-  onTokenRefreshed = refreshCallback;
   onLogout = logoutCallback;
 };
 
@@ -57,4 +53,11 @@ authApi.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${_accessToken}`;
   }
   return config;
+});
+
+gateway.interceptors.response.use((response) => {
+  if (response.status === 401) {
+    onLogout?.();
+  }
+  return response;
 });

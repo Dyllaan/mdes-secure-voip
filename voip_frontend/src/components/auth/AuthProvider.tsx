@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from "sonner";
 import useLocalStorage from '@/hooks/useLocalStorage';
-import { setAccessToken as setModuleAccessToken } from '@/axios/api';
+import { setAccessToken as setModuleAccessToken, setupInterceptors } from '@/axios/api';
 import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
@@ -45,6 +45,10 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaStatus, setMfaStatus] = useState<MfaStatus | null>(null);
   const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
+
+  useEffect(() => {
+    setupInterceptors(logout);
+  }, []);
 
   useEffect(() => {
     if (accessToken) fetchMfaStatus();
