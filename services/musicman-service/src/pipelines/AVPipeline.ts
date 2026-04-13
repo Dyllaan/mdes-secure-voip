@@ -245,7 +245,7 @@ export class AVPipeline extends EventEmitter {
   get isPaused() { return this._paused; }
   get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
-  constructor(private readonly youtubeUrl: string) {
+  constructor(private readonly url: string) {
     super();
   }
 
@@ -290,9 +290,9 @@ export class AVPipeline extends EventEmitter {
       ytdlpArgs.push('--cookies', process.env.YTDLP_COOKIES_PATH);
     }
 
-    ytdlpArgs.push(this.youtubeUrl);
+    ytdlpArgs.push(this.url);
 
-    avLog('ytdlp: spawning', { url: this.youtubeUrl, seekMs, formatSelector });
+    avLog('ytdlp: spawning', { url: this.url, seekMs, formatSelector });
 
     this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 

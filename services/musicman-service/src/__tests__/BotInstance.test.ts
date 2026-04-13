@@ -51,7 +51,7 @@ jest.mock('../AudioPipeline', () => ({
 }));
 
 import { BotInstance } from '../instances/BotInstance';
-import { AudioPipeline } from '../AudioPipeline';
+import { AudioPipeline } from '../pipelines/AudioPipeline';
 
 const mockTurnCredentials = { username: 'turn-user', password: 'turn-pass', ttl: 3600 };
 const TEST_URL = 'https://www.youtube.com/watch?v=test123';
@@ -70,7 +70,7 @@ describe('BotInstance', () => {
   });
 
   describe('constructor', () => {
-    it('creates an AudioPipeline with the youtubeUrl', () => {
+    it('creates an AudioPipeline with the url', () => {
       makeBot();
       expect(AudioPipeline).toHaveBeenCalledWith(TEST_URL);
     });
@@ -86,7 +86,7 @@ describe('BotInstance', () => {
         playing:    false,
         paused:     false,
         positionMs: 0,
-        youtubeUrl: TEST_URL,
+        url: TEST_URL,
       });
     });
   });

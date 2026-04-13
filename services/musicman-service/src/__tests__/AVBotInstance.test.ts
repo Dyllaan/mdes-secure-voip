@@ -61,7 +61,7 @@ jest.mock('../AVPipeline', () => ({
 }));
 
 import { AVBotInstance } from '../instances/AVBotInstance';
-import { AVPipeline } from '../AVPipeline';
+import { AVPipeline } from '../pipelines/AVPipeline';
 
 const mockTurnCredentials = { username: 'turn-user', password: 'turn-pass', ttl: 3600 };
 const TEST_URL = 'https://www.youtube.com/watch?v=test123';
@@ -80,7 +80,7 @@ describe('AVBotInstance', () => {
   });
 
   describe('constructor', () => {
-    it('creates an AVPipeline with the youtubeUrl', () => {
+    it('creates an AVPipeline with the url', () => {
       makeBot();
       expect(AVPipeline).toHaveBeenCalledWith(TEST_URL);
     });
@@ -96,7 +96,7 @@ describe('AVBotInstance', () => {
         playing:    false,
         paused:     false,
         positionMs: 0,
-        youtubeUrl: TEST_URL,
+        url: TEST_URL,
         videoMode:  true,
       });
     });

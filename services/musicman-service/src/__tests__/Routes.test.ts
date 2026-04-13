@@ -100,18 +100,18 @@ describe('POST /join', () => {
 
     it('returns 401 without auth', async () => {
         await request(app).post('/join')
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(401);
     });
 
     it('returns 400 when roomId missing', async () => {
         await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ url: 'https://youtube.com/watch?v=abc' })
             .expect(400);
     });
 
-    it('returns 400 when youtubeUrl missing', async () => {
+    it('returns 400 when url missing', async () => {
         await request(app).post('/join')
             .set('Authorization', authHeader())
             .send({ roomId: 'r1' })
@@ -121,7 +121,7 @@ describe('POST /join', () => {
     it('returns 400 for disallowed domain', async () => {
         await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://evil.com/video' })
+            .send({ roomId: 'r1', url: 'https://evil.com/video' })
             .expect(400);
     });
 
@@ -129,7 +129,7 @@ describe('POST /join', () => {
         jest.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
         await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(403);
     });
 
@@ -137,14 +137,14 @@ describe('POST /join', () => {
         bots.set('r1', mockBot());
         await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(409);
     });
 
     it('starts BotInstance and returns ok (audio mode)', async () => {
         const res = await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(200);
         expect(res.body.ok).toBe(true);
         expect(BotInstance).toHaveBeenCalled();
@@ -155,7 +155,7 @@ describe('POST /join', () => {
     it('starts AVBotInstance and returns ok (video mode)', async () => {
         const res = await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc', videoMode: true })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc', videoMode: true })
             .expect(200);
         expect(res.body.ok).toBe(true);
         expect(AVBotInstance).toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe('POST /join', () => {
         );
         await request(app).post('/join')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(500);
         expect(bots.has('r1')).toBe(false);
     });
@@ -187,7 +187,7 @@ describe('POST /play', () => {
         bots.set('r1', bot);
         const res = await request(app).post('/play')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(200);
         expect(bot.changeTrack).toHaveBeenCalledWith('https://youtube.com/watch?v=abc');
         expect(res.body.action).toBe('changeTrack');
@@ -196,7 +196,7 @@ describe('POST /play', () => {
     it('starts new BotInstance when none in room (audio mode)', async () => {
         const res = await request(app).post('/play')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(200);
         expect(res.body.action).toBe('join');
         expect(BotInstance).toHaveBeenCalled();
@@ -207,7 +207,7 @@ describe('POST /play', () => {
     it('starts new AVBotInstance when none in room (video mode)', async () => {
         const res = await request(app).post('/play')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc', videoMode: true })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc', videoMode: true })
             .expect(200);
         expect(res.body.action).toBe('join');
         expect(AVBotInstance).toHaveBeenCalled();
@@ -218,7 +218,7 @@ describe('POST /play', () => {
     it('returns 400 for disallowed domain', async () => {
         await request(app).post('/play')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://evil.com/video' })
+            .send({ roomId: 'r1', url: 'https://evil.com/video' })
             .expect(400);
     });
 
@@ -228,7 +228,7 @@ describe('POST /play', () => {
         );
         await request(app).post('/play')
             .set('Authorization', authHeader())
-            .send({ roomId: 'r1', youtubeUrl: 'https://youtube.com/watch?v=abc' })
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(500);
         expect(bots.has('r1')).toBe(false);
     });

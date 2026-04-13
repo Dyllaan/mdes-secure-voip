@@ -12,7 +12,7 @@ import {
   AudioPipeline,
   RTP_TIMESTAMP_STEP,
   type OpusFrame,
-} from '../AudioPipeline';
+} from '../pipelines/AudioPipeline';
 import { config } from '../config';
 
 export const OPUS_PAYLOAD_TYPE = 111;
@@ -50,7 +50,7 @@ export class BotInstance {
   protected myPeerId: string | null = null;
 
   protected pipeline:   AudioPipeline;
-  protected youtubeUrl: string;
+  protected url: string;
   protected conns       = new Map<string, PeerConn>();
   protected iceBuf      = new Map<string, IceEntry[]>();
   protected hbTimer:    NodeJS.Timeout | null = null;
@@ -65,19 +65,20 @@ export class BotInstance {
   private readonly GRACE_MS = 60_000;
 
   readonly roomId: string;
+  readonly videoMode: boolean = false;
 
   private readonly scheme = config.TURN_SECURE ? 'turns' : 'turn';
 
   constructor(
     roomId: string,
-    youtubeUrl: string,
+    url: string,
     protected readonly token: string,
     turnCredentials: TurnCredentials,
   ) {
     this.roomId          = roomId;
-    this.youtubeUrl      = youtubeUrl;
+    this.url      = url;
     this.turnCredentials = turnCredentials;
-    this.pipeline        = new AudioPipeline(youtubeUrl);
+    this.pipeline        = new AudioPipeline(url);
   }
 
   protected buildIceServers(): IceServer[] {
@@ -158,7 +159,7 @@ export class BotInstance {
   changeTrack(url: string): void {
     if (this.destroyed) return;
     console.log(`[Bot ${this.roomId}] changeTrack -> ${url}`);
-    this.youtubeUrl = url;
+    this.url = url;
 
     this.unwirePipeline();
     this.pipeline.stop();
@@ -167,7 +168,7 @@ export class BotInstance {
     this.wirePipeline();
     this.pipeline.start();
 
-    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, youtubeUrl: url });
+    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, url: url });
   }
 
   pause(): void {
@@ -186,12 +187,12 @@ export class BotInstance {
 
   seek(ms: number): void { this.pipeline.seek(ms); }
 
-  getStatus(): { playing: boolean; paused: boolean; positionMs: number; youtubeUrl: string } {
+  getStatus(): { playing: boolean; paused: boolean; positionMs: number; url: string } {
     return {
       playing:    this.pipeline.running,
       paused:     this.pipeline.isPaused,
       positionMs: this.pipeline.positionMs,
-      youtubeUrl: this.youtubeUrl,
+      url: this.url,
     };
   }
 

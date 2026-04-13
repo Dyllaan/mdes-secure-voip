@@ -8,7 +8,7 @@ interface PlaybackStatus {
   playing:      boolean;
   paused:       boolean;
   positionMs:   number;
-  youtubeUrl:   string;
+  url:   string;
   videoMode:    boolean;
   screenPeerId: string | null;
 }
@@ -76,7 +76,7 @@ const useMusicman = () => {
    */
   const play = useCallback(async (
     roomId:     string,
-    youtubeUrl: string,
+    url: string,
     videoMode = false,
   ): Promise<void> => {
     setLoading(true);
@@ -84,9 +84,9 @@ const useMusicman = () => {
     try {
       await fetchMusicman('/play', {
         method: 'POST',
-        body:   JSON.stringify({ roomId, youtubeUrl, videoMode }),
+        body:   JSON.stringify({ roomId, url, videoMode }),
       });
-      setActiveRooms(prev => new Map(prev).set(roomId, youtubeUrl));
+      setActiveRooms(prev => new Map(prev).set(roomId, url));
       setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -198,7 +198,7 @@ const useMusicman = () => {
     try {
       const status = await fetchMusicman(`/status/${encodeURIComponent(roomId)}`);
       if (status?.playing) {
-        setActiveRooms(prev => prev.has(roomId) ? prev : new Map(prev).set(roomId, status.youtubeUrl));
+        setActiveRooms(prev => prev.has(roomId) ? prev : new Map(prev).set(roomId, status.url));
       }
       return status;
     } catch {

@@ -1,6 +1,6 @@
 jest.mock('child_process', () => require('../__mocks__/child_process'));
 
-import { AudioPipeline, OPUS_FRAME_MS } from '../AudioPipeline';
+import { AudioPipeline, OPUS_FRAME_MS } from '../pipelines/AudioPipeline';
 import { spawn, createMockProcess } from '../__mocks__/child_process';
 
 const realSetImmediate = jest.requireActual<typeof import('timers')>('timers').setImmediate;

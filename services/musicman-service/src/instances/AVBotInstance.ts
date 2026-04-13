@@ -9,8 +9,8 @@ import {
   useOPUS,
   type RTCRtpTransceiver,
 } from 'werift';
-import { type OpusFrame } from '../AudioPipeline';
-import { AVPipeline, VP8_PAYLOAD_TYPE, VP8_TIMESTAMP_STEP } from '../AVPipeline';
+import { type OpusFrame } from '../pipelines/AudioPipeline';
+import { AVPipeline, VP8_PAYLOAD_TYPE, VP8_TIMESTAMP_STEP } from '../pipelines/AVPipeline';
 import {
   BotInstance,
   OPUS_PAYLOAD_TYPE,
@@ -44,15 +44,16 @@ export class AVBotInstance extends BotInstance {
   private avConns        = new Map<string, AVPeerConn>();
   private avIceBuf       = new Map<string, IceEntry[]>();
   private screenHbTimer: NodeJS.Timeout | null = null;
+  override readonly videoMode: boolean = true;
 
   constructor(
     roomId: string,
-    youtubeUrl: string,
+    url: string,
     token: string,
     turnCredentials: TurnCredentials,
   ) {
-    super(roomId, youtubeUrl, token, turnCredentials);
-    this.avPipeline = new AVPipeline(youtubeUrl);
+    super(roomId, url, token, turnCredentials);
+    this.avPipeline = new AVPipeline(url);
   }
 
   protected override readonly onAudioFrame = (frame: OpusFrame) => {
@@ -106,7 +107,7 @@ export class AVBotInstance extends BotInstance {
   override changeTrack(url: string): void {
     if (this.destroyed) return;
     console.log(`[AVBot ${this.roomId}] changeTrack -> ${url}`);
-    this.youtubeUrl = url;
+    this.url = url;
 
     this.unwireAVPipeline();
     this.avPipeline.stop();
@@ -114,7 +115,7 @@ export class AVBotInstance extends BotInstance {
     this.wireAVPipeline();
     this.avPipeline.start();
 
-    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, youtubeUrl: url });
+    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, url: url });
   }
 
   override pause(): void {
