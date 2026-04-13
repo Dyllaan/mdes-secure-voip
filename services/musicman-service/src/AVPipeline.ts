@@ -279,6 +279,7 @@ export class AVPipeline extends EventEmitter {
       '--no-playlist',
       '--no-warnings',
       ...(DEBUG_AV_VERBOSE ? ['--verbose'] : []),
+      '--js-runtimes', 'node:/usr/local/bin/node',
       '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
       '-f', formatSelector,
       '--print', 'before_dl:%(format_id)s %(ext)s %(width)sx%(height)s %(vcodec)s+%(acodec)s',
