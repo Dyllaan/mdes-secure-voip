@@ -61,6 +61,8 @@ export class BotInstance {
 
   readonly roomId: string;
 
+  private readonly scheme = config.TURN_SECURE ? 'turns' : 'turn';
+
   constructor(
     roomId: string,
     youtubeUrl: string,
@@ -78,7 +80,12 @@ export class BotInstance {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls: config.TURN_SECURE ? 'turns' : 'turn' + `:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
+        urls: `${this.scheme}:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
+        username: this.turnCredentials.username,
+        credential: this.turnCredentials.password,
+      },
+      {
+        urls: `turn:${config.TURN_HOST}:3478?transport=udp`,
         username: this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
