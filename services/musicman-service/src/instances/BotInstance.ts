@@ -192,8 +192,27 @@ export class BotInstance {
     }
   }
 
-  protected onAllUsers(_users: AllUsersPayload): void {
+  protected async callPeer(remotePeerId: string): Promise<void> {
+    if (this.destroyed || this.conns.has(remotePeerId)) return;
+    const connectionId = uuid();
+    console.log(`[Bot ${this.roomId}] → Offering to ${remotePeerId}`);
+
+    const conn  = this.makePc(remotePeerId, connectionId);
+    const offer = await conn.pc.createOffer();
+    await conn.pc.setLocalDescription(offer);
+
+    this.sendPeer('OFFER', remotePeerId, {
+      sdp: { sdp: offer.sdp, type: offer.type },
+      connectionId,
+      browser: 'node-bot',
+    });
+  }
+
+  protected async onAllUsers(users: AllUsersPayload): Promise<void> {
     this.pipeline.start();
+    for (const user of users) {
+      await this.callPeer(user.peerId);
+    }
   }
 
   protected connectSignaling(): Promise<void> {
@@ -246,8 +265,9 @@ export class BotInstance {
         });
       });
 
-      this.socket.on('user-connected', ({ peerId, alias }: UserConnectedPayload) => {
+      this.socket.on('user-connected', async ({ peerId, alias }: UserConnectedPayload) => {
         console.log(`[Bot ${this.roomId}] user-connected: ${alias} (${peerId})`);
+        await this.callPeer(peerId);
       });
 
       this.socket.on('user-disconnected', (peerId: string) => {
