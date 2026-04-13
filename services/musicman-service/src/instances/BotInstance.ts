@@ -76,11 +76,13 @@ export class BotInstance {
   }
 
   protected buildIceServers(): IceServer[] {
+    const primaryUrl = `${this.scheme}:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`;
+    console.log(`[Config] TURN_SECURE: ${config.TURN_SECURE} | primary TURN URL: ${primaryUrl}`);
     return [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls: `${this.scheme}:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
+        urls: primaryUrl,
         username: this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
@@ -356,12 +358,23 @@ export class BotInstance {
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
+        console.log(`[ICE ${this.roomId}->${remotePeerId}] gathered: ${candidate.candidate}`);
         setTimeout(() => {
           this.sendPeer('CANDIDATE', remotePeerId, {
             candidate: candidate.toJSON(), connectionId, type: 'media',
           });
         }, 100);
+      } else {
+        console.log(`[ICE ${this.roomId}->${remotePeerId}] gathering complete`);
       }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log(`[ICE ${this.roomId}->${remotePeerId}] gathering state: ${pc.iceGatheringState}`);
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[ICE ${this.roomId}->${remotePeerId}] connection state: ${pc.iceConnectionState}`);
     };
 
     pc.addEventListener('connectionstatechange', () => {
@@ -421,6 +434,7 @@ export class BotInstance {
   protected async onAnswer(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
     const conn = this.conns.get(remotePeerId);
     if (!conn) return;
+    console.log(`[Bot ${this.roomId}] ← Answer received from ${remotePeerId}`);
     const sdpObj  = payload.sdp as { sdp: string; type: string } | string;
     const sdpStr  = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
     const sdpType = typeof sdpObj === 'string' ? payload.type as string : sdpObj.type;
