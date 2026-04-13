@@ -18,17 +18,19 @@ import { config } from '../config';
 export const OPUS_PAYLOAD_TYPE = 111;
 
 export interface PeerConn {
-  pc:           RTCPeerConnection;
-  track:        MediaStreamTrack;
-  transceiver:  RTCRtpTransceiver;
-  connectionId: string;
-  ssrc:         number;
-  seq:          number;
-  timestamp:    number;
+  pc:                RTCPeerConnection;
+  track:             MediaStreamTrack;
+  transceiver:       RTCRtpTransceiver;
+  connectionId:      string;
+  ssrc:              number;
+  seq:               number;
+  timestamp:         number;
+  answerSent:        boolean;
+  pendingCandidates: Array<RTCIceCandidate>;
 }
 
-export type IceEntry            = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
-export type AllUsersPayload     = Array<{ peerId: string; alias: string; userId: string }>;
+export type IceEntry             = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
+export type AllUsersPayload      = Array<{ peerId: string; alias: string; userId: string }>;
 export type UserConnectedPayload = { peerId: string; alias: string };
 
 export interface TurnCredentials {
@@ -37,8 +39,8 @@ export interface TurnCredentials {
 }
 
 export interface IceServer {
-  urls: string;
-  username?: string;
+  urls:        string;
+  username?:   string;
   credential?: string;
 }
 
@@ -58,6 +60,9 @@ export class BotInstance {
 
   protected onAutoLeave: (() => void) | null = null;
   protected turnCredentials: TurnCredentials;
+
+  private startedAt = Date.now();
+  private readonly GRACE_MS = 60_000;
 
   readonly roomId: string;
 
@@ -82,13 +87,13 @@ export class BotInstance {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls: primaryUrl,
-        username: this.turnCredentials.username,
+        urls:       primaryUrl,
+        username:   this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
       {
-        urls: `turn:${config.TURN_HOST}:3478?transport=udp`,
-        username: this.turnCredentials.username,
+        urls:       `turn:${config.TURN_HOST}:3478?transport=udp`,
+        username:   this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
     ];
@@ -352,22 +357,32 @@ export class BotInstance {
     this.peerWs.send(JSON.stringify({ type, src: this.myPeerId, dst, payload }));
   }
 
+  private sendCandidate(remotePeerId: string, candidate: RTCIceCandidate, connectionId: string): void {
+    setTimeout(() => {
+      this.sendPeer('CANDIDATE', remotePeerId, {
+        candidate: candidate.toJSON(), connectionId, type: 'media',
+      });
+    }, 100);
+  }
+
   protected makePc(remotePeerId: string, connectionId: string): PeerConn {
     const pc          = new RTCPeerConnection({ iceServers: this.buildIceServers() });
     const track       = new MediaStreamTrack({ kind: 'audio' });
     const transceiver = pc.addTransceiver(track, { direction: 'sendonly' });
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        console.log(`[ICE ${this.roomId}->${remotePeerId}] gathered: ${candidate.candidate}`);
-        setTimeout(() => {
-          this.sendPeer('CANDIDATE', remotePeerId, {
-            candidate: candidate.toJSON(), connectionId, type: 'media',
-          });
-        }, 100);
-      } else {
+      if (!candidate) {
         console.log(`[ICE ${this.roomId}->${remotePeerId}] gathering complete`);
+        return;
       }
+      console.log(`[ICE ${this.roomId}->${remotePeerId}] gathered: ${candidate.candidate}`);
+      const conn = this.conns.get(remotePeerId);
+      if (!conn) return;
+      if (!conn.answerSent) {
+        conn.pendingCandidates.push(candidate);
+        return;
+      }
+      this.sendCandidate(remotePeerId, candidate, connectionId);
     };
 
     pc.onicegatheringstatechange = () => {
@@ -391,7 +406,6 @@ export class BotInstance {
         }
       }
       if (state === 'failed') {
-        // only destroy on failed, not closed - closed can happen during offer/answer race
         this.isConnected = this.conns.size > 1;
         this.closePeer(remotePeerId);
       }
@@ -399,9 +413,11 @@ export class BotInstance {
 
     const conn: PeerConn = {
       pc, track, transceiver, connectionId,
-      ssrc:      Math.floor(Math.random() * 0xFFFFFFFF),
-      seq:       Math.floor(Math.random() * 0xFFFF),
-      timestamp: Math.floor(Math.random() * 0xFFFFFFFF),
+      ssrc:              Math.floor(Math.random() * 0xFFFFFFFF),
+      seq:               Math.floor(Math.random() * 0xFFFF),
+      timestamp:         Math.floor(Math.random() * 0xFFFFFFFF),
+      answerSent:        false,
+      pendingCandidates: [],
     };
     this.conns.set(remotePeerId, conn);
     return conn;
@@ -431,6 +447,12 @@ export class BotInstance {
     this.sendPeer('ANSWER', remotePeerId, {
       sdp: { sdp: answer.sdp, type: answer.type }, connectionId, browser: 'node-bot',
     });
+
+    conn.answerSent = true;
+    for (const c of conn.pendingCandidates) {
+      this.sendCandidate(remotePeerId, c, connectionId);
+    }
+    conn.pendingCandidates = [];
   }
 
   protected async onAnswer(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
@@ -442,6 +464,11 @@ export class BotInstance {
     const sdpType = typeof sdpObj === 'string' ? payload.type as string : sdpObj.type;
     await conn.pc.setRemoteDescription(new RTCSessionDescription(sdpStr, sdpType as 'offer' | 'answer'));
     await this.drainIceBuf(remotePeerId, conn.pc);
+    conn.answerSent = true;
+    for (const c of conn.pendingCandidates) {
+      this.sendCandidate(remotePeerId, c, conn.connectionId);
+    }
+    conn.pendingCandidates = [];
   }
 
   protected async onCandidate(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
