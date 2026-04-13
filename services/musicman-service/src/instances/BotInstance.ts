@@ -195,6 +195,7 @@ export class BotInstance {
   }
 
   protected checkAutoLeave(): void {
+    if (Date.now() - this.startedAt < this.GRACE_MS) return;
     if (this.conns.size === 0) {
       console.log(`[Bot ${this.roomId}] No peers connected, triggering auto-leave`);
       this.onAutoLeave?.();
@@ -389,7 +390,8 @@ export class BotInstance {
           this.frameQueue = [];
         }
       }
-      if (state === 'failed' || state === 'closed') {
+      if (state === 'failed') {
+        // only destroy on failed, not closed - closed can happen during offer/answer race
         this.isConnected = this.conns.size > 1;
         this.closePeer(remotePeerId);
       }
