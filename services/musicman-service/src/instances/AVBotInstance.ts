@@ -45,6 +45,8 @@ export class AVBotInstance extends BotInstance {
   private avIceBuf       = new Map<string, IceEntry[]>();
   private screenHbTimer: NodeJS.Timeout | null = null;
   override readonly videoMode: boolean = true;
+  
+  private OPUS_RTP_TIMESTAMP_STEP = 960; // 48000 * 0.02
 
   constructor(
     roomId: string,
@@ -375,8 +377,8 @@ export class AVBotInstance extends BotInstance {
 
   private sendOpusFrameAV(conn: AVPeerConn, frame: OpusFrame): void {
     if (conn.pc.connectionState !== 'connected') return;
-    conn.audioSeq       = (conn.audioSeq + 1) & 0xFFFF;
-    conn.audioTimestamp = (conn.audioTimestamp + 0) >>> 0; // RTP_TIMESTAMP_STEP applied by pipeline
+    conn.audioSeq = (conn.audioSeq + 1) & 0xFFFF;
+    conn.audioTimestamp = (conn.audioTimestamp + this.OPUS_RTP_TIMESTAMP_STEP) >>> 0;
     const header = Buffer.alloc(12);
     header[0] = 0x80;
     header[1] = OPUS_PAYLOAD_TYPE & 0x7F;

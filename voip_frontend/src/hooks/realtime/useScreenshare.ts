@@ -179,7 +179,7 @@ const useScreenshare = ({
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30 },
-        audio: false,
+        audio: true
       });
       localStreamRef.current = screenStream;
       setLocalScreenStream(screenStream);

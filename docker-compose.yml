@@ -134,11 +134,12 @@ services:
       - PEER_ID_EVENT=peer-assigned
       - PEER_ID_KEY=peerId
       - DEBUG_BOT=1
-      - ALLOWED_MEDIA_DOMAINS=${ALLOWED_MEDIA_DOMAINS}
       - YTDLP_MAX_FILESIZE_MB=${YTDLP_MAX_FILESIZE_MB}
       - TURN_HOST=${TURN_HOST}
       - TURN_PORT=${TURN_PORT}
       - TURN_SECURE=${TURN_SECURE}
+      - ALLOWED_VIDEO_ORIGINS:=${ALLOWED_VIDEO_ORIGINS}
+      - ALLOWED_AUDIO_ORIGINS:=${ALLOWED_AUDIO_ORIGINS}
     depends_on:
       - p2p-voip-gateway
       - p2p-auth-service
