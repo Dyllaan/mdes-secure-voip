@@ -275,7 +275,7 @@ export class BotInstance {
 
         this.socket!.emit('join-room', {
           roomId: this.roomId,
-          alias:  '🎵 Music Bot',
+          alias:  'musicman',
           userId: config.BOT_USERNAME,
         });
       });
