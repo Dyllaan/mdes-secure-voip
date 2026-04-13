@@ -98,7 +98,6 @@ const useMusicman = () => {
   }, [fetchMusicman]);
 
   const leave = useCallback(async (roomId: string): Promise<void> => {
-    if (!activeRooms.has(roomId)) return;
     setLoading(true);
     setError(null);
     try {

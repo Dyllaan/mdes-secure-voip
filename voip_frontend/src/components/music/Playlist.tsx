@@ -28,8 +28,6 @@ interface PlaylistProps {
     className?: string;
 }
 
-// ─── Drag state ───────────────────────────────────────────────────────────────
-
 function parseDuration(d: string): number {
     const parts = d.split(':').map(Number);
     if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
@@ -46,8 +44,6 @@ function formatTotalDuration(items: PlaylistItem[]): string {
     if (m > 0) return `${m}m ${s}s`;
     return `${s}s`;
 }
-
-// ─── Individual card ─────────────────────────────────────────────────────────
 
 interface VideoRowProps {
     item: PlaylistItem;
@@ -147,8 +143,6 @@ function VideoRow({
         </div>
     );
 }
-
-// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Playlist({
     items,

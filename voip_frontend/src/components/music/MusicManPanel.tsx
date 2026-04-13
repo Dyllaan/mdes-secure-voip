@@ -236,8 +236,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         saveQueue(roomId, []);
     };
 
-    // ── Playback ──────────────────────────────────────────────────
-
     const playItem = async (item: PlaylistItem) => {
         const url = item.url ?? `https://www.youtube.com/watch?v=${item.id}`;
         setPositionMs(0);
@@ -269,9 +267,8 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         handlePlayNextRef.current = handlePlayNext;
     }, [handlePlayNext]);
 
-    // On mount: clear queue if the bot is not currently running in this room
+    // clear queue if the bot is not currently running in this room
     useEffect(() => {
-        if (queue.length === 0) return;
         getStatus(roomId).then(status => {
             if (!status) {
                 clearQueue();
@@ -310,8 +307,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         } catch { }
     };
 
-    // ── Seek bar position polling ─────────────────────────────────
-
     useEffect(() => {
         if (!active) {
             setPositionMs(0);
@@ -328,7 +323,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
         return () => clearInterval(intervalId);
     }, [active, roomId, getStatus]);
 
-    // ── Real-time musicman socket events ──────────────────────────
 
     useEffect(() => {
         if (!socket) return;
@@ -355,8 +349,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             socket.off('musicman:state-changed', onStateChanged);
         };
     }, [socket, roomId]);
-
-    // ── Add URL ───────────────────────────────────────────────────
 
     const handleAdd = async () => {
         setInputError(null);
@@ -432,7 +424,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     return (
         <div className="flex flex-col gap-0">
 
-            {/* ── Now playing / status bar ──────────────────────── */}
+
             <div className={`
                 rounded-lg border transition-all duration-200 overflow-hidden
                 ${active ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-border bg-muted/30'}
@@ -553,7 +545,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 )}
             </div>
 
-            {/* ── URL input ─────────────────────────────────────── */}
+
             {hasMusicman && (
                 <div className="flex flex-col gap-1.5 mt-3">
                     <div className="flex gap-2">

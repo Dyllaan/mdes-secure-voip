@@ -22,16 +22,12 @@ import { cn } from '@/lib/utils';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
 import MusicmanPanel from '@/components/music/MusicManPanel';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type Panel = 'music' | 'screenshare' | null;
 
 interface ActionsSidebarProps {
     screenshareVisible: boolean;
     onShowScreenshare: () => void;
 }
-
-// ─── Rail icon button ─────────────────────────────────────────────────────────
 
 interface RailButtonProps {
     icon: React.ReactNode;
@@ -95,8 +91,6 @@ function RailButton({
         </Tooltip>
     );
 }
-
-// ─── Screenshare sheet content ────────────────────────────────────────────────
 
 interface ScreensharePanelProps {
     screenshareVisible: boolean;
@@ -221,8 +215,6 @@ function ScreensharePanel({ screenshareVisible, onShowScreenshare, onClose }: Sc
     );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function ActionsSidebar({ screenshareVisible, onShowScreenshare }: ActionsSidebarProps) {
     const [openPanel, setOpenPanel] = useState<Panel>(null);
 
@@ -249,7 +241,7 @@ export default function ActionsSidebar({ screenshareVisible, onShowScreenshare }
 
     return (
         <>
-            {/* ── Narrow icon rail ─────────────────────────────── */}
+
             <div className="w-12 border-l flex flex-col items-center gap-1 py-2 bg-muted/20 shrink-0">
                 <RailButton
                     icon={<Music2 className="h-4 w-4" />}

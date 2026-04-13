@@ -131,8 +131,6 @@ function GenerateTab() {
     );
 }
 
-// ─── Import tab ───────────────────────────────────────────────────────────────
-
 function ImportTab() {
     const navigate = useNavigate();
     const [raw, setRaw] = useState('');
@@ -231,8 +229,6 @@ function ImportTab() {
         </div>
     );
 }
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function KeySetupPage() {
     return (

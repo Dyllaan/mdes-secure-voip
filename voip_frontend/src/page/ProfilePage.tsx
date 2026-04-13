@@ -5,18 +5,20 @@ import ManageMfa from '@/components/auth/page/ManageMfa';
 import Logout from '@/components/auth/Logout';
 import Page from '@/components/layout/Page';
 import DeleteAccount from '@/components/auth/page/DeleteAccount';
+import Back from '@/components/layout/Back';
 
 export default function ProfilePage() {
   const { user, deleteUser } = useAuth();
 
   return (
     <Page header footer>
-        <div className="flex flex-col gap-6">
-            <ManageMfa />
-            <ChangePasswordPage />
-            <DeleteAccount user={user} deleteUser={deleteUser} />
-            <Logout />
-        </div>
+      <Back />
+      <div className="flex flex-col gap-6">
+          <ManageMfa />
+          <ChangePasswordPage />
+          <DeleteAccount user={user} deleteUser={deleteUser} />
+          <Logout />
+      </div>
     </Page>
   );
 }
