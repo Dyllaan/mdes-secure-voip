@@ -59,6 +59,10 @@ export class BotInstance {
   protected onAutoLeave: (() => void) | null = null;
   protected turnCredentials: TurnCredentials;
 
+  private startedAt = Date.now();
+  // TODO: Move to env
+  private readonly GRACE_MS = 60_000;
+
   readonly roomId: string;
 
   private readonly scheme = config.TURN_SECURE ? 'turns' : 'turn';
