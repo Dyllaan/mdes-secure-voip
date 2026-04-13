@@ -4,6 +4,7 @@ export default function useIceServers(): RTCIceServer[] | null {
     const { turnCredentials } = useAuth();
     if (!turnCredentials) return null;
     const scheme = config.TURN_SECURE ? 'turns' : 'turn';
+    
     return [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
