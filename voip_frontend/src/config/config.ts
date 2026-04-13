@@ -11,5 +11,6 @@ const config = {
   GITHUB_URL: import.meta.env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/voip_and_content_synchronisation',
   TURN_HOST: import.meta.env.VITE_TURN_HOST || window.location.hostname,
   TURN_PORT: Number(import.meta.env.VITE_TURN_PORT || 3478),
+  TURN_SECURE: (import.meta.env.VITE_TURN_SECURE ?? 'false') === 'true',
 };
 export default config;
