@@ -50,8 +50,8 @@ const useRoomSession = ({
       users: Array<{ peerId: string; alias: string; userId: string }>
     ) => {
       setConnectedPeers(users);
-      users.forEach(({ peerId, alias }) => {
-        if (!isBotAlias(alias)) callPeer(peerId);
+      users.forEach(({ peerId }) => {
+        callPeer(peerId);
       });
       if (!roomId.startsWith("ephemeral-") && roomClient) {
         try {
@@ -67,7 +67,7 @@ const useRoomSession = ({
       setConnectedPeers(prev =>
         prev.some(p => p.peerId === peerId) ? prev : [...prev, { peerId, alias }]
       );
-      if (!isBotAlias(alias)) callPeer(peerId);
+      callPeer(peerId);
     };
 
     const handleUserDisconnected = (peerId: string) => {

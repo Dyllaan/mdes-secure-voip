@@ -225,9 +225,6 @@ export class BotInstance {
 
   protected async onAllUsers(users: AllUsersPayload): Promise<void> {
     this.pipeline.start();
-    for (const user of users) {
-      await this.callPeer(user.peerId);
-    }
   }
 
   protected connectSignaling(): Promise<void> {
@@ -282,7 +279,7 @@ export class BotInstance {
 
       this.socket.on('user-connected', async ({ peerId, alias }: UserConnectedPayload) => {
         console.log(`[Bot ${this.roomId}] user-connected: ${alias} (${peerId})`);
-        await this.callPeer(peerId);
+        // dont call peers let them call us
       });
 
       this.socket.on('user-disconnected', (peerId: string) => {
