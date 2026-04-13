@@ -8,7 +8,7 @@ export default function useIceServers(): RTCIceServer[] | null {
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         {
-            urls: `turn:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
+            urls: config.TURN_SECURE ? 'turns' : 'turn' + `:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`,
             username: turnCredentials.username,
             credential: turnCredentials.password,
         },

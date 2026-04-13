@@ -138,6 +138,7 @@ services:
       - YTDLP_MAX_FILESIZE_MB=${YTDLP_MAX_FILESIZE_MB}
       - TURN_HOST=${TURN_HOST}
       - TURN_PORT=${TURN_PORT}
+      - TURN_SECURE=${TURN_SECURE}
     depends_on:
       - p2p-voip-gateway
       - p2p-auth-service

@@ -26,4 +26,5 @@ export const config = {
   SCREEN_PEER_ID_KEY:    process.env.SCREEN_PEER_ID_KEY    ?? 'peerId',
   TURN_HOST:             req('TURN_HOST'),
   TURN_PORT:             parseInt(process.env.TURN_PORT    ?? '3478'),
+  TURN_SECURE:           process.env.TURN_SECURE === 'true',
 };
