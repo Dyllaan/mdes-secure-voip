@@ -4,7 +4,6 @@ import useVoIP from "@/hooks/realtime/useVoIP";
 import type { ChatMessage, RemoteStream } from "@/types/voip.types";
 import type { RoomInfo } from "@/hooks/realtime/useRoomManager";
 import type { Socket } from "socket.io-client";
-import type { SignalProtocolClient } from "@/utils/SignalProtocolClient";
 
 interface VoiceChannelInfo {
   serverId: string;
@@ -25,7 +24,6 @@ interface VoIPContextValue {
   isAuthenticated: boolean;
   currentRoomId: string | null;
   socket: Socket | null;
-  signalClient: SignalProtocolClient | null;
   user: ReturnType<typeof useVoIP>["user"];
   chatMessages: ChatMessage[];
   message: string;
@@ -83,7 +81,6 @@ export function VoIPProvider({ children }: { children: ReactNode }) {
     isAuthenticated: voip.isAuthenticated,
     currentRoomId: voip.currentRoomId,
     socket: voip.socket,
-    signalClient: voip.signalClient,
     user: voip.user,
     chatMessages: voip.chatMessages,
     message: voip.message,

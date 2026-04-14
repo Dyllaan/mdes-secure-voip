@@ -30,7 +30,7 @@ export default function Landing() {
       </section>
       <section className="mb-10">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          <Feature title="Encrypted by default" description="Signal Protocol for DMs. AES-GCM for rooms." />
+          <Feature title="Encrypted by default" description="AES-GCM chat encryption." />
           <Feature title="Voice and video" description="WebRTC peer-to-peer calls with screen sharing." />
           <Feature title="Music bot" description="Stream YouTube audio directly into voice channels." />
           <Feature title="Hubs and channels" description="Organise teams into hubs with invite links." />

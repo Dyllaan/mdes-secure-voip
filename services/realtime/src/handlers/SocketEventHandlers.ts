@@ -2,44 +2,29 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import RoomManager from '../room/RoomManager';
-import SignalProtocolHandler from './SignalProtocolHandler';
-import RoomKeyHandler from './RoomKeyHandler';
 import WebRTCHandler from './WebRTCHandler';
-import ChatHandler from './ChatHandler';
 import UserHandler from './UserHandler';
 import { RealtimeConfig } from '../config';
-import { AuthenticatedSocket, RateLimitEntry, Service, ChatMessage, SignalKeyBundle } from '../types';
-import { getRedis } from '../redis';
+import { AuthenticatedSocket, RateLimitEntry, Service } from '../types';
 
 class SocketEventHandlers {
     private service: Service;
     config: RealtimeConfig;
     io: SocketIOServer;
     socketRateLimits: Map<string, Map<string, RateLimitEntry>>;
-    signalKeys: Map<string, SignalKeyBundle>;
-    messageQueues: Map<string, ChatMessage[]>;
-    rsaPublicKeys: Map<string, string>;
     roomManager: RoomManager;
-    private signal: SignalProtocolHandler;
-    private roomKey: RoomKeyHandler;
     private webrtc: WebRTCHandler;
-    private chat: ChatHandler;
     private user: UserHandler;
+    private rsaPublicKeys: Map<string, string> = new Map();
 
     constructor(service: Service) {
         this.service = service;
         this.config = service.config;
         this.io = service.io;
         this.socketRateLimits = new Map();
-        this.signalKeys = new Map();
-        this.messageQueues = new Map();
-        this.rsaPublicKeys = new Map();
 
         this.roomManager = new RoomManager(this.config, this.io);
-        this.signal = new SignalProtocolHandler(this);
-        this.roomKey = new RoomKeyHandler(this);
         this.webrtc = new WebRTCHandler(this);
-        this.chat = new ChatHandler(this);
         this.user = new UserHandler(this);
     }
 
@@ -82,6 +67,23 @@ class SocketEventHandlers {
                 this.checkSocketRateLimit(socket, action, max, window);
 
             socket.on('join-room',              (d) => rl('join-room', 5, 60000)    && this.user.handleJoinRoom(socket, d));
+            // after joining, send the new user their own RSA key broadcast and push existing keys to them
+            socket.on('join-room', (d: { roomId?: string }) => {
+                if (!d?.roomId) return;
+                const roomId = d.roomId;
+                const myKey = this.rsaPublicKeys.get(socket.userId);
+                if (myKey) {
+                    socket.to(roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: myKey });
+                }
+                for (const [userId, publicKey] of this.rsaPublicKeys.entries()) {
+                    if (userId !== socket.userId) {
+                        const other = this.findSocketByUserId(userId);
+                        if (other?.rooms.has(roomId)) {
+                            socket.emit('user-rsa-key', { userId, publicKey });
+                        }
+                    }
+                }
+            });
             socket.on('leave-room',             () => rl('leave-room', 5, 60000)   && this.handleLeaveRoom(socket));
             socket.on('user-update',            (d) => rl('user-update', 5, 60000)  && this.user.handleUserUpdate(socket, d));
 
@@ -93,17 +95,6 @@ class SocketEventHandlers {
             socket.on('webrtc-answer',          (d) => rl('webrtc-answer', 10, 60_000)        && this.webrtc.handleAnswer(socket, d));
             socket.on('webrtc-ice-candidate',   (d) => rl('webrtc-ice-candidate', 50, 10_000) && this.webrtc.handleIceCandidate(socket, d));
 
-            socket.on('signal-register-keys',   (d) => rl('signal-register-keys', 5, 60000)     && this.signal.handleRegisterKeys(socket, d));
-            socket.on('signal-request-bundle',  (d) => rl('signal-request-bundle', 30, 60000)   && this.signal.handleRequestBundle(socket, d));
-            socket.on('signal-refresh-prekeys', (d) => rl('signal-refresh-prekeys', 10, 300000) && this.signal.handleRefreshPrekeys(socket, d));
-
-            socket.on('register-rsa-key',       (d) => rl('register-rsa-key', 5, 60000)   && this.roomKey.handleRegisterRSAKey(socket, d));
-            socket.on('request-rsa-key',        (d) => rl('request-rsa-key', 30, 60000)   && this.roomKey.handleRequestRSAKey(socket, d));
-            socket.on('request-room-key',       (d) => rl('request-room-key', 5, 60000)   && this.roomKey.handleRoomKeyRequest(socket, d));
-            socket.on('room-key-response',      (d) => rl('room-key-response', 10, 60000) && this.roomKey.handleRoomKeyResponse(socket, d));
-
-            socket.on('encrypted-chat-message', (d) => rl('encrypted-chat-message', 10, 10000) && this.chat.handleEncryptedMessage(socket, d));
-            socket.on('room-chat-message',      (d) => rl('room-chat-message', 10, 10000)       && this.chat.handleRoomMessage(socket, d));
 
             socket.on('channel-message-sent', (d) => {
                 if (!rl('channel-message-sent', 30, 10000)) return;
@@ -157,18 +148,63 @@ class SocketEventHandlers {
             socket.on('musicman:track-ended',   (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-ended', d); });
             socket.on('musicman:state-changed', (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:state-changed', d); });
 
-            // Phase 4+13: Periodically re-validate room access; kick and purge queued messages if revoked.
+            socket.on('register-rsa-key', (d: { publicKey: string }) => {
+                if (!rl('register-rsa-key', 5, 60000)) return;
+                if (typeof d?.publicKey !== 'string' || !d.publicKey) return;
+                this.rsaPublicKeys.set(socket.userId, d.publicKey);
+                socket.emit('rsa-key-registered');
+                // notify everyone in the same room so they can encrypt the room key for this user
+                if (socket.roomId) {
+                    socket.to(socket.roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: d.publicKey });
+                }
+            });
+
+            socket.on('request-room-key', (d: { roomId: string; fromUserId: string }) => {
+                if (!rl('request-room-key', 10, 60000)) return;
+                if (typeof d?.roomId !== 'string' || typeof d?.fromUserId !== 'string') return;
+                const target = this.findSocketByUserId(d.fromUserId);
+                if (!target) return;
+                // send the requester's public key to the target so they can wrap the room key
+                const requesterPublicKey = this.rsaPublicKeys.get(socket.userId);
+                if (requesterPublicKey) {
+                    target.emit('user-rsa-key', { userId: socket.userId, publicKey: requesterPublicKey });
+                }
+                target.emit('request-room-key', { roomId: d.roomId, requesterId: socket.userId });
+            });
+
+            socket.on('room-key-response', (d: { roomId: string; requesterId: string; encryptedKey: string; keyId: string }) => {
+                if (!rl('room-key-response', 10, 60000)) return;
+                if (typeof d?.requesterId !== 'string' || typeof d?.encryptedKey !== 'string') return;
+                const target = this.findSocketByUserId(d.requesterId);
+                if (!target) return;
+                target.emit('room-key-response', { encryptedKey: d.encryptedKey, keyId: d.keyId });
+            });
+
+            socket.on('room-chat-message', (d: { roomId: string; ciphertext: string; iv: string; keyId: string }) => {
+                if (!rl('room-chat-message', 30, 10000)) return;
+                if (typeof d?.roomId !== 'string' || !socket.rooms.has(d.roomId)) return;
+                socket.to(d.roomId).emit('room-chat-message', {
+                    senderUserId: socket.userId,
+                    senderAlias: socket.username,
+                    ciphertext: d.ciphertext,
+                    iv: d.iv,
+                    keyId: d.keyId,
+                    roomId: d.roomId,
+                    timestamp: new Date().toISOString(),
+                });
+            });
+
+            // Periodically re-validate room access; kick 
             const REVALIDATION_MS = 5 * 60 * 1000;
             const revalidationTimer = setInterval(async () => {
                 if (!socket.roomId) return;
                 const allowed = await this.roomManager.checkChannelAccess(socket.roomId, socket.token);
                 if (!allowed) {
-                    this.messageQueues.delete(socket.userId);
                     this.roomManager.forceLeaveRoom(socket);
                 }
             }, REVALIDATION_MS);
 
-            // Phase 10: Re-verify JWT every 15 min; disconnect if expired/invalid.
+            // Re-verify JWT every 15 min, disconnect if expired/
             const REAUTH_MS = 15 * 60 * 1000;
             const jwtSecret = Buffer.from(this.config.jwt.secret, 'base64');
             const reauthTimer = setInterval(() => {
@@ -221,6 +257,7 @@ class SocketEventHandlers {
     }
 
     handleDisconnect(socket: AuthenticatedSocket): void {
+        this.rsaPublicKeys.delete(socket.userId);
         if (socket.roomId) {
             socket.to(socket.roomId).emit('user-disconnected', socket.peerId);
             this.roomManager.leaveRoom(socket, socket.roomId);
@@ -256,57 +293,7 @@ class SocketEventHandlers {
                 }
             }
 
-            for (const [userId, queue] of this.messageQueues.entries()) {
-                const filtered = queue.filter(msg => {
-                    const ageDays = (now - (msg as ChatMessage & { queuedAt: number }).queuedAt) / (1000 * 60 * 60 * 24);
-                    return ageDays < 7;
-                });
-                if (filtered.length === 0) {
-                    this.messageQueues.delete(userId);
-                } else if (filtered.length !== queue.length) {
-                    this.messageQueues.set(userId, filtered);
-                }
-            }
-
-            for (const [userId, bundle] of this.signalKeys.entries()) {
-                const ageDays = (now - bundle.updatedAt) / (1000 * 60 * 60 * 24);
-                if (ageDays > 90) {
-                    this.signalKeys.delete(userId);
-                }
-            }
-
-            // Persist signal key snapshot to Redis for warm restart recovery.
-            const redis = getRedis();
-            if (redis) {
-                for (const [userId, bundle] of this.signalKeys.entries()) {
-                    const serialized = JSON.stringify({
-                        ...bundle,
-                        preKeys: Array.from(bundle.preKeys.entries()),
-                    });
-                    redis.set(`signalkeys:${userId}`, serialized, 'EX', 90 * 24 * 3600).catch(() => {});
-                }
-            }
         }, 5 * 60 * 1000);
-    }
-
-    async loadSignalKeysFromRedis(): Promise<void> {
-        const redis = getRedis();
-        if (!redis) return;
-        try {
-            const keys = await redis.keys('signalkeys:*');
-            for (const key of keys) {
-                const raw = await redis.get(key);
-                if (!raw) continue;
-                const data = JSON.parse(raw);
-                data.preKeys = new Map<number, { keyId: number; publicKey: string }>(data.preKeys);
-                this.signalKeys.set(data.userId, data as SignalKeyBundle);
-            }
-            if (keys.length > 0) {
-                console.log(`[Redis] Restored ${keys.length} signal key bundles`);
-            }
-        } catch (err) {
-            console.error('[Redis] Failed to load signal keys:', (err as Error).message);
-        }
     }
 
     generateSecurePeerId(): string {

@@ -6,6 +6,7 @@ import { useHubLayout } from "@/contexts/HubLayoutContext";
 import { HubMembersDrawer } from "./HubMembersDrawer";
 import MembersList from "../room/MembersList";
 import { useVoIPContext } from "@/components/providers/VoIPProvider";
+import { useEffect } from "react";
 
 export default function ChannelSidebar() {
   const {
@@ -18,6 +19,10 @@ export default function ChannelSidebar() {
   } = useHubLayout();
 
   const { roomList } = useVoIPContext();
+
+  useEffect(() => {
+    console.log("Is Owner:", isOwner);
+  }, [isOwner]);
 
   return (
     <div className="w-60 border-r flex flex-col bg-muted/30">

@@ -15,7 +15,6 @@ import { RealtimeConfig } from '../config';
 import { Service, SocketHandlers } from '../types';
 
 class HttpAndServerSetup {
-    private service: Service;
     private config: RealtimeConfig;
     app: Application;
     server: http.Server | https.Server;
@@ -23,7 +22,6 @@ class HttpAndServerSetup {
     peerServer: ReturnType<typeof PeerServer>;
 
     constructor(service: Service) {
-        this.service = service;
         this.config = service.config;
         this.app = express();
         this.server = this._createServer();
@@ -73,7 +71,6 @@ class HttpAndServerSetup {
             this.server.listen(this.config.port, () => {
                 console.log(`Secure Realtime service running on port ${this.config.port}`);
                 console.log(`PeerJS server running on port ${this.config.peerPort}`);
-                console.log(`Security features: JWT, Rate Limiting, Helmet, CORS, Signal Protocol E2E`);
                 resolve();
             });
         });
@@ -81,7 +78,7 @@ class HttpAndServerSetup {
 
     shutdown(): void {
         console.log('Shutting down server...');
-        this.io.emit('server-shutdown', { message: 'Server is shutting down for maintenance' });
+        this.io.emit('server-shutdown', { message: 'Server is shutting down' });
         this.io.close(() => console.log('Socket.IO server closed'));
         this.server.close(() => console.log('HTTP/HTTPS server closed'));
     }

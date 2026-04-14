@@ -94,6 +94,7 @@ func RedeemInvite(w http.ResponseWriter, r *http.Request) {
 		member = structs.Member{
 			ID:       uuid.New().String(),
 			UserID:   userID,
+			Username: middleware.GetUsername(r),
 			HubID:    invite.HubID,
 			Role:     structs.RoleMember,
 			JoinedAt: time.Now(),

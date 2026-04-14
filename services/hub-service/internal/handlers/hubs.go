@@ -17,6 +17,7 @@ import (
 
 func CreateHub(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
+	username := middleware.GetUsername(r)
 
 	var req structs.CreateHubRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -43,6 +44,7 @@ func CreateHub(w http.ResponseWriter, r *http.Request) {
 
 	member := structs.Member{
 		ID:       uuid.New().String(),
+		Username: username,
 		UserID:   userID,
 		HubID:    hub.ID,
 		Role:     structs.RoleOwner,
@@ -143,6 +145,7 @@ func BotJoinHub(w http.ResponseWriter, r *http.Request) {
 	// already constitutes total system compromise, so bot-join does not increase
 	// the blast radius.
 	userID := middleware.GetUserID(r)
+	username := middleware.GetUsername(r)
 	hubID := chi.URLParam(r, "hubID")
 
 	// Already a member
@@ -154,6 +157,7 @@ func BotJoinHub(w http.ResponseWriter, r *http.Request) {
 
 	member := structs.Member{
 		ID:       uuid.New().String(),
+		Username: username,
 		UserID:   userID,
 		HubID:    hubID,
 		Role:     structs.RoleBot,

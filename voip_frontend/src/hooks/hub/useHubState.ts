@@ -80,7 +80,7 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
             if (data.hubId !== hubId) return;
             listChannels(hubId)
                 .then(setChannels)
-                .catch(err => console.warn('[useHubState] Failed to refresh channels:', err));
+                .catch(err => console.warn('Failed to refresh channels:', err));
         };
 
         socket.on('channel-created', onChannelChanged);
@@ -98,14 +98,14 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
             if (data.hubId !== hubId) return;
             listMembers(hubId)
                 .then(setMembers)
-                .catch(err => console.warn('[useHubState] Failed to refresh members:', err));
+                .catch(err => console.warn('Failed to refresh members:', err));
 
             if (channelKeyManager) {
                 for (const ch of channels) {
                     channelKeyManager.topUpChannelKey(ch.id, hubId, hubClient, (event) => {
                         socket?.emit('channel-key-rotated', event);
                     }).catch(err =>
-                        console.warn('[useHubState] Key top-up failed for channel', ch.id, ':', err)
+                        console.warn('Key top-up failed for channel', ch.id, ':', err)
                     );
                 }
             }
@@ -115,7 +115,7 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
         return () => { socket.off('member-joined', onMemberJoined); };
     }, [socket, hubId, listMembers, channels, channelKeyManager, hubClient]);
 
-    const isOwner = hub != null && hub.ownerId === user?.sub;
+    const isOwner = !!hub && !!user?.sub && hub.ownerId === user.sub;
     const hasMusicman = members.some(m => m.role === 'bot');
 
     return { hub, channels, members, loading, error, isOwner, hasMusicman, refreshChannels, refreshMembers };

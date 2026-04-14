@@ -43,6 +43,7 @@ type Channel struct {
 
 type Member struct {
 	ID       string    `json:"id" gorm:"primaryKey"`
+	Username string    `json:"username" gorm:"default:''"`
 	UserID   string    `json:"userId" gorm:"not null;uniqueIndex:idx_user_hub"`
 	HubID    string    `json:"hubId" gorm:"not null;uniqueIndex:idx_user_hub;constraint:OnDelete:CASCADE"`
 	Role     Role      `json:"role" gorm:"not null;default:member"`

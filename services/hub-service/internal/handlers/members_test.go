@@ -96,10 +96,10 @@ func TestInviteMember_AlreadyMember409(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	existingMember := structs.Member{ID: testMem2ID, UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
+	existingMember := structs.Member{ID: testMem2ID, Username: "regular", UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
-			existingMember.ID, existingMember.UserID, existingMember.HubID,
+			existingMember.ID, existingMember.Username, existingMember.UserID, existingMember.HubID,
 			string(existingMember.Role), existingMember.JoinedAt))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/members",
@@ -131,10 +131,10 @@ func TestKickMember_Happy204WithRotation(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	targetMember := structs.Member{ID: testMem2ID, UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
+	targetMember := structs.Member{ID: testMem2ID, Username: "regular", UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
-			targetMember.ID, targetMember.UserID, targetMember.HubID,
+			targetMember.ID, targetMember.Username, targetMember.UserID, targetMember.HubID,
 			string(targetMember.Role), targetMember.JoinedAt))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).
 		WithArgs(testMem2ID).
@@ -201,10 +201,10 @@ func TestKickMember_CannotKickOwner403(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	ownerTarget := structs.Member{ID: testMem2ID, UserID: testUser2ID, HubID: testHubID, Role: structs.RoleOwner}
+	ownerTarget := structs.Member{ID: testMem2ID, Username: "admin", UserID: testUser2ID, HubID: testHubID, Role: structs.RoleOwner}
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
-			ownerTarget.ID, ownerTarget.UserID, ownerTarget.HubID,
+			ownerTarget.ID, ownerTarget.Username, ownerTarget.UserID, ownerTarget.HubID,
 			string(ownerTarget.Role), ownerTarget.JoinedAt))
 
 	req := buildRequest(t, http.MethodDelete,
@@ -220,10 +220,10 @@ func TestKickMember_DBDeleteError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "hubs"`).
 		WillReturnRows(hubRow(mock, testHub))
-	targetMember := structs.Member{ID: testMem2ID, UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
+	targetMember := structs.Member{ID: testMem2ID, Username: "regular", UserID: testUser2ID, HubID: testHubID, Role: structs.RoleMember}
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(mock.NewRows(memberCols).AddRow(
-			targetMember.ID, targetMember.UserID, targetMember.HubID,
+			targetMember.ID, targetMember.Username, targetMember.UserID, targetMember.HubID,
 			string(targetMember.Role), targetMember.JoinedAt))
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM "members"`)).WillReturnError(errDB)
 

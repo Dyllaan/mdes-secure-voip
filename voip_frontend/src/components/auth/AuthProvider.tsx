@@ -34,7 +34,14 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       setAccessToken(null);
     } else {
       const { accessToken: at, ...rest } = userData;
-      setPersistedUser(rest);
+      
+      let sub = userData.sub;
+      if (!sub && at) {
+        const payload = decodeJwt(at);
+        sub = payload?.sub as string;
+      }
+
+      setPersistedUser({ ...rest, sub }); 
       setAccessToken(at);
     }
   };
@@ -123,13 +130,16 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       try {
         const refreshResponse = await authApi.post('/user/refresh', { refreshToken: storedRefreshToken });
         const userData = refreshResponse.data as User;
-        setUser(userData);
+        
+        setUser(userData); 
+        
         setSignedIn(true);
         setMfaStatus({ enabled: userData.mfaEnabled ?? false, verified: true });
         return true;
       } catch {
         // refresh failed
       }
+    
     }
 
     setSignedIn(false);
@@ -167,9 +177,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (response.status === 200) {
+        console.log(response.data);
         const userData = response.data as User;
-        const payload = decodeJwt(userData.accessToken);
-        userData.sub = payload?.sub as string;
         setUser(userData);
         setSignedIn(true);
         setMfaRequired(false);

@@ -15,6 +15,7 @@ import (
 
 func InviteMember(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
+	username := middleware.GetUsername(r)
 	hubID := chi.URLParam(r, "hubID")
 
 	var hub structs.Hub
@@ -47,6 +48,7 @@ func InviteMember(w http.ResponseWriter, r *http.Request) {
 
 	member := structs.Member{
 		ID:       uuid.New().String(),
+		Username: username,
 		UserID:   req.UserID,
 		HubID:    hubID,
 		Role:     structs.RoleMember,
@@ -127,6 +129,28 @@ func ListMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, members)
+}
+
+func SyncMyUsername(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r)
+	username := middleware.GetUsername(r)
+	hubID := chi.URLParam(r, "hubID")
+
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "No username in token")
+		return
+	}
+
+	result := db.DB.Model(&structs.Member{}).
+		Where("user_id = ? AND hub_id = ?", userID, hubID).
+		Update("username", username)
+
+	if result.RowsAffected == 0 {
+		writeError(w, http.StatusNotFound, "Membership not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func LeaveHub(w http.ResponseWriter, r *http.Request) {

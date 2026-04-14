@@ -82,7 +82,7 @@ export class RoomClient {
                 { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
             );
             this.roomKeys.set(roomId, { key, keyId: crypto.randomUUID() });
-            console.log('[RoomClient] Room key generated');
+            console.log('Room key generated');
         } else {
             await this.requestRoomKey(roomId, existingUsers[0]);
         }
@@ -113,7 +113,7 @@ export class RoomClient {
                         'jwk', jwk, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
                     );
                     this.roomKeys.set(roomId, { key, keyId: data.keyId });
-                    console.log('[RoomClient] Room key received and decrypted');
+                    console.log('Room key received and decrypted');
                     resolve();
                 } catch (err) {
                     reject(err);

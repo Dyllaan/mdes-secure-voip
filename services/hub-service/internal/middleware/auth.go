@@ -15,6 +15,7 @@ import (
 type contextKey string
 
 const UserIDKey contextKey = "userID"
+const UsernameKey contextKey = "username"
 
 var jwtSecret []byte
 
@@ -72,6 +73,11 @@ func Auth(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), UserIDKey, userID)
+
+		if username, ok := claims["username"].(string); ok && username != "" {
+			ctx = context.WithValue(ctx, UsernameKey, username)
+		}
+
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -80,6 +86,11 @@ func Auth(next http.Handler) http.Handler {
 func GetUserID(r *http.Request) string {
 	userID, _ := r.Context().Value(UserIDKey).(string)
 	return userID
+}
+
+func GetUsername(r *http.Request) string {
+	username, _ := r.Context().Value(UsernameKey).(string)
+	return username
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

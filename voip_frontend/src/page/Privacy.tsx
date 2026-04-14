@@ -17,7 +17,7 @@ export default function Privacy() {
           <p className="mb-4">We collect only what is necessary to operate the service:</p>
           <ul className="space-y-2 text-muted-foreground">
             <li><span className="text-foreground font-medium">Username</span> chosen by you at registration. This is the only personally identifying information we store.</li>
-            <li><span className="text-foreground font-medium">Messages</span> messages sent in rooms and direct messages are stored in a database hosted on EU-based infrastructure. Direct messages are end-to-end encrypted using the Signal Protocol and cannot be read by us. Room messages are encrypted with AES-GCM.</li>
+            <li><span className="text-foreground font-medium">Messages</span> messages sent in rooms and direct messages are stored in a database hosted on EU-based infrastructure. Room and ephemeral messages are encrypted with AES-GCM.</li>
             <li><span className="text-foreground font-medium">Account credentials</span> your password is hashed and never stored in plaintext.</li>
           </ul>
         </Section>

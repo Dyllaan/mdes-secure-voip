@@ -83,18 +83,18 @@ function MemberRow({
     kickMember?: (memberId: string) => void;
     viewerIsOwner: boolean;
 }) {
-  const [bg, text] = avatarColor(member.userId);
+  const [bg, text] = avatarColor(member.username);
 
   return (
     <div className="group flex items-center gap-3 px-4 py-2.5 hover:bg-muted/40 transition-colors">
       <Avatar className="h-8 w-8 shrink-0">
         <AvatarFallback className={`text-xs font-medium ${bg} ${text}`}>
-          {initials(member.userId)}
+          {initials(member.username)}
         </AvatarFallback>
       </Avatar>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm font-medium">{member.userId}</span>
+        <span className="truncate text-sm font-medium">{member.username}</span>
         <span className="text-[11px] text-muted-foreground">
           Joined {format(new Date(member.joinedAt), "d MMM yyyy")} ·{" "}
           {formatDistanceToNow(new Date(member.joinedAt), { addSuffix: true })}
@@ -170,7 +170,7 @@ export function HubMembersDrawer({
     let list = members.filter((m) => {
       const matchSearch =
         !search ||
-        m.userId.toLowerCase().includes(search.toLowerCase()) ||
+        m.username.toLowerCase().includes(search.toLowerCase()) ||
         m.id.toLowerCase().includes(search.toLowerCase());
       const matchRole = roleFilter === "all" || m.role === roleFilter;
       return matchSearch && matchRole;
@@ -203,22 +203,17 @@ export function HubMembersDrawer({
       </SheetTrigger>
 
       <SheetContent className="flex w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]">
-        {/* Header */}
         <SheetHeader className="px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-sm font-semibold text-violet-700 dark:bg-violet-900 dark:text-violet-300">
               {hub.name.slice(0, 2).toUpperCase()}
             </div>
-            <div className="min-w-0">
-              <SheetTitle className="text-base leading-tight">{hub.name}</SheetTitle>
-              <p className="font-mono text-[11px] text-muted-foreground">{hub.id}</p>
-            </div>
+            <SheetTitle className="text-base leading-tight">{hub.name}</SheetTitle>
           </div>
         </SheetHeader>
 
         <Separator />
 
-        {/* Stats */}
         <div className="grid grid-cols-4 gap-2 px-5 py-3">
           <StatCard label="Total" value={members.length} />
           <StatCard label="Admins" value={stats.admin} />
@@ -228,7 +223,6 @@ export function HubMembersDrawer({
 
         <Separator />
 
-        {/* Controls */}
         <div className="flex gap-2 px-5 py-3">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -265,7 +259,6 @@ export function HubMembersDrawer({
 
         <Separator />
 
-        {/* Member list */}
         <ScrollArea className="flex-1">
           {filtered.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
@@ -287,7 +280,6 @@ export function HubMembersDrawer({
 
         <Separator />
 
-        {/* Footer */}
         <div className="px-5 py-3">
           <InviteCodeButton inviteCode={inviteCode} onCreateInvite={onCreateInvite} />
         </div>

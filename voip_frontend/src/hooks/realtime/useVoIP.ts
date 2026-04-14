@@ -22,7 +22,7 @@ const PEER_CONFIG = {
 
 const useVoIP = () => {
   const { user, signedIn, turnCredentials } = useAuth();
-  const { socket, signalClient, roomClient, isConnected, assignedPeerId } = useConnection();
+  const { socket, roomClient, isConnected, assignedPeerId } = useConnection();
   const username = user?.username ?? null;
 
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
@@ -184,7 +184,6 @@ const useVoIP = () => {
     isConnected,
     isAuthenticated: signedIn,
     socket,
-    signalClient,
     user,
     turnCredentials,
   };

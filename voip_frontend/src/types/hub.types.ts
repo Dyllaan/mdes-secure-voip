@@ -17,6 +17,7 @@ export interface Channel {
 
 export interface Member {
     id: string;
+    username: string;
     userId: string;
     hubId: string;
     role: 'owner' | 'admin' | 'member' | 'bot';

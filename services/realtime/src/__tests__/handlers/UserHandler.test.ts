@@ -1,7 +1,6 @@
 import UserHandler from '../../handlers/UserHandler';
 import { createMockSocket } from '../helpers/createMockSocket';
 import config from '../../config';
-import { ChatMessage } from '../../types';
 
 const cfg = config.services.realtime;
 
@@ -21,16 +20,12 @@ function makeRoomManager(overrides: { joinRoom?: jest.Mock; leaveRoom?: jest.Moc
 
 function makeHandler(overrides: {
   roomManager?: any;
-  rsaPublicKeys?: Map<string, string>;
-  messageQueues?: Map<string, ChatMessage[]>;
   io?: any;
 } = {}) {
   const io = overrides.io ?? { sockets: { sockets: new Map() }, emit: jest.fn() };
   const parent = {
     config: cfg,
     roomManager: overrides.roomManager ?? makeRoomManager(),
-    rsaPublicKeys: overrides.rsaPublicKeys ?? new Map<string, string>(),
-    messageQueues: overrides.messageQueues ?? new Map<string, ChatMessage[]>(),
     io,
   };
   return { handler: new UserHandler(parent as any), parent };
@@ -110,39 +105,6 @@ describe('UserHandler', () => {
         peerId: socket.peerId,
         userId: socket.userId,
       }));
-    });
-
-    it('should deliver queued messages and delete queue when messageQueues has entries', async () => {
-      const socket = createMockSocket({ id: 'socket-001', userId: 'user-001' });
-      const queuedMsg: ChatMessage = {
-        id: 'msg-1', senderUserId: 'user-002', senderPeerId: 'peer-002', senderAlias: 'Bob',
-        ciphertext: 'enc', type: 1, registrationId: 100, timestamp: '', queuedAt: 0,
-      };
-      const messageQueues = new Map([['user-001', [queuedMsg]]]);
-      const { handler } = makeHandler({ messageQueues });
-      await handler.handleJoinRoom(socket as any, { roomId: 'room1', alias: 'Alice' });
-      expect(socket.emit).toHaveBeenCalledWith('queued-messages', { messages: [queuedMsg] });
-      expect(messageQueues.has('user-001')).toBe(false);
-    });
-
-    it('should emit user-rsa-key for existing room users who have RSA keys', async () => {
-      // Register RSA key for an existing user, then a new user joins
-      const existingSocket = createMockSocket({ id: 'socket-002', userId: 'user-002', username: 'bob', token: 'tok' });
-      const newSocket = createMockSocket({ id: 'socket-001', userId: 'user-001', username: 'alice' });
-
-      const rsaPublicKeys = new Map([['user-002', 'PUBKEY-BOB']]);
-      const roomManager = makeRoomManager();
-      // Pre-populate room with existing user
-      roomManager.rooms.set('room1', {
-        id: 'room1',
-        users: new Map([['socket-002', { socketId: 'socket-002', peerId: 'peer-002', alias: 'Bob', username: 'bob', userId: 'user-002' }]]),
-        createdBy: 'user-002',
-        createdAt: Date.now(),
-      } as any);
-
-      const { handler } = makeHandler({ roomManager, rsaPublicKeys });
-      await handler.handleJoinRoom(newSocket as any, { roomId: 'room1', alias: 'Alice' });
-      expect(newSocket.emit).toHaveBeenCalledWith('user-rsa-key', { userId: 'user-002', publicKey: 'PUBKEY-BOB' });
     });
 
     it('should sanitize alias before using it', async () => {

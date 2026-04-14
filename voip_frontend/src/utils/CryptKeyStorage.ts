@@ -1,18 +1,13 @@
-/**
- * Manages IndexedDB I/O and in-memory caching for channel epoch keys
- * and device identity material used by CryptKeyManager.
- */
-
 import { bufToBase64 } from '@/crypto/base64';
 
-const DB_NAME = 'channel-keys-v1';
 const DB_VERSION = 2;
 const STORE_META = 'meta';
 const STORE_CHANNEL_KEYS = 'channelKeys';
 
-function openIDB(): Promise<IDBDatabase> {
+function openIDB(userId: string): Promise<IDBDatabase> {
+    const dbName = `channel-keys-v1-${userId}`;
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        const req = indexedDB.open(dbName, DB_VERSION);
         req.onupgradeneeded = (e: IDBVersionChangeEvent) => {
             const db = req.result;
             if (e.oldVersion < 2) {
@@ -51,8 +46,8 @@ export class CryptKeyStorage {
         this.db = db;
     }
 
-    static async open(): Promise<CryptKeyStorage> {
-        return new CryptKeyStorage(await openIDB());
+    static async open(userId: string): Promise<CryptKeyStorage> {
+        return new CryptKeyStorage(await openIDB(userId));
     }
 
     async getOrCreateDeviceId(): Promise<string> {

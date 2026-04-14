@@ -3,8 +3,6 @@ import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import config from '@/config/config';
 import { useAuth } from "@/hooks/auth/useAuth";
-
-import { SignalProtocolClient } from '@/utils/SignalProtocolClient';
 import { RoomClient } from '@/utils/RoomClient';
 import { CryptKeyManager } from '@/utils/CryptKeyManager';
 import useHubClient from '@/hooks/hub/useHubClient';
@@ -12,7 +10,6 @@ import type { HubClient } from '@/hooks/hub/useHubClient';
 
 interface ConnectionContextType {
     socket: Socket | null;
-    signalClient: SignalProtocolClient | null;
     roomClient: RoomClient | null;
     channelKeyManager: CryptKeyManager | null;
     hubClient: HubClient;
@@ -22,7 +19,6 @@ interface ConnectionContextType {
 
 const ConnectionContext = createContext<ConnectionContextType>({
     socket: null,
-    signalClient: null,
     roomClient: null,
     channelKeyManager: null,
     hubClient: {} as HubClient,
@@ -42,14 +38,12 @@ export default function ConnectionProvider({ children }: { children: React.React
     const hubClient = useHubClient();
 
     const [socket, setSocket] = useState<Socket | null>(null);
-    const [signalClient, setSignalClient] = useState<SignalProtocolClient | null>(null);
     const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
     const [channelKeyManager, setChannelKeyManager] = useState<CryptKeyManager | null>(null);
     const [isConnected, setIsConnected] = useState(false);
     const [assignedPeerId, setAssignedPeerId] = useState<string | null>(null);
 
     const socketRef = useRef<Socket | null>(null);
-    const signalClientRef = useRef<SignalProtocolClient | null>(null);
     const roomClientRef = useRef<RoomClient | null>(null);
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
@@ -89,16 +83,6 @@ export default function ConnectionProvider({ children }: { children: React.React
             setIsConnected(true);
 
             if (!username) return;
-
-            try {
-                const client = new SignalProtocolClient(user?.sub ?? username ?? '', voipSocket);
-                signalClientRef.current = client;
-                await client.initialize('persistent');
-                if (!cancelled) setSignalClient(client);
-            } catch (error) {
-                console.error('Failed to initialize Signal Protocol:', error);
-            }
-
             try {
                 const client = new RoomClient(voipSocket);
                 roomClientRef.current = client;
@@ -112,7 +96,7 @@ export default function ConnectionProvider({ children }: { children: React.React
                 const client = hubClientRef.current;
                 const hubs: Array<{ id: string }> = await client.listHubs();
                 const hubIds = hubs.map((h) => h.id);
-                const manager = await CryptKeyManager.create(client, hubIds);
+                const manager = await CryptKeyManager.create(user?.sub ?? username ?? '',client, hubIds);
                 channelKeyManagerRef.current = manager;
 
                 if (!cancelled) {
@@ -140,15 +124,12 @@ export default function ConnectionProvider({ children }: { children: React.React
 
         return () => {
             cancelled = true;
-            signalClientRef.current?.cleanup();
             roomClientRef.current?.cleanup();
             voipSocket.disconnect();
             socketRef.current = null;
-            signalClientRef.current = null;
             roomClientRef.current = null;
             channelKeyManagerRef.current = null;
             setSocket(null);
-            setSignalClient(null);
             setRoomClient(null);
             setChannelKeyManager(null);
             setIsConnected(false);
@@ -157,7 +138,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     }, [signedIn, accessToken, username]);
 
     return (
-        <ConnectionContext.Provider value={{ socket, signalClient, roomClient, channelKeyManager, hubClient, isConnected, assignedPeerId }}>
+        <ConnectionContext.Provider value={{ socket, roomClient, channelKeyManager, hubClient, isConnected, assignedPeerId }}>
             {children}
         </ConnectionContext.Provider>
     );

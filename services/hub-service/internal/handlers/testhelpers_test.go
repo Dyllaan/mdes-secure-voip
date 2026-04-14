@@ -50,6 +50,7 @@ var (
 	}
 	testOwnerMember = structs.Member{
 		ID:       testMemID,
+		Username: "owner",
 		UserID:   testUserID,
 		HubID:    testHubID,
 		Role:     structs.RoleOwner,
@@ -57,6 +58,7 @@ var (
 	}
 	testRegularMember = structs.Member{
 		ID:       testMemID,
+		Username: "regular",
 		UserID:   testUserID,
 		HubID:    testHubID,
 		Role:     structs.RoleMember,
@@ -64,6 +66,7 @@ var (
 	}
 	testAdminMember = structs.Member{
 		ID:       testMemID,
+		Username: "admin",
 		UserID:   testUserID,
 		HubID:    testHubID,
 		Role:     structs.RoleAdmin,
@@ -71,6 +74,7 @@ var (
 	}
 	testBotMember = structs.Member{
 		ID:       testMemID,
+		Username: "bot",
 		UserID:   testUserID,
 		HubID:    testHubID,
 		Role:     structs.RoleBot,
@@ -95,7 +99,7 @@ var (
 // Column name lists for sqlmock rows
 var (
 	hubCols    = []string{"id", "name", "owner_id", "created_at"}
-	memberCols = []string{"id", "user_id", "hub_id", "role", "joined_at"}
+	memberCols = []string{"id", "username", "user_id", "hub_id", "role", "joined_at"}
 	chanCols   = []string{"id", "name", "hub_id", "type", "created_at"}
 	msgCols    = []string{"id", "channel_id", "sender_id", "ciphertext", "iv", "key_version", "timestamp"}
 	inviteCols = []string{"id", "hub_id", "code", "created_at", "expires_at"}
@@ -192,7 +196,7 @@ func hubRow(mock sqlmock.Sqlmock, h structs.Hub) *sqlmock.Rows {
 
 // memberRow returns sqlmock rows for a single Member.
 func memberRow(mock sqlmock.Sqlmock, m structs.Member) *sqlmock.Rows {
-	return mock.NewRows(memberCols).AddRow(m.ID, m.UserID, m.HubID, string(m.Role), m.JoinedAt)
+	return mock.NewRows(memberCols).AddRow(m.ID, m.Username, m.UserID, m.HubID, string(m.Role), m.JoinedAt)
 }
 
 // emptyRows returns empty sqlmock rows for the given columns.

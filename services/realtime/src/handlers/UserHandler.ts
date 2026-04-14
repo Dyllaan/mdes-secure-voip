@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { sanitizeInput } from '../utils/sanitize';
 import { isValidRoomId } from '../utils/validate';
-import { AuthenticatedSocket, Parent, ChatMessage } from '../types';
+import { AuthenticatedSocket, Parent } from '../types';
 import RoomManager from '../room/RoomManager';
 import { RealtimeConfig } from '../config';
 import { Server as SocketIOServer } from 'socket.io';
@@ -28,15 +28,11 @@ interface ScreenshareStartedData {
 class UserHandler {
     private config: RealtimeConfig;
     private roomManager: RoomManager;
-    private rsaPublicKeys: Map<string, string>;
-    private messageQueues: Map<string, ChatMessage[]>;
     private io: SocketIOServer;
 
     constructor(parent: Parent) {
         this.config = parent.config;
         this.roomManager = parent.roomManager;
-        this.rsaPublicKeys = parent.rsaPublicKeys;
-        this.messageQueues = parent.messageQueues;
         this.io = parent.io;
     }
 
@@ -107,27 +103,11 @@ class UserHandler {
             });
         }
 
-        existingUsers.forEach(user => {
-            const rsaKey = this.rsaPublicKeys.get(user.userId);
-            if (rsaKey) socket.emit('user-rsa-key', { userId: user.userId, publicKey: rsaKey });
-        });
-
-        const newUserRSAKey = this.rsaPublicKeys.get(socket.userId);
-        if (newUserRSAKey) {
-            socket.to(roomId).emit('user-rsa-key', { userId: socket.userId, publicKey: newUserRSAKey });
-        }
-
         socket.to(roomId).emit('user-connected', {
             peerId: socket.peerId,
             alias: (socket as any).alias,
             userId: socket.userId
         });
-
-        const queue = this.messageQueues.get(socket.userId);
-        if (queue && queue.length > 0) {
-            socket.emit('queued-messages', { messages: queue });
-            this.messageQueues.delete(socket.userId);
-        }
 
         return true;
     }

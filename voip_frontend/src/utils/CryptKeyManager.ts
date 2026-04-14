@@ -57,8 +57,8 @@ export class CryptKeyManager {
         this.ecdhPublicKeySpki = ecdhPublicKeySpki;
     }
 
-    static async create(hubAPI: HubAPI, hubIds: string[]): Promise<CryptKeyManager> {
-        const storage = await CryptKeyStorage.open();
+    static async create(userId: string, hubAPI: HubAPI, hubIds: string[]): Promise<CryptKeyManager> {
+        const storage = await CryptKeyStorage.open(userId);
         const deviceId = await storage.getOrCreateDeviceId();
         const { keyPair, publicKeySpki } = await storage.getOrCreateEcdhKeyPair();
 
