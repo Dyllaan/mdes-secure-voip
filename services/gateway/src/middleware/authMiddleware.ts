@@ -1,9 +1,9 @@
 import { Buffer } from 'buffer';
 import { type Request, type Response, type NextFunction } from 'express';
 import { createVerifier } from 'fast-jwt';
-import { config } from './config';
+import { config } from '../config/config';
 
-const verify = createVerifier({
+export const verify = createVerifier({
   key: Buffer.from(config.JWT_SECRET, 'base64'),
   algorithms: ['HS256'],
 });

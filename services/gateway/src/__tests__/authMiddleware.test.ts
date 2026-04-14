@@ -1,4 +1,4 @@
-import { requireAuth } from '../authMiddleware';
+import { requireAuth } from '../middleware/authMiddleware';
 import { makeJwt, makeExpiredJwt, makeMalformedToken } from './helpers/makeJwt';
 import { createHmac } from 'crypto';
 

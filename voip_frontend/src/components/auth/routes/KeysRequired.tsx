@@ -21,18 +21,28 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
 import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
+import { useAuth } from '@/hooks/auth/useAuth';
+import KeyErrorPage from '@/components/layout/KeyErrorPage';
+import { Navigate, Outlet } from 'react-router-dom';
 
 type CheckState = 'loading' | 'ready' | 'needed';
 
 export default function KeysRequired() {
     const [state, setState] = useState<CheckState>('loading');
+    const { user } = useAuth();
+    const userId = user?.sub;
+
+    if (!user || !userId) {
+        return (
+            <KeyErrorPage />
+        );
+    }
 
     useEffect(() => {
         let cancelled = false;
 
-        CryptKeyStorage.open()
+        CryptKeyStorage.open(userId)
             .then(storage => storage.hasKeypair())
             .then(has => {
                 if (!cancelled) setState(has ? 'ready' : 'needed');
@@ -43,7 +53,7 @@ export default function KeysRequired() {
             });
 
         return () => { cancelled = true; };
-    }, []);
+    }, [userId]);
 
     if (state === 'loading') {
         return (
@@ -54,7 +64,6 @@ export default function KeysRequired() {
     }
 
     if (state === 'needed') {
-        // replace=true prevents the back-button from looping back here
         return <Navigate to="/keys" replace />;
     }
 

@@ -7,17 +7,13 @@ import { toast } from 'sonner';
 import MfaSetupDialog from '@/components/auth/dialog/MfaSetupDialog';
 import { useAuth } from "@/hooks/auth/useAuth";
 
-import type { User } from '@/types/User';
-import axios from 'axios';
-import config from '@/config/config';
-
 interface RegisterFormProps {
   onSuccess: () => void;
   onToggleMode: () => void;
 }
 
 export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormProps) {
-  const { setUser } = useAuth();
+  const { register } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -40,27 +36,23 @@ export default function RegisterForm({ onSuccess, onToggleMode }: RegisterFormPr
     setIsLoading(true);
     
     try {
-  const response = await axios.post(`${config.AUTH_URL}/user/register`, {
-      username,
-      password
-    });
-    
-    const userData = response.data as User;
-    setUser(userData);
-    toast.success('Account created successfully!');
-    setShowMfaSetup(true);
-    setIsLoading(false);
-
-  } catch (error) {
-    console.error('Registration failed:', error);
-    
-    if (axios.isAxiosError(error) && error.response?.data?.cause) {
-      toast.error(error.response.data.cause);
-    } else {
+      const result = await register(username, password);
+      
+      if (result.success) {
+        toast.success('Account created successfully!');
+        onSuccess();
+      } else if (result.mfaRequired) {
+        // MFA form will be shown automatically by AuthPage
+        toast.info('Please enter your authentication code');
+      } else {
+        toast.error(result.error || 'Registration failed');
+      }
+    } catch (error) {
+      console.error('Registration failed:', error);
       toast.error('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  }
 }
 
   const handleMfaSetupComplete = () => {

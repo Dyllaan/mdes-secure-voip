@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from "sonner";
 import useLocalStorage from '@/hooks/useLocalStorage';
-import { setAccessToken as setModuleAccessToken, setupInterceptors } from '@/axios/api';
+import { setAccessToken as setModuleAccessToken, setRefreshToken as setModuleRefreshToken, setupInterceptors } from '@/axios/api';
 import { decodeJwt } from '@/utils/jwt';
 import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
@@ -32,17 +32,19 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     if (userData === null) {
       setPersistedUser(null);
       setAccessToken(null);
+      setModuleRefreshToken(null);
     } else {
       const { accessToken: at, ...rest } = userData;
-      
+
       let sub = userData.sub;
       if (!sub && at) {
         const payload = decodeJwt(at);
         sub = payload?.sub as string;
       }
 
-      setPersistedUser({ ...rest, sub }); 
+      setPersistedUser({ ...rest, sub });
       setAccessToken(at);
+      setModuleRefreshToken(userData.refreshToken ?? null);
     }
   };
 
@@ -54,12 +56,26 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
 
   useEffect(() => {
-    setupInterceptors(logout);
+    setupInterceptors(
+      logout,
+      (accessToken, refreshToken) => {
+        setAccessToken(accessToken);
+        setModuleRefreshToken(refreshToken);
+        // update persisted refresh token without triggering full setUser
+        setPersistedUser((prev) => prev ? { ...prev, refreshToken } : prev);
+      },
+    );
   }, []);
 
   useEffect(() => {
     if (accessToken) fetchMfaStatus();
   }, [accessToken]);
+
+  useEffect(() => {
+    const handleUnload = () => navigator.sendBeacon('/auth/logout');
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
 
   useEffect(() => {
     if (accessToken && signedIn && !isLoading) {
@@ -75,9 +91,15 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  function logout() {
+  async function logout() {
+    try {
+      await authApi.post('/user/logout');
+    } catch {
+      // ignore
+    }
     setPersistedUser(null);
     setAccessToken(null);
+    setModuleRefreshToken(null);
     setSignedIn(false);
     setMfaRequired(false);
     setPendingMfaToken(null);
@@ -114,32 +136,19 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       return false;
     }
 
-    if (accessToken) {
-      try {
-        const response = await authApi.get('/user/me');
+    // sync refresh token to module so interceptor can use it on the /user/me call
+    if (storedRefreshToken) setModuleRefreshToken(storedRefreshToken);
+
+    try {
+      const response = await authApi.get('/user/me');
+      if (response.status === 200) {
         const responseData = response.data as MeResponse;
         changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
         setSignedIn(true);
         return true;
-      } catch {
-        // access token invalid
       }
-    }
-
-    if (storedRefreshToken) {
-      try {
-        const refreshResponse = await authApi.post('/user/refresh', { refreshToken: storedRefreshToken });
-        const userData = refreshResponse.data as User;
-        
-        setUser(userData); 
-        
-        setSignedIn(true);
-        setMfaStatus({ enabled: userData.mfaEnabled ?? false, verified: true });
-        return true;
-      } catch {
-        // refresh failed
-      }
-    
+    } catch {
+      // ignore
     }
 
     setSignedIn(false);
@@ -153,6 +162,26 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       setIsLoading(false);
     });
   }, []);
+
+  const register = async (username: string, password: string): Promise<LoginResult> => {
+    try {
+      const response = await authApi.post('/user/register', { username, password }, { validateStatus: () => true });
+      if (response.status === 201) {
+        const userData = response.data as User;
+        setUser(userData);
+        toast.success('Account created successfully!');
+        return { success: true };
+      }
+      const errorData = response.data as { cause?: string };
+      toast.error(errorData.cause || 'Registration failed');
+      return { success: false, error: errorData.cause };
+    } catch (error) {
+      console.error('Registration failed:', error);
+      toast.error('An unexpected error occurred');
+      return { success: false, error: 'Registration failed' };
+    }
+  };
+
 
   const login = async (username: string, password: string, mfaCode?: string, trustDevice?: boolean): Promise<LoginResult> => {
     try {
@@ -331,6 +360,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     updatePassword,
     isLoading,
     turnCredentials,
+    register,
   };
 
   return (

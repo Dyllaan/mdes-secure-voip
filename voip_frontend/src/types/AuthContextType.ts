@@ -17,4 +17,5 @@ export type AuthContextType = {
   updatePassword: (oldPassword: string, newPassword: string, mfaCode?: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
   isLoading: boolean;
   turnCredentials: { username: string; password: string; ttl: number } | null;
+  register: (username: string, password: string) => Promise<LoginResult>;
 }

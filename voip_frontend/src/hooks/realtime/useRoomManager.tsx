@@ -1,7 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import config from "@/config/config";
-import { useAuth } from "@/hooks/auth/useAuth";
-
+import { signalingApi } from "@/axios/api";
 import type { Socket } from "socket.io-client";
 
 export interface RoomInfo {
@@ -10,9 +8,6 @@ export interface RoomInfo {
 }
 
 const useRoomManager = (socket: Socket | null) => {
-  const { user } = useAuth();
-  const accessToken = user?.accessToken;
-
   const [rooms,   setRooms]   = useState<RoomInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error,   setError]   = useState<string | null>(null);
@@ -23,35 +18,22 @@ const useRoomManager = (socket: Socket | null) => {
     return () => { socket.off("room-list"); };
   }, [socket]);
 
-  const authHeaders = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-
   const fetchRooms = useCallback(async () => {
-    setLoading(true); 
+    setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${config.SIGNALING_SERVER}/api/realtime/rooms`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      if (!res.ok) throw new Error("Failed to fetch rooms");
-      const data = await res.json();
-      setRooms(data.rooms);
+      const res = await signalingApi.get('/rooms');
+      setRooms(res.data.rooms);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, []);
 
   useEffect(() => {
     fetchRooms();
     const interval = setInterval(fetchRooms, 15000);
-    console.log("Started room list polling");
     return () => clearInterval(interval);
   }, [fetchRooms]);
 
@@ -59,15 +41,9 @@ const useRoomManager = (socket: Socket | null) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${config.SIGNALING_SERVER}/api/realtime/rooms`, {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify(roomId ? { roomId } : {}),
-      });
-      if (!res.ok) throw new Error("Failed to create room");
-      const data = await res.json();
-      const newRoom: RoomInfo = { id: data.roomId, userCount: 0 };
-      setRooms(prev => data.created ? [...prev, newRoom] : prev);
+      const res = await signalingApi.post('/rooms', roomId ? { roomId } : {});
+      const newRoom: RoomInfo = { id: res.data.roomId, userCount: 0 };
+      setRooms(prev => res.data.created ? [...prev, newRoom] : prev);
       return newRoom;
     } catch (err: any) {
       setError(err.message);
@@ -75,20 +51,13 @@ const useRoomManager = (socket: Socket | null) => {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, []);
 
   const deleteRoom = useCallback(async (roomId: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${config.SIGNALING_SERVER}/api/realtime/rooms/${roomId}`, {
-        method: "DELETE",
-        headers: authHeaders,
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to delete room");
-      }
+      await signalingApi.delete(`/rooms/${roomId}`);
       setRooms(prev => prev.filter(r => r.id !== roomId));
       return true;
     } catch (err: any) {
@@ -97,7 +66,7 @@ const useRoomManager = (socket: Socket | null) => {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, []);
 
   return {
     rooms,

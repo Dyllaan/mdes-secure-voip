@@ -22,7 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import type { MfaSetupResponse } from '@/types/dto/MfaResponses';
 import MfaCodeInput from '../MfaCodeInput';
-import config from '@/config/config';
+import { authApi } from '@/axios/api';
 
 interface MfaSetupDialogProps {
   open: boolean;
@@ -53,10 +53,7 @@ export default function MfaSetupDialog({
 
     setIsLoading(true);
     try {
-      const response = await axios.post(`${config.AUTH_URL}/mfa/setup`, {}, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-
+      const response = await authApi.post('/mfa/setup');
       setSetupData(response.data as MfaSetupResponse);
       setStep('verify');
       toast.success('MFA setup initiated');
@@ -77,10 +74,8 @@ export default function MfaSetupDialog({
 
     setIsLoading(true);
     try {
-      await axios.post(`${config.AUTH_URL}/mfa/verify`, {
+      await authApi.post('/mfa/verify', {
         code: verificationCode
-      }, {
-        headers: { Authorization: `Bearer ${accessToken}` }
       });
 
       toast.success('MFA enabled successfully!');

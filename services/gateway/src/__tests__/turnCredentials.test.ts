@@ -5,7 +5,7 @@ jest.mock('crypto', () => ({
 
 import { createHmac } from 'crypto';
 import { randomBytes } from 'crypto';
-import { turnCredentials } from '../turnCredentials';
+import { turnCredentials } from '../config/turnCredentials';
 
 const mockRandomBytes = randomBytes as jest.MockedFunction<typeof randomBytes>;
 

@@ -1,4 +1,4 @@
-import express, { type Request, type Response } from 'express';
+import express, { NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
@@ -7,7 +7,7 @@ import type { ClientRequest, IncomingMessage } from 'http';
 import type { Socket } from 'net';
 import { randomUUID } from 'crypto';
 
-import { config, logger } from './config';
+import { config, logger } from './config/config';
 import {
   authLimiter,
   generalLimiter,
@@ -15,9 +15,10 @@ import {
   breakers,
   circuitBreaker,
   requestId,
-} from './middleware';
-import { turnCredentials } from './turnCredentials';
-import { requireAuth } from './authMiddleware';
+} from './middleware/middleware';
+import { turnCredentials } from './config/turnCredentials';
+import { requireAuth, verify } from './middleware/authMiddleware';
+import { onLogin, onLogout, demoGuard } from './middleware/demoLimiter';
 
 const app = express();
 
@@ -45,6 +46,7 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
     }),
   });
 }
+
 
 app.get('/health', async (_req: Request, res: Response) => {
   const services: Record<string, string> = {
@@ -83,6 +85,67 @@ app.get('/health', async (_req: Request, res: Response) => {
   });
 });
 
+app.post('/auth/user/login',
+  authLimiter,
+  express.json(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (!process.env.DEMO_MODE) return next();
+    try {
+      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const body = await upstream.json() as Record<string, unknown>;
+      if (upstream.ok && body.accessToken) {
+        const payload = verify(body.accessToken as string) as { sub: string };
+        await onLogin(payload.sub);
+      }
+      res.status(upstream.status).json(body);
+    } catch (err) {
+      logger.error({ err }, 'Login proxy error');
+      res.status(503).json({ error: 'Auth service unavailable' });
+    }
+  },
+);
+
+app.post('/auth/user/logout',
+  requireAuth,
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (process.env.DEMO_MODE) {
+      await onLogout((req.user as { sub: string }).sub).catch(
+        (err) => logger.error({ err }, 'demoLimiter onLogout failed')
+      );
+    }
+    next();
+  },
+);
+
+app.post('/auth/user/refresh',
+  authLimiter,
+  express.json(),
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (!process.env.DEMO_MODE) return next();
+    try {
+      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const body = await upstream.json() as Record<string, unknown>;
+      if (upstream.ok && body.accessToken) {
+        const payload = verify(body.accessToken as string) as { sub: string };
+        await onLogin(payload.sub);
+      }
+      res.status(upstream.status).json(body);
+    } catch (err) {
+      logger.error({ err }, 'Refresh proxy error');
+      res.status(503).json({ error: 'Auth service unavailable' });
+    }
+  },
+);
+
+// catch-all for all other /auth routes
 app.use('/auth',
   authLimiter,
   circuitBreaker(breakers.auth, 'Auth'),
@@ -99,6 +162,8 @@ app.use('/auth',
 app.use('/realtime',
   generalLimiter,
   circuitBreaker(breakers.realtime, 'Realtime'),
+  requireAuth,
+  demoGuard,
   makeProxy(config.REALTIME_SERVICE_URL, {
     onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       logger.error({ err }, 'Realtime service error');
@@ -110,6 +175,8 @@ app.use('/realtime',
 app.use('/hub',
   generalLimiter,
   circuitBreaker(breakers.hub, 'Hub'),
+  requireAuth,
+  demoGuard,
   makeProxy(config.HUB_SERVICE_URL, {
     pathRewrite: { '^/hub': '/api' },
     onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
@@ -122,6 +189,8 @@ app.use('/hub',
 app.use('/musicman',
   musicLimiter,
   circuitBreaker(breakers.musicman, 'MusicMan'),
+  requireAuth,
+  demoGuard,
   makeProxy(config.MUSICMAN_URL, {
     pathRewrite: { '^/musicman': '' },
     proxyTimeout: 120_000,
@@ -133,6 +202,8 @@ app.use('/musicman',
   }),
 );
 
+
+
 const socketIoProxy = makeProxy(config.REALTIME_SERVICE_URL, {
   ws: true,
   logLevel: 'silent',
@@ -142,7 +213,7 @@ const socketIoProxy = makeProxy(config.REALTIME_SERVICE_URL, {
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'Socket.IO proxy error'),
 });
-app.use('/socket.io', requireAuth, socketIoProxy);
+app.use('/socket.io', requireAuth, demoGuard, socketIoProxy);
 
 const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   ws: true,
@@ -153,9 +224,9 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
 });
-app.use('/peerjs', requireAuth, peerJsProxy);
+app.use('/peerjs', requireAuth, demoGuard, peerJsProxy);
 
-app.get('/turn-credentials', generalLimiter, requireAuth, turnCredentials);
+app.get('/turn-credentials', generalLimiter, requireAuth, demoGuard, turnCredentials);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });

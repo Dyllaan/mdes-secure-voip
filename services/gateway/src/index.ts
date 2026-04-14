@@ -1,9 +1,10 @@
 import http from 'http';
 import { createVerifier } from 'fast-jwt';
 import { Buffer } from 'buffer';
-import { app, socketIoProxy, peerJsProxy } from './Gateway';
-import { config, logger } from './config';
-import { extractUpgradeToken } from './upgradeToken';
+import { app, socketIoProxy, peerJsProxy } from './routes';
+import { config, logger } from './config/config';
+import { extractUpgradeToken } from './config/upgradeToken';
+import { connectRedis } from './redis';
 
 const server = http.createServer(app);
 
@@ -40,15 +41,17 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy();
   }
 });
-
-server.listen(config.PORT, () => {
-  logger.info({
-    port: config.PORT,
-    authService: config.AUTH_SERVICE_URL,
-    realtimeService: config.REALTIME_SERVICE_URL,
-    peerService: config.PEER_SERVICE_URL,
-    hubService: config.HUB_SERVICE_URL,
-  }, 'API Gateway running');
-});
+(async () => {
+  await connectRedis();
+  server.listen(config.PORT, () => {
+    logger.info({
+      port: config.PORT,
+      authService: config.AUTH_SERVICE_URL,
+      realtimeService: config.REALTIME_SERVICE_URL,
+      peerService: config.PEER_SERVICE_URL,
+      hubService: config.HUB_SERVICE_URL,
+    }, 'API Gateway running');
+  });
+})();
 
 export default server;

@@ -4,7 +4,7 @@ jest.mock('crypto', () => ({
 }));
 
 import { randomUUID } from 'crypto';
-import { circuitBreaker, requestId, authLimiter, generalLimiter, musicLimiter } from '../middleware';
+import { circuitBreaker, requestId, authLimiter, generalLimiter, musicLimiter } from '../middleware/middleware';
 
 function mockRes() {
   const res: any = {};

@@ -8,19 +8,21 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { generateNewMnemonic, isMnemonicValid, deriveDeviceIdentity } from '@/crypto/mnemonicKey';
 import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
+import { useAuth } from '@/hooks/auth/useAuth';
+import KeyErrorPage from '@/components/layout/KeyErrorPage';
 
 function formatError(err: unknown): string {
     return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }
 
-async function persistIdentityAndRedirect(mnemonic: string, navigate: NavigateFunction): Promise<void> {
+async function persistIdentityAndRedirect(mnemonic: string, navigate: NavigateFunction, userId: string): Promise<void> {
     const identity = await deriveDeviceIdentity(mnemonic);
-    const storage = await CryptKeyStorage.open();
+    const storage = await CryptKeyStorage.open(userId);
     await storage.initFromDerived(identity.keyPair, identity.publicKeySpki, identity.deviceId);
     navigate('/', { replace: true });
 }
 
-function GenerateTab() {
+function GenerateTab({ userId }: { userId: string }) {
     const navigate = useNavigate();
     const [mnemonic, setMnemonic] = useState<string>(() => generateNewMnemonic());
     const [confirmed, setConfirmed] = useState(false);
@@ -39,12 +41,12 @@ function GenerateTab() {
         setLoading(true);
         setError(null);
         try {
-            await persistIdentityAndRedirect(mnemonic, navigate);
+            await persistIdentityAndRedirect(mnemonic, navigate, userId);
         } catch (err) {
             setError(formatError(err));
             setLoading(false);
         }
-    }, [mnemonic, navigate]);
+    }, [mnemonic, navigate, userId]);
 
     return (
         <div className="space-y-6">
@@ -131,7 +133,7 @@ function GenerateTab() {
     );
 }
 
-function ImportTab() {
+function ImportTab({ userId }: { userId: string }) {
     const navigate = useNavigate();
     const [raw, setRaw] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -151,12 +153,12 @@ function ImportTab() {
         setLoading(true);
         setError(null);
         try {
-            await persistIdentityAndRedirect(phrase, navigate);
+            await persistIdentityAndRedirect(phrase, navigate, userId);
         } catch (err) {
             setError(formatError(err));
             setLoading(false);
         }
-    }, [words, navigate]);
+    }, [words, navigate, userId]);
 
     return (
         <div className="space-y-6">
@@ -231,6 +233,14 @@ function ImportTab() {
 }
 
 export default function KeySetupPage() {
+    const { user } = useAuth();
+
+    if (!user || !user?.sub) {
+        return (
+            <KeyErrorPage />
+        );
+    }
+
     return (
         <div className="flex min-h-screen items-center justify-center bg-background p-4">
             <div className="w-full max-w-2xl space-y-6">
@@ -259,11 +269,11 @@ export default function KeySetupPage() {
                         </TabsList>
 
                         <TabsContent value="generate" className="mt-0">
-                            <GenerateTab />
+                            <GenerateTab userId={user.sub} />
                         </TabsContent>
 
                         <TabsContent value="import" className="mt-0">
-                            <ImportTab />
+                            <ImportTab userId={user.sub} />
                         </TabsContent>
                     </Tabs>
                 </div>

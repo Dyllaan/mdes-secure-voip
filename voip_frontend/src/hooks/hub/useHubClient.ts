@@ -1,118 +1,110 @@
 import { useCallback } from 'react';
-import { useAuth } from "@/hooks/auth/useAuth";
+import { hubApi } from '@/axios/api';
 
-import config from '@/config/config';
 import type { ChannelType, PostKeyBundlesPayload } from '@/types/hub.types';
 
 export type HubClient = ReturnType<typeof useHubClient>;
 
 export default function useHubClient() {
-    const { user } = useAuth();
-
-    const fetchAPI = useCallback(async (path: string, options: RequestInit = {}) => {
-        const res = await fetch(`${config.HUB_SERVICE_URL}${path}`, {
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${user?.accessToken}`,
-                ...options.headers,
-            },
+    const request = useCallback(async (path: string, options: {
+        method?: string;
+        data?: unknown;
+        params?: Record<string, string>;
+    } = {}) => {
+        const res = await hubApi.request({
+            url: path,
+            method: options.method ?? 'GET',
+            data: options.data,
+            params: options.params,
         });
+        return res.data ?? null;
+    }, []);
 
-        if (!res.ok) {
-            const error = await res.json().catch(() => ({ error: 'Request failed' }));
-            throw new Error(error.error || 'Request failed');
-        }
-
-        if (res.status === 204) return null;
-        return res.json();
-    }, [user?.accessToken]);
-
-    const listHubs = useCallback(() => fetchAPI('/hubs'), [fetchAPI]);
-    const getHub = useCallback((id: string) => fetchAPI(`/hubs/${id}`), [fetchAPI]);
+    const listHubs = useCallback(() => request('/hubs'), [request]);
+    const getHub = useCallback((id: string) => request(`/hubs/${id}`), [request]);
     const createHub = useCallback((name: string) =>
-        fetchAPI('/hubs', { method: 'POST', body: JSON.stringify({ name }) }), [fetchAPI]);
+        request('/hubs', { method: 'POST', data: { name } }), [request]);
     const deleteHub = useCallback((id: string) =>
-        fetchAPI(`/hubs/${id}`, { method: 'DELETE' }), [fetchAPI]);
+        request(`/hubs/${id}`, { method: 'DELETE' }), [request]);
 
     const listChannels = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/channels`), [fetchAPI]);
+        request(`/hubs/${hubId}/channels`), [request]);
     const createChannel = useCallback((hubId: string, name: string, type: ChannelType = 'text') =>
-        fetchAPI(`/hubs/${hubId}/channels`, { method: 'POST', body: JSON.stringify({ name, type }) }), [fetchAPI]);
+        request(`/hubs/${hubId}/channels`, { method: 'POST', data: { name, type } }), [request]);
     const deleteChannel = useCallback((hubId: string, channelId: string) =>
-        fetchAPI(`/hubs/${hubId}/channels/${channelId}`, { method: 'DELETE' }), [fetchAPI]);
+        request(`/hubs/${hubId}/channels/${channelId}`, { method: 'DELETE' }), [request]);
 
     const listMembers = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/members`), [fetchAPI]);
+        request(`/hubs/${hubId}/members`), [request]);
     const inviteMember = useCallback((hubId: string, userId: string) =>
-        fetchAPI(`/hubs/${hubId}/members`, { method: 'POST', body: JSON.stringify({ userId }) }), [fetchAPI]);
+        request(`/hubs/${hubId}/members`, { method: 'POST', data: { userId } }), [request]);
     const leaveHub = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/leave`, { method: 'DELETE' }), [fetchAPI]);
+        request(`/hubs/${hubId}/leave`, { method: 'DELETE' }), [request]);
     const kickMember = useCallback((hubId: string, memberId: string) =>
-        fetchAPI(`/hubs/${hubId}/members/${memberId}`, { method: 'DELETE' }), [fetchAPI]);
+        request(`/hubs/${hubId}/members/${memberId}`, { method: 'DELETE' }), [request]);
 
     const sendMessage = useCallback((hubId: string, channelId: string, message: {
         ciphertext: string; iv: string; keyVersion: string;
-    }) => fetchAPI(`/hubs/${hubId}/channels/${channelId}/messages`, {
-        method: 'POST', body: JSON.stringify(message),
-    }), [fetchAPI]);
+    }) => request(`/hubs/${hubId}/channels/${channelId}/messages`, {
+        method: 'POST', data: message,
+    }), [request]);
 
     const createInvite = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/invites`, { method: 'POST' }), [fetchAPI]);
+        request(`/hubs/${hubId}/invites`, { method: 'POST' }), [request]);
 
     const redeemInvite = useCallback((code: string) =>
-        fetchAPI(`/invites/${code}/redeem`, { method: 'POST' }), [fetchAPI]);
+        request(`/invites/${code}/redeem`, { method: 'POST' }), [request]);
 
     const startEphemeral = useCallback((hubId: string, roomId: string) =>
-        fetchAPI(`/hubs/${hubId}/ephemeral`, { method: 'POST', body: JSON.stringify({ roomId }) }), [fetchAPI]);
+        request(`/hubs/${hubId}/ephemeral`, { method: 'POST', data: { roomId } }), [request]);
 
     const getEphemeral = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/ephemeral`), [fetchAPI]);
+        request(`/hubs/${hubId}/ephemeral`), [request]);
 
     const endEphemeral = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/ephemeral`, { method: 'DELETE' }), [fetchAPI]);
+        request(`/hubs/${hubId}/ephemeral`, { method: 'DELETE' }), [request]);
 
     const getMessages = useCallback((hubId: string, channelId: string, before?: string, limit?: number) => {
-        const params = new URLSearchParams();
-        if (before) params.set('before', before);
-        if (limit) params.set('limit', limit.toString());
-        const query = params.toString() ? `?${params.toString()}` : '';
-        return fetchAPI(`/hubs/${hubId}/channels/${channelId}/messages${query}`);
-    }, [fetchAPI]);
+        const params: Record<string, string> = {};
+        if (before) params.before = before;
+        if (limit) params.limit = limit.toString();
+        return request(`/hubs/${hubId}/channels/${channelId}/messages`, { params });
+    }, [request]);
 
     const registerDeviceKey = useCallback((hubId: string, deviceId: string, publicKey: string) =>
-        fetchAPI(`/hubs/${hubId}/device-key`, {
+        request(`/hubs/${hubId}/device-key`, {
             method: 'PUT',
-            body: JSON.stringify({ deviceId, publicKey }),
-        }), [fetchAPI]);
+            data: { deviceId, publicKey },
+        }), [request]);
 
     const getDeviceKeys = useCallback((hubId: string) =>
-        fetchAPI(`/hubs/${hubId}/device-keys`), [fetchAPI]);
+        request(`/hubs/${hubId}/device-keys`), [request]);
 
     const postKeyBundles = useCallback((hubId: string, payload: PostKeyBundlesPayload) =>
-        fetchAPI(`/hubs/${hubId}/channel-keys/bundles`, {
+        request(`/hubs/${hubId}/channel-keys/bundles`, {
             method: 'POST',
-            body: JSON.stringify(payload),
-        }), [fetchAPI]);
+            data: payload,
+        }), [request]);
 
     const getKeyBundles = useCallback((hubId: string, channelId?: string) => {
-        const query = channelId ? `?channelId=${encodeURIComponent(channelId)}` : '';
-        return fetchAPI(`/hubs/${hubId}/channel-keys/bundles${query}`);
-    }, [fetchAPI]);
+        const params: Record<string, string> = {};
+        if (channelId) params.channelId = channelId;
+        return request(`/hubs/${hubId}/channel-keys/bundles`, { params });
+    }, [request]);
 
     const setRotationNeeded = useCallback((hubId: string, channelId: string, removedUserId?: string) =>
-        fetchAPI(`/hubs/${hubId}/channels/${channelId}/rotation-needed`, {
+        request(`/hubs/${hubId}/channels/${channelId}/rotation-needed`, {
             method: 'POST',
-            body: JSON.stringify({ removedUserId: removedUserId ?? '' }),
-        }), [fetchAPI]);
+            data: { removedUserId: removedUserId ?? '' },
+        }), [request]);
 
     const getRotationNeeded = useCallback((hubId: string, channelId: string) =>
-        fetchAPI(`/hubs/${hubId}/channels/${channelId}/rotation-needed`), [fetchAPI]);
+        request(`/hubs/${hubId}/channels/${channelId}/rotation-needed`), [request]);
 
     const clearRotationNeeded = useCallback((hubId: string, channelId: string) =>
-        fetchAPI(`/hubs/${hubId}/channels/${channelId}/rotation-needed`, {
+        request(`/hubs/${hubId}/channels/${channelId}/rotation-needed`, {
             method: 'DELETE',
-        }), [fetchAPI]);
+        }), [request]);
 
     return {
         listHubs, getHub, createHub, deleteHub,

@@ -6,8 +6,8 @@ jest.mock('http-proxy-middleware', () => ({
 
 import request from 'supertest';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { app } from '../Gateway';
-import { breakers } from '../middleware';
+import { app } from '../routes';
+import { breakers } from '../middleware/middleware';
 import { makeJwt } from './helpers/makeJwt';
 
 const mockCreateProxy = createProxyMiddleware as jest.MockedFunction<typeof createProxyMiddleware>;
@@ -324,7 +324,7 @@ describe('global middleware', () => {
   });
 });
 
-import { extractUpgradeToken } from '../upgradeToken';
+import { extractUpgradeToken } from '../config/upgradeToken';
 
 describe('extractUpgradeToken', () => {
   function req(url?: string, authorization?: string): any {

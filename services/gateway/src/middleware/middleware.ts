@@ -2,7 +2,7 @@ import rateLimit from 'express-rate-limit';
 import CircuitBreaker from 'opossum';
 import { randomUUID } from 'crypto';
 import { type Request, type Response, type NextFunction } from 'express';
-import { logger } from './config';
+import { logger } from '../config/config';
 
 export const authLimiter = rateLimit({
   windowMs: 60 * 1000,
