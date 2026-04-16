@@ -8,6 +8,7 @@ import { optimiseBitrate } from "@/utils/realtime/OptimiseBitrate";
 import type { RemoteStream } from "@/types/voip.types";
 import useIceServers from "./useIceServers";
 import { getAccessToken } from "@/axios/api";
+import { getAppE2EHarness } from "@/testing/e2eHarness";
 
 interface PeerConfig {
   host: string;
@@ -42,6 +43,7 @@ const usePeerConnection = ({
   const isOpenRef = useRef(false);
   const connectionsRef = useRef<Map<string, MediaConnection>>(new Map());
   const iceServers = useIceServers();
+  const e2eHarness = getAppE2EHarness();
 
   useEffect(() => { streamRef.current = stream; }, [stream]);
 
@@ -80,6 +82,10 @@ const usePeerConnection = ({
   }, []);
 
   const callPeer = useCallback((targetId: string) => {
+    if (e2eHarness?.enabled) {
+      return;
+    }
+
     const attempt = () => {
       if (!streamRef.current || !peerRef.current?.open) {
         setTimeout(attempt, 100);
@@ -94,9 +100,28 @@ const usePeerConnection = ({
       call.on("error", () => removeRemoteStream(targetId));
     };
     attempt();
-  }, [addRemoteStream, removeRemoteStream]);
+  }, [addRemoteStream, removeRemoteStream, e2eHarness]);
 
   useEffect(() => {
+    if (e2eHarness?.enabled) {
+      if (!peerId) return;
+      isOpenRef.current = true;
+      const unregister = e2eHarness.registerAudioController({
+        addRemoteStream: (id) => {
+          const stream = new MediaStream();
+          addRemoteStream(id, stream);
+        },
+        removeRemoteStream,
+      });
+
+      return () => {
+        unregister();
+        isOpenRef.current = false;
+        closeAll();
+        peerRef.current = null;
+      };
+    }
+
     if (!peerId || !stream || !iceServers) return;
 
     const p = new Peer(peerId, {
@@ -135,7 +160,7 @@ const usePeerConnection = ({
       p.destroy();
       peerRef.current = null;
     };
-  }, [peerId, stream, iceServers, peerConfig.host, peerConfig.port, peerConfig.path, peerConfig.secure, addRemoteStream, removeRemoteStream, closeAll]);
+  }, [peerId, stream, iceServers, peerConfig.host, peerConfig.port, peerConfig.path, peerConfig.secure, addRemoteStream, removeRemoteStream, closeAll, e2eHarness]);
 
   return { remoteStreams, callPeer, removeRemoteStream, closeAll, waitForOpen };
 };

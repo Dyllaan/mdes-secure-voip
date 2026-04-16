@@ -150,6 +150,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const [inputError, setInputError]     = useState<string | null>(null);
     const [resolving, setResolving]       = useState(false);
     const [positionMs, setPositionMs]     = useState(0);
+    const [botJoined, setBotJoined]       = useState(hasMusicman);
 
     /**
      * Video screenshare mode streams the YouTube video as a peer screenshare.
@@ -164,6 +165,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const inputRef             = useRef<HTMLInputElement>(null);
     const transitioningRef     = useRef(false);
     const handlePlayNextRef    = useRef<() => Promise<void>>(() => Promise.resolve());
+    const botAvailable = hasMusicman || botJoined;
+
+    useEffect(() => {
+        if (hasMusicman) setBotJoined(true);
+    }, [hasMusicman]);
 
     const resolveAndUpdate = useCallback(async (url: string, stubId: string) => {
         try {
@@ -463,6 +469,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             <>
                                 {/* Pause / Resume */}
                                 <Button
+                                    data-testid="music-pause-resume"
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
@@ -479,6 +486,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 {/* Skip to next */}
                                 {queue.length > 1 && (
                                     <Button
+                                        data-testid="music-next"
                                         variant="ghost"
                                         size="icon"
                                         className="h-6 w-6 text-muted-foreground hover:text-foreground"
@@ -492,6 +500,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
                                 {/* Stop */}
                                 <Button
+                                    data-testid="music-stop"
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-950/30"
@@ -507,12 +516,17 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             </>
                         )}
 
-                        {!hasMusicman && (
+                        {!botAvailable && (
                             <Button
+                                data-testid="music-add-bot"
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 text-xs text-muted-foreground hover:text-foreground px-2"
-                                onClick={async () => { await joinHub(hubId); onBotJoined(); }}
+                                onClick={async () => {
+                                    await joinHub(hubId);
+                                    setBotJoined(true);
+                                    onBotJoined();
+                                }}
                                 disabled={isLoading}
                             >
                                 {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : '+ Add bot'}
@@ -528,6 +542,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             {formatMs(positionMs)}
                         </span>
                         <input
+                            data-testid="music-seek"
                             type="range"
                             min={0}
                             max={seekMax}
@@ -546,12 +561,13 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             </div>
 
 
-            {hasMusicman && (
+            {botAvailable && (
                 <div className="flex flex-col gap-1.5 mt-3">
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Radio className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                             <Input
+                                data-testid="music-url-input"
                                 ref={inputRef}
                                 value={urlInput}
                                 onChange={e => { setUrlInput(e.target.value); setInputError(null); }}
@@ -566,6 +582,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                          * Once the bot is active the mode is locked until /leave.
                          */}
                         <button
+                            data-testid="music-video-mode-toggle"
                             onClick={() => !active && setVideoMode(v => !v)}
                             disabled={active}
                             title={
@@ -589,6 +606,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         </button>
 
                         <Button
+                            data-testid="music-add-track"
                             size="sm"
                             className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-500 text-white shrink-0 gap-1.5"
                             onClick={handleAdd}
@@ -622,6 +640,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     {/* Queue toggle header */}
                     <div className="flex items-center gap-2 mb-2">
                         <button
+                            data-testid="music-queue-toggle"
                             onClick={() => setQueueOpen(o => !o)}
                             className="flex items-center gap-2 flex-1 text-left group"
                         >
@@ -638,6 +657,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             }
                         </button>
                         <button
+                            data-testid="music-clear-queue"
                             onClick={clearQueue}
                             className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"
                             title="Clear queue"

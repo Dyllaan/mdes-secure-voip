@@ -12,7 +12,7 @@ export type AuthContextType = {
   mfaStatus: MfaStatus | null;
   fetchMfaStatus: () => Promise<void>;
   deleteUser: (mfaCode: string) => Promise<void>;
-  disableMfa: (mfaCode: string) => Promise<void>;
+  disableMfa: (mfaCode: string) => Promise<{ success: boolean; error?: string }>;
   changeUserIsMfaEnabled: (enabled: boolean) => void;
   updatePassword: (oldPassword: string, newPassword: string, mfaCode?: string) => Promise<{ success: boolean; mfaRequired?: boolean; error?: string }>;
   isLoading: boolean;

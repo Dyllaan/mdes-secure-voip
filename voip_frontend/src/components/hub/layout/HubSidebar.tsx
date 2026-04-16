@@ -11,7 +11,7 @@ export default function HubSidebar() {
   const {
     hub, channels, memberCount, isOwner,
     channelId, activeVoiceChannelId,
-    isConnected, ephem,
+    isConnected, ephem, refreshMembers,
     onNavigateBack, onChannelClick,
     members
   } = useHubLayout();
@@ -32,6 +32,7 @@ export default function HubSidebar() {
           members={members}
           viewerIsOwner={isOwner}
           hub={hub!}
+          onMemberKicked={refreshMembers}
           trigger={
             <Button variant="outline" size="sm" className="mt-2 w-full gap-2">
               <Users className="h-3.5 w-3.5" />

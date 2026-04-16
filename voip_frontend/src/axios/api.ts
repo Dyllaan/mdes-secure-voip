@@ -101,7 +101,10 @@ function attachRefreshInterceptor(instance: typeof gateway) {
     if (response.status === 401) {
       const originalRequest = response.config;
 
-      if (originalRequest.url?.includes('/user/logout')) {
+      if (
+        originalRequest.url?.includes('/user/logout') ||
+        originalRequest.url?.includes('/user/refresh')
+      ) {
         return response;
       }
 
@@ -140,8 +143,6 @@ function attachRefreshInterceptor(instance: typeof gateway) {
   });
 }
 
-attachRefreshInterceptor(authApi);
-attachRefreshInterceptor(gateway);
 attachRefreshInterceptor(authApi);
 attachRefreshInterceptor(gateway);
 

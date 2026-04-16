@@ -104,6 +104,7 @@ export default function ChannelMessageArea() {
           <div className="border-t p-4">
             <div className="flex items-end gap-3 rounded-2xl border bg-card p-3 shadow-sm">
               <Textarea
+                data-testid="channel-message-input"
                 placeholder="Message #channel"
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
@@ -121,6 +122,7 @@ export default function ChannelMessageArea() {
               />
 
               <Button
+                data-testid="channel-message-send"
                 onClick={handleSend}
                 size="icon"
                 className="shrink-0 rounded-full"

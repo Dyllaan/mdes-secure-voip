@@ -297,7 +297,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const disableMfa = async (mfaCode: string) => {
+  const disableMfa = async (mfaCode: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await authApi.post('/mfa/disable', { code: mfaCode }, {
         validateStatus: () => true
@@ -306,12 +306,16 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       if (response.status === 200) {
         toast.success('MFA disabled successfully');
         changeUserIsMfaEnabled(false);
+        return { success: true };
       } else {
         const errorData = response.data as { cause?: string };
-        toast.error(errorData.cause || 'Failed to disable MFA');
+        const error = errorData.cause || 'Failed to disable MFA';
+        toast.error(error);
+        return { success: false, error };
       }
     } catch {
       toast.error('An unexpected error occurred');
+      return { success: false, error: 'Network error' };
     }
   };
 

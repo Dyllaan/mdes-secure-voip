@@ -113,6 +113,7 @@ function ScreensharePanel({ screenshareVisible, onShowScreenshare }: Screenshare
                     Your screen
                 </p>
                 <Button
+                    data-testid="screenshare-toggle"
                     variant={isSharing ? 'destructive' : 'outline'}
                     size="sm"
                     onClick={isSharing ? stopScreenShare : startScreenShare}
@@ -180,6 +181,7 @@ function ScreensharePanel({ screenshareVisible, onShowScreenshare }: Screenshare
 
                     {/* Viewer toggle */}
                     <Button
+                        data-testid="screenshare-viewer-toggle"
                         variant="outline"
                         size="sm"
                         className="gap-2 w-full justify-start"

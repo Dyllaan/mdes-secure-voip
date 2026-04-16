@@ -101,7 +101,7 @@ export default function VoicePanel() {
     if (!voiceChannel || !isVoiceActive) return null;
 
     return (
-        <div className="p-3 border-t space-y-2">
+        <div className="p-3 border-t space-y-2" data-testid="voice-panel">
             <div className="flex items-center gap-2">
                 <Volume2 className="h-4 w-4 text-green-400" />
                 <div className="flex-1 min-w-0">
@@ -123,6 +123,7 @@ export default function VoicePanel() {
                                 <span className="text-[11px] text-muted-foreground truncate flex-1">{alias}</span>
                                 <Volume2 className="h-3 w-3 text-muted-foreground shrink-0" />
                                 <input
+                                    data-testid={`voice-peer-volume-${peerId}`}
                                     type="range"
                                     min={0} max={1} step={0.05}
                                     value={vol}
@@ -138,6 +139,7 @@ export default function VoicePanel() {
 
             <div className="flex gap-1">
                 <Button
+                    data-testid="voice-mute-toggle"
                     size="sm"
                     variant={muted ? "destructive" : "outline"}
                     className="flex-1 gap-1.5 h-8 text-xs"
@@ -147,6 +149,7 @@ export default function VoicePanel() {
                     {muted ? 'Unmute' : 'Mute'}
                 </Button>
                 <Button
+                    data-testid="voice-disconnect"
                     size="sm"
                     variant="destructive"
                     className="flex-1 gap-1.5 h-8 text-xs"

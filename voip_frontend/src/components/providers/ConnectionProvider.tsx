@@ -7,6 +7,7 @@ import { RoomClient } from '@/utils/crypto/RoomClient';
 import { CryptKeyManager } from '@/utils/crypto/CryptKeyManager';
 import useHubApi from '@/hooks/hub/useHubApi';
 import type { HubApi } from '@/hooks/hub/useHubApi';
+import { getAppE2EHarness } from '@/testing/e2eHarness';
 
 interface ConnectionContextType {
     socket: Socket | null;
@@ -69,6 +70,7 @@ export default function ConnectionProvider({ children }: { children: React.React
 
         socketRef.current = voipSocket;
         setSocket(voipSocket);
+        getAppE2EHarness()?.registerSocket(voipSocket as never);
 
         voipSocket.on('peer-assigned', ({ peerId }: { peerId: string }) => {
             if (!cancelled) {

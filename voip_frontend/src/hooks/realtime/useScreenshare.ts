@@ -4,6 +4,7 @@ import type { MediaConnection } from "peerjs";
 import type { Socket } from "socket.io-client";
 import useIceServers from "./useIceServers";
 import { getAccessToken } from "@/axios/api";
+import { getAppE2EHarness } from "@/testing/e2eHarness";
 
 interface RemoteScreenStream {
   peerId: string;
@@ -50,6 +51,7 @@ const useScreenshare = ({
   const pendingCallsRef = useRef<Map<string, MediaConnection>>(new Map());
   const iceServers = useIceServers();
   const iceServersRef = useRef(iceServers);
+  const e2eHarness = getAppE2EHarness();
 
   useEffect(() => { currentRoomIdRef.current = currentRoomId; }, [currentRoomId]);
   useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
@@ -165,18 +167,18 @@ const useScreenshare = ({
   }, [closeRemoteScreenStream]);
 
   const stopScreenShare = useCallback(() => {
-    if (!socket || !currentRoomIdRef.current) return;
+    if (!currentRoomIdRef.current) return;
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     screenCallsRef.current.forEach(call => { try { call.close(); } catch {} });
     screenCallsRef.current.clear();
     setLocalScreenStream(null);
     setIsSharing(false);
-    socket.emit("screenshare-stopped", { roomId: currentRoomIdRef.current });
+    socket?.emit("screenshare-stopped", { roomId: currentRoomIdRef.current });
   }, [socket]);
 
   const startScreenShare = useCallback(async () => {
-    if (!socket || !currentRoomIdRef.current || !screenPeerRef.current) return;
+    if (!currentRoomIdRef.current || (!e2eHarness?.enabled && !screenPeerRef.current) || (!socket && !e2eHarness?.enabled)) return;
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30 },
@@ -185,7 +187,7 @@ const useScreenshare = ({
       localStreamRef.current = screenStream;
       setLocalScreenStream(screenStream);
       setIsSharing(true);
-      socket.emit("screenshare-started", {
+      socket?.emit("screenshare-started", {
         roomId: currentRoomIdRef.current,
         screenPeerId: screenPeerIdRef.current,
       });
@@ -195,9 +197,25 @@ const useScreenshare = ({
         console.error("Failed to start screen share:", err);
       }
     }
-  }, [socket, stopScreenShare]);
+  }, [socket, stopScreenShare, e2eHarness]);
 
   useEffect(() => {
+    if (e2eHarness?.enabled) {
+      return e2eHarness.registerScreenshareController({
+        addRemoteStream: (peerId, alias) => {
+          const stream = new MediaStream();
+          setRemoteScreenStreams(prev =>
+            prev.some(entry => entry.peerId === peerId)
+              ? prev
+              : [...prev, { peerId, alias: alias ?? peerId, stream }],
+          );
+        },
+        removeRemoteStream: (peerId) => {
+          closeRemoteScreenStream(peerId);
+        },
+      });
+    }
+
     if (!socket) return;
 
     socket.emit("request-screen-peer-id");
@@ -318,7 +336,7 @@ const useScreenshare = ({
       screenPeerRef.current = null;
       screenPeerIdRef.current = null;
     };
-  }, [socket, peerHost, peerPort, peerPath, peerSecure, answerCall, closeRemoteScreenStream, callPeerWithScreen]);
+  }, [socket, peerHost, peerPort, peerPath, peerSecure, answerCall, closeRemoteScreenStream, callPeerWithScreen, e2eHarness]);
 
   return {
     isSharing,

@@ -14,6 +14,7 @@ export default function InviteCodeButton({ inviteCode, onCreateInvite }: InviteC
                         {inviteCode}
                     </code>
                     <Button
+                        data-testid="members-copy-invite"
                         size="sm"
                         variant="ghost"
                         className="h-7 text-xs"
@@ -24,6 +25,7 @@ export default function InviteCodeButton({ inviteCode, onCreateInvite }: InviteC
                 </div>
             ) : (
                 <Button
+                    data-testid="members-generate-invite"
                     size="sm"
                     variant="ghost"
                     className="w-full text-xs text-muted-foreground"

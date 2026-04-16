@@ -31,6 +31,7 @@ import type { Hub, Member } from "@/types/hub.types";
 import InviteCodeButton from "./InviteCodeButton";
 import useHubApi from "@/hooks/hub/useHubApi";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/auth/useAuth";
 
 const ROLE_ORDER: Record<Member["role"], number> = {
   owner: 0,
@@ -80,10 +81,12 @@ function MemberRow({
     member,
     kickMember,
     viewerIsOwner,
+    viewerUserId,
     }: {
     member: Member;
     kickMember?: (memberId: string) => void;
     viewerIsOwner: boolean;
+    viewerUserId?: string;
 }) {
   const [bg, text] = avatarColor(member.username);
 
@@ -110,10 +113,11 @@ function MemberRow({
         {member.role}
       </Badge>
 
-        {kickMember && member.role !== "owner" && viewerIsOwner ? (
+        {kickMember && member.role !== "owner" && viewerIsOwner && member.userId !== viewerUserId ? (
             <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              data-testid={`member-actions-${member.id}`}
               variant="ghost"
               size="icon"
               className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -123,6 +127,7 @@ function MemberRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem
+              data-testid={`member-kick-${member.id}`}
               className="text-destructive focus:text-destructive"
               onClick={() => kickMember?.(member.id)}
             >
@@ -143,16 +148,20 @@ interface HubMembersDrawerProps {
   members: Member[];
   trigger?: React.ReactNode;
   viewerIsOwner: boolean;
+  onMemberKicked?: () => Promise<void> | void;
 }
 
 export function HubMembersDrawer({
   hub,
   members,
   trigger,
-  viewerIsOwner
+  viewerIsOwner,
+  onMemberKicked,
 }: HubMembersDrawerProps) {
   const { kickMember, createInvite } = useHubApi();
+  const { user } = useAuth();
   const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [hiddenMemberIds, setHiddenMemberIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("joinedAt-desc");
@@ -165,6 +174,7 @@ export function HubMembersDrawer({
 
   const filtered = useMemo(() => {
     let list = members.filter((m) => {
+      if (hiddenMemberIds.includes(m.id)) return false;
       const matchSearch =
         !search ||
         m.username.toLowerCase().includes(search.toLowerCase()) ||
@@ -183,7 +193,7 @@ export function HubMembersDrawer({
     });
 
     return list;
-  }, [members, search, roleFilter, sortBy]);
+  }, [members, search, roleFilter, sortBy, hiddenMemberIds]);
 
   const handleCreateInvite = async () => {
     try {
@@ -196,8 +206,11 @@ export function HubMembersDrawer({
 
   const handleKickMember = async (memberId: string) => {
     try {
+        setHiddenMemberIds(prev => prev.includes(memberId) ? prev : [...prev, memberId]);
         await kickMember(hub.id, memberId);
+        await onMemberKicked?.();
     } catch (err) {
+        setHiddenMemberIds(prev => prev.filter(id => id !== memberId));
         toast.error('Failed to kick member:');
     }
   };
@@ -286,6 +299,7 @@ export function HubMembersDrawer({
                     member={m}
                     kickMember={handleKickMember}
                     viewerIsOwner={viewerIsOwner}
+                    viewerUserId={user?.sub}
                 />
               ))}
             </div>

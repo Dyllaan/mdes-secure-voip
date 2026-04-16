@@ -23,12 +23,7 @@ export default function MfaDisableDialog({ open, onOpenChange, onComplete }: Mfa
 
   const { mfaCode, handleChange, handleSubmit, errors, isValid, isLoading } = useMfaCode({
     onSubmit: async (code) => {
-      try {
-        await disableMfa(code);
-        return { success: true };
-      } catch {
-        return { success: false, error: 'Failed to disable MFA. Please check your code and try again.' };
-      }
+      return disableMfa(code);
     },
     onSuccess: () => {
       onOpenChange(false);

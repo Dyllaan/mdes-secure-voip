@@ -6,6 +6,7 @@ import type { EphemeralMessage } from '@/types/hub.types';
 import useHubApi from './useHubApi';
 import Validator from '@/utils/validation/Validator';
 import { toast } from 'sonner';
+import { isAppE2EEnabled } from '@/testing/e2eHarness';
 
 export interface EphemeralSession {
     active: boolean;
@@ -31,6 +32,7 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
     const [expiresAt, setExpiresAt] = useState<number | null>(null);
     const [timeLeft, setTimeLeft]   = useState('');
     const validator = new Validator();
+    const e2eEnabled = isAppE2EEnabled();
 
     useEffect(() => {
         if (!hubId) return;
@@ -106,7 +108,12 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
     };
 
     const join = async () => {
-        if (!roomId || !socket || !roomClient) return;
+        if (!roomId) return;
+        if (e2eEnabled) {
+            setJoined(true);
+            return;
+        }
+        if (!socket || !roomClient) return;
         try {
             const existingUsers = await new Promise<string[]>((resolve) => {
                 socket.once('all-users', (users: { peerId: string; alias: string; userId: string }[]) => {
@@ -152,7 +159,16 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
             return;
         }
         const value = validation.value;
-        if (!roomClient || !value.trim()) return;
+        if (!value.trim()) return;
+        if (e2eEnabled) {
+            setMessages(prev => [...prev, {
+                sender: 'me',
+                message: value,
+                alias: user?.username ?? 'Me',
+            }]);
+            return;
+        }
+        if (!roomClient) return;
         try {
             await roomClient.sendMessage(value);
             setMessages(prev => [...prev, {

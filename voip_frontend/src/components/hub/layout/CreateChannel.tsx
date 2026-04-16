@@ -26,7 +26,7 @@ export default function CreateChannel() {
         if (!hub?.id || !channelValidation.valid || !channelValidation.value) return;
 
         try {
-            const created = await createChannel(channelValidation.value, newChannelType);
+            const created = await createChannel(hub.id, channelValidation.value, newChannelType);
 
             setNewChannelName('');
             setNewChannelType('text');
@@ -44,6 +44,7 @@ export default function CreateChannel() {
         <div className="p-3 border-b">
           <div className="flex gap-1">
             <Input
+              data-testid="create-channel-input"
               placeholder="New channel..."
               value={newChannelName}
               onChange={e => setNewChannelName(e.target.value)}
@@ -51,6 +52,7 @@ export default function CreateChannel() {
               className="h-8 text-xs"
             />
             <button
+              data-testid="create-channel-type-toggle"
               onClick={onNewChannelTypeToggle}
               className="h-8 px-2 rounded-md border text-muted-foreground hover:text-foreground transition-colors"
               title={`Type: ${newChannelType}`}
@@ -61,6 +63,7 @@ export default function CreateChannel() {
               }
             </button>
             <Button
+              data-testid="create-channel-submit"
               size="sm"
               className="h-8 px-2"
               onClick={onCreateChannel}

@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LogOut, MessageSquare, Send } from 'lucide-react';
-import { useEphemeralSession } from '@/hooks/hub/useEphemeralSession';
 import Validator from '@/utils/validation/Validator';
+import { isAppE2EEnabled } from '@/testing/e2eHarness';
+import { useHubLayout } from '@/contexts/HubLayoutContext';
 
 export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: { hubId: string | undefined; ephemOpen: boolean; setEphemOpen: (open: boolean) => void }) {
-    const { joined, messages, timeLeft, leave, send } = useEphemeralSession(hubId);
+    const { ephem } = useHubLayout();
+    const { joined, messages, timeLeft, leave, send } = ephem;
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const validator = new Validator();
+    const forceOpen = isAppE2EEnabled();
+    const visible = ephemOpen || forceOpen;
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -25,15 +29,16 @@ export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: {
     };
 
     return (
-        <div className={`absolute right-0 top-0 bottom-0 border-l bg-background flex flex-col shadow-xl z-10 transition-all duration-300 ${
-            ephemOpen ? 'w-80' : 'w-0'
+        <div data-testid="ephemeral-chat-panel" className={`absolute right-0 top-0 bottom-0 border-l bg-background flex flex-col shadow-xl z-10 transition-all duration-300 ${
+            visible ? 'w-80' : 'w-0'
         }`}>
             <button
+                data-testid="ephemeral-chat-toggle"
                 onClick={() => setEphemOpen(!ephemOpen)}
                 className="absolute -left-6 top-1/2 -translate-y-1/2 h-12 w-6 bg-amber-600 hover:bg-amber-700 rounded-l-md flex items-center justify-center transition-colors z-20"
             >
                 <svg
-                    className={`h-4 w-4 text-white transition-transform duration-300 ${ephemOpen ? 'rotate-0' : 'rotate-180'}`}
+                    className={`h-4 w-4 text-white transition-transform duration-300 ${visible ? 'rotate-0' : 'rotate-180'}`}
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -43,7 +48,7 @@ export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: {
                 </svg>
             </button>
 
-            {ephemOpen && (
+            {visible && (
                 <>
                     <div className="p-4 border-b flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -53,6 +58,7 @@ export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: {
                         </div>
                         <div className="group relative">
                             <Button
+                                data-testid="ephemeral-chat-leave"
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
@@ -112,6 +118,7 @@ export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: {
 
                     <div className="p-3 border-t flex gap-2">
                         <Input
+                            data-testid="ephemeral-chat-input"
                             placeholder="Ephemeral message..."
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
@@ -119,6 +126,7 @@ export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: {
                             className="flex-1 text-sm"
                         />
                         <Button
+                            data-testid="ephemeral-chat-send"
                             onClick={handleSend}
                             size="icon"
                             className="rounded-full h-9 w-9 bg-amber-600 hover:bg-amber-700"
