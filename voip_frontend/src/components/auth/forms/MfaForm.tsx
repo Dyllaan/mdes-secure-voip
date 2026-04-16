@@ -34,7 +34,7 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
             id="mfaCode"
             type="text"
             value={mfaCode}
-            onChange={handleChange}
+            onChange={(e) => handleChange(e.target.value)}
             placeholder="000000"
             disabled={isLoading}
             maxLength={8}

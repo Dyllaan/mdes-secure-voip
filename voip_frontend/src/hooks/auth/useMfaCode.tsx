@@ -32,7 +32,8 @@ export default function useMfaCode(
     const isValid = mfaCode.length === 6 && errors.length === 0;
 
     const handleChange = (code: string) => {
-        setMfaCode(code);
+        const value = code.replace(/\D/g, '');
+        setMfaCode(value);
     };
 
     async function handleSubmit(e: React.FormEvent) {

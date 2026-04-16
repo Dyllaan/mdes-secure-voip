@@ -2,7 +2,7 @@ import express, { NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import pinoHttp from 'pino-http';
-import { createProxyMiddleware, type Options } from 'http-proxy-middleware';
+import { createProxyMiddleware, fixRequestBody, type Options } from 'http-proxy-middleware';
 import type { ClientRequest, IncomingMessage } from 'http';
 import type { Socket } from 'net';
 import { randomUUID } from 'crypto';
@@ -34,6 +34,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: config.MAX_REQUEST_BODY_BYTES }));
 
+
 function makeProxy(target: string, opts: Partial<Options> = {}) {
   return createProxyMiddleware({
     target,
@@ -41,7 +42,16 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
     proxyTimeout: 5000,
     timeout: 5000,
     ...opts,
-    onError: opts.onError ?? /* istanbul ignore next */ ((err: Error, _req: Request, res: Response) => {
+    onProxyReq: (proxyReq, req) => {
+      const body = (req as Request).body;
+      if (body && Object.keys(body).length > 0) {
+        const serialised = JSON.stringify(body);
+        proxyReq.setHeader('Content-Type', 'application/json');
+        proxyReq.setHeader('Content-Length', Buffer.byteLength(serialised));
+        proxyReq.write(serialised);
+      }
+    },
+    onError: opts.onError ?? ((err: Error, _req: Request, res: Response) => {
       logger.error({ err, target }, 'Proxy error');
       res.status(503).json({ error: 'Service unavailable' });
     }),

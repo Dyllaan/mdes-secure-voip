@@ -15,9 +15,10 @@ import useMfaCode from '@/hooks/auth/useMfaCode';
 interface MfaDisableDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onComplete: () => void;
 }
 
-export default function MfaDisableDialog({ open, onOpenChange }: MfaDisableDialogProps) {
+export default function MfaDisableDialog({ open, onOpenChange, onComplete }: MfaDisableDialogProps) {
   const { disableMfa } = useAuth();
 
   const { mfaCode, handleChange, handleSubmit, errors, isValid, isLoading } = useMfaCode({
@@ -29,11 +30,14 @@ export default function MfaDisableDialog({ open, onOpenChange }: MfaDisableDialo
         return { success: false, error: 'Failed to disable MFA. Please check your code and try again.' };
       }
     },
-    onSuccess: () => onOpenChange(false),
+    onSuccess: () => {
+      onOpenChange(false);
+      onComplete();
+    },
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} >
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

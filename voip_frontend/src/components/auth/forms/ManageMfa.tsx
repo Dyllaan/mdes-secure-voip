@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/auth/useAuth";
 
 import { useState } from 'react';
 import MfaSetupDialog from '@/components/auth/dialog/MfaSetupDialog';
-import { useEffect } from 'react';
 import MfaDisableDialog from '../dialog/MfaDisableDialog';
 
 export default function ManageMfa() {
@@ -12,11 +11,6 @@ export default function ManageMfa() {
     const [showMfaSetup, setShowMfaSetup] = useState(false);
     const [showMfaDisable, setShowMfaDisable] = useState(false);
     const mfaEnabled = user?.mfaEnabled || false;
-
-    useEffect(() => {
-        console.log("MFA Enabled Status:", mfaEnabled);
-        console.log("User Data:", user);
-    }, [mfaEnabled, user]);
 
     return (
         <div title="Multi-Factor Authentication">

@@ -3,6 +3,7 @@ import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
 import type { Socket } from "socket.io-client";
 import useIceServers from "./useIceServers";
+import { getAccessToken } from "@/axios/api";
 
 interface RemoteScreenStream {
   peerId: string;
@@ -217,6 +218,7 @@ const useScreenshare = ({
           port: peerPort,
           path: peerPath,
           debug: 1,
+          token: getAccessToken() ?? '',
           config: { iceServers: iceServersRef.current },
         });
 

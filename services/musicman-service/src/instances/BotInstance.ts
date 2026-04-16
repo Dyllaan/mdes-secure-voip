@@ -83,7 +83,7 @@ export class BotInstance {
 
   protected buildIceServers(): IceServer[] {
     const primaryUrl = `${this.scheme}:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`;
-    console.log(`[Config] TURN_SECURE: ${config.TURN_SECURE} | primary TURN URL: ${primaryUrl}`);
+    console.log(`TURN_SECURE: ${config.TURN_SECURE} | primary TURN URL: ${primaryUrl}`);
     return [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
@@ -211,7 +211,7 @@ export class BotInstance {
   protected async callPeer(remotePeerId: string): Promise<void> {
     if (this.destroyed || this.conns.has(remotePeerId)) return;
     const connectionId = uuid();
-    console.log(`[Bot ${this.roomId}] → Offering to ${remotePeerId}`);
+    console.log(`${this.roomId} → Offering to ${remotePeerId}`);
 
     const conn  = this.makePc(remotePeerId, connectionId);
     const offer = await conn.pc.createOffer();

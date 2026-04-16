@@ -1,9 +1,13 @@
+/**
+ * Manages the socket connection for VoIP
+ */
 import { useState, useRef, useCallback, useEffect } from "react";
 import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
 import { optimiseBitrate } from "@/utils/realtime/OptimiseBitrate";
 import type { RemoteStream } from "@/types/voip.types";
 import useIceServers from "./useIceServers";
+import { getAccessToken } from "@/axios/api";
 
 interface PeerConfig {
   host: string;
@@ -101,6 +105,7 @@ const usePeerConnection = ({
       port: peerConfig.port,
       path: peerConfig.path,
       debug: 1,
+      token: getAccessToken() ?? '',
       config: { iceServers },
     });
 

@@ -144,3 +144,5 @@ attachRefreshInterceptor(authApi);
 attachRefreshInterceptor(gateway);
 attachRefreshInterceptor(authApi);
 attachRefreshInterceptor(gateway);
+
+export const getAccessToken = () => _accessToken;

@@ -1,50 +1,141 @@
-import { Lock } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EncryptedMessage } from '@/types/hub.types';
 
 interface MessageBubbleProps {
-    msg: EncryptedMessage;
-    isMine: boolean;
-    plaintext: string | null | undefined;
+  msg: EncryptedMessage;
+  isMine: boolean;
+  plaintext: string | null | undefined;
+  showHeader?: boolean;
 }
 
-export default function MessageBubble({ msg, isMine, plaintext }: MessageBubbleProps) {
-    const decryptionPending = plaintext === undefined;
-    const decryptionFailed  = !decryptionPending && plaintext === null;
+export default function MessageBubble({
+  msg,
+  isMine,
+  plaintext,
+  showHeader = true,
+}: MessageBubbleProps) {
+  const [expanded, setExpanded] = useState(false);
 
-    return (
-        <div className="flex justify-start">
-            <div className={cn(
-                'px-3.5 py-2 rounded-xl w-full transition-opacity',
-                isMine
-                    ? 'bg-muted/40'
-                    : 'bg-muted/80 border border-border/40',
-                decryptionFailed && 'opacity-50',
-            )}>
-                <div className="flex flex-row items-baseline justify-between gap-2 mb-0.5">
-                    <p className={cn(
-                        'text-[11px] font-medium tracking-wide',
-                        isMine ? 'text-foreground/40' : 'text-foreground/60',
-                    )}>
-                        {isMine ? 'You' : `${msg.senderId.slice(0, 8)}…`}
-                    </p>
-                    <p className="text-[10px] text-foreground/30 tabular-nums">
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                </div>
+  const decryptionPending = plaintext === undefined;
+  const decryptionFailed = !decryptionPending && plaintext === null;
+  const messageText = plaintext ?? '';
 
-                {decryptionFailed ? (
-                    <span className="flex items-center gap-1.5 text-xs italic text-foreground/40">
-                        <Lock className="h-3 w-3 shrink-0" />
-                        Encrypted with unavailable key
-                        <span className="font-mono text-[10px]">(v{msg.keyVersion})</span>
-                    </span>
-                ) : decryptionPending ? (
-                    <span className="text-xs italic text-foreground/30">Decrypting…</span>
-                ) : (
-                    <p className="text-sm leading-snug">{plaintext}</p>
-                )}
+  const shouldClamp = useMemo(() => {
+    if (decryptionPending || decryptionFailed) return false;
+    return messageText.length > 280 || messageText.split('\n').length > 6;
+  }, [decryptionPending, decryptionFailed, messageText]);
+
+  const senderLabel = isMine ? 'You' : `${msg.senderId.slice(0, 8)}…`;
+
+  const timestampLabel = useMemo(() => {
+    const date = new Date(msg.timestamp);
+    return date.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, [msg.timestamp]);
+
+  return (
+    <div
+      className={cn(
+        'group flex w-full justify-start rounded-lg px-2 py-1 transition-colors hover:bg-accent/30',
+        !showHeader && 'pt-0.5'
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        {showHeader && (
+          <div className="mb-1 flex min-w-0 items-baseline justify-between gap-3">
+            <p
+              className={cn(
+                'truncate text-[12px] font-semibold tracking-wide',
+                isMine ? 'text-foreground/55' : 'text-foreground/70'
+              )}
+            >
+              {senderLabel}
+            </p>
+
+            <p className="shrink-0 text-[10px] text-foreground/35 tabular-nums transition-colours group-hover:text-foreground/55">
+              {timestampLabel}
+            </p>
+          </div>
+        )}
+
+        {decryptionFailed ? (
+          <div
+            className={cn(
+              'rounded-xl border px-3 py-2',
+              isMine
+                ? 'border-border/30 bg-muted/30'
+                : 'border-border/40 bg-muted/60'
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/45" />
+              <div className="min-w-0">
+                <p className="text-xs italic text-foreground/55">
+                  Encrypted with unavailable key
+                </p>
+                <p className="mt-0.5 font-mono text-[10px] text-foreground/35">
+                  key version: v{msg.keyVersion}
+                </p>
+              </div>
             </div>
-        </div>
-    );
+          </div>
+        ) : decryptionPending ? (
+          <div
+            className={cn(
+              'rounded-xl px-3 py-2',
+              isMine ? 'bg-muted/20' : 'bg-muted/40'
+            )}
+          >
+            <span className="text-xs italic text-foreground/40">
+              Decrypting…
+            </span>
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'rounded-xl px-3 py-2',
+              isMine
+                ? 'bg-muted/25'
+                : 'border border-border/35 bg-muted/65',
+              !showHeader && 'ml-0'
+            )}
+          >
+            <p
+              className={cn(
+                'text-sm leading-6 text-foreground/95',
+                'whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                !expanded && shouldClamp && 'line-clamp-2'
+              )}
+            >
+              {messageText}
+            </p>
+
+            {shouldClamp && (
+              <button
+                type="button"
+                onClick={() => setExpanded((prev) => !prev)}
+                className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {expanded ? (
+                  <>
+                    <ChevronUp className="h-3.5 w-3.5" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="h-3.5 w-3.5" />
+                    Show more
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
