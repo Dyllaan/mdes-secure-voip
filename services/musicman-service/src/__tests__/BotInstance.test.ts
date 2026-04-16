@@ -40,7 +40,7 @@ jest.mock('werift', () => ({
   useOPUS: jest.fn().mockReturnValue({}),
 }));
 
-jest.mock('../AudioPipeline', () => ({
+jest.mock('../pipelines/AudioPipeline', () => ({
   AudioPipeline: jest.fn().mockImplementation(() => ({
     start: jest.fn(), stop: jest.fn(), pause: jest.fn(), resume: jest.fn(), seek: jest.fn(),
     on: jest.fn(), removeListener: jest.fn(), running: false, isPaused: false, positionMs: 0,

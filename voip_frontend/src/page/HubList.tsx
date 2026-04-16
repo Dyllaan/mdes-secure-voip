@@ -7,11 +7,17 @@ import { Plus, Server, ArrowRight, User } from 'lucide-react';
 import type { Hub } from '@/types/hub.types';
 import Logout from '@/components/auth/Logout';
 import Page from '@/components/layout/Page';
+import Validator, { type ValidationResult} from '@/utils/validation/Validator';
+import Errors from '@/components/layout/Errors';
+import mfaCodeValid from '@/utils/validation/mfaCodeValid';
+import { toast } from 'sonner';
+import useHubApi from '@/hooks/hub/useHubApi';
 
 export default function HubList() {
     const navigate = useNavigate();
-    const { hubClient, socket, channelKeyManager } = useConnection();
-    const { listHubs, createHub, redeemInvite } = hubClient;
+    const { socket, channelKeyManager } = useConnection();
+    const hubApi = useHubApi();
+    const { listHubs, createHub, redeemInvite } = hubApi;
 
     const [inviteInput, setInviteInput] = useState('');
     const [redeeming, setRedeeming] = useState(false);
@@ -19,16 +25,17 @@ export default function HubList() {
     const [newHubName, setNewHubName] = useState('');
     const [creating, setCreating] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<ValidationResult[]>([]);
+    const validator = new Validator();
 
     const fetchHubs = async () => {
         try {
             setLoading(true);
             const data = await listHubs();
             setHubs(data);
-            setError(null);
+            setError([]);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load hubs');
+            setError([{ valid: false, errors: [err instanceof Error ? err.message : 'Failed to load hubs'] }]);
         } finally {
             setLoading(false);
         }
@@ -39,21 +46,28 @@ export default function HubList() {
     }, [listHubs]);
 
     const handleCreate = async () => {
-        if (!newHubName.trim()) return;
+        const result = validator.validate("Hub", newHubName);
+        if (!result.valid) {
+            setError([result]);
+            return;
+        }
         try {
             setCreating(true);
             await createHub(newHubName.trim());
             setNewHubName('');
             await fetchHubs();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to create hub');
+            setError([{ valid: false, errors: [err instanceof Error ? err.message : 'Failed to create hub'] }]);
         } finally {
             setCreating(false);
         }
     };
 
     const handleRedeem = async () => {
-        if (!inviteInput.trim()) return;
+        if (!mfaCodeValid(inviteInput)) {
+            setError([{ valid: false, errors: ['Invalid invite code format'] }]);
+            return;
+        };
         try {
             setRedeeming(true);
             const data = await redeemInvite(inviteInput.trim());
@@ -61,8 +75,8 @@ export default function HubList() {
             await fetchHubs();
 
             if (channelKeyManager && data.hub?.id) {
-                channelKeyManager.registerWithHub(hubClient, data.hub.id)
-                    .catch(err => console.warn('[HubList] Failed to register device key with new hub:', err));
+                channelKeyManager.registerWithHub(hubApi, data.hub.id)
+                    .catch(err => toast.error("Failed to initalise encryption for new hub: " + (err instanceof Error ? err.message : 'Unknown error')));
             }
 
             if (data.hub?.id) {
@@ -71,7 +85,7 @@ export default function HubList() {
 
             navigate(`/hubs/${data.hub.id}`);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Invalid invite code');
+            setError([{ valid: false, errors: [err instanceof Error ? err.message : 'Invalid invite code'] }]);
         } finally {
             setRedeeming(false);
         }
@@ -113,7 +127,7 @@ export default function HubList() {
             </div>
 
             {error && (
-                <p data-testid="hub-error" className="text-sm text-destructive text-center">{error}</p>
+                <Errors errors={error} />
             )}
 
             <div className="space-y-2">

@@ -1,15 +1,38 @@
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Hash, Send } from 'lucide-react';
 import MessageBubble from '@/components/hub/MessageBubble';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
+import { useChannelMessages } from '@/hooks/hub/useChannelMessages';
+import { useChannelEncryption } from '@/hooks/hub/useChannelEncryption';
+import { useState } from 'react';
+import Validator from '@/utils/validation/Validator';
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/auth/useAuth';
 
 export default function ChannelMessageArea() {
 
+    const { user } = useAuth();
     const {
-        channelName, messages, decryptedMessages, hasMore,
-        messageInput, userId, onLoadOlder, onInputChange, onSend,
+        hub, channels, channelId
     } = useHubLayout();
+
+    
+    const channelName = channelId
+        ? (channels.find(c => c.id === channelId)?.name ?? 'Unknown channel')
+        : undefined;
+
+    const { messages, hasMore, loadOlderMessages, sendMessage, refreshMessages } = useChannelMessages(hub?.id, channelId);
+    const { decryptedMessages } = useChannelEncryption(hub?.id, channelId, messages, refreshMessages);
+    
+    const [messageInput, setMessageInput] = useState('');
+    const [messageValid, setMessageValid] = useState(false);
+    const validation = new Validator();
+
+
+    const handleInputChange = (value: string) => {
+        setMessageInput(value);
+        setMessageValid(validation.validate("Message", value).valid);
+    };
 
     return (
         <div className="flex-1 flex flex-col min-w-0">
@@ -25,7 +48,7 @@ export default function ChannelMessageArea() {
                         {hasMore && (
                             <button
                                 className="text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto block"
-                                onClick={onLoadOlder}
+                                onClick={loadOlderMessages}
                             >
                                 Load older messages
                             </button>
@@ -42,7 +65,7 @@ export default function ChannelMessageArea() {
                                 <MessageBubble
                                     key={msg.id}
                                     msg={msg}
-                                    isMine={msg.senderId === userId}
+                                    isMine={msg.senderId === user?.sub}
                                     plaintext={msg.id in decryptedMessages ? decryptedMessages[msg.id] : undefined}
                                 />
                             ))
@@ -52,18 +75,18 @@ export default function ChannelMessageArea() {
                     </div>
 
                     <div className="p-4 border-t flex gap-3">
-                        <Input
+                        <Textarea
                             placeholder="Type a message..."
                             value={messageInput}
-                            onChange={(e) => onInputChange(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && onSend()}
-                            className="flex-1"
+                            onChange={(e) => handleInputChange(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && sendMessage(messageInput)}
+                            className={`flex-1 border border-${messageValid ? 'primary' : 'destructive'} focus:ring-${messageValid ? 'primary' : 'destructive'}`}
                         />
                         <Button
-                            onClick={onSend}
+                            onClick={() => sendMessage(messageInput)}
                             size="icon"
                             className="rounded-full"
-                            disabled={!messageInput.trim()}
+                            disabled={!messageValid}
                         >
                             <Send className="h-5 w-5" />
                         </Button>

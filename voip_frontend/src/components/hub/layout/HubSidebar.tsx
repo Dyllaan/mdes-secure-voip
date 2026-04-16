@@ -1,28 +1,23 @@
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import VoicePanel from "@/components/voip/VoicePanel";
-import { ArrowLeft, Hash, Plus, Users, MessageSquare, Volume2 } from "lucide-react";
+import { ArrowLeft, Hash, Users, MessageSquare, Volume2 } from "lucide-react";
 import { useHubLayout } from "@/contexts/HubLayoutContext";
-import { HubMembersDrawer } from "./HubMembersDrawer";
-import MembersList from "../room/MembersList";
+import { HubMembersDrawer } from "../HubMembersDrawer";
+import MembersList from "../../room/MembersList";
 import { useVoIPContext } from "@/components/providers/VoIPProvider";
-import { useEffect } from "react";
+import CreateChannel from "./CreateChannel";
 
-export default function ChannelSidebar() {
+export default function HubSidebar() {
   const {
     hub, channels, memberCount, isOwner,
-    channelId, activeVoiceChannelId, inviteCode, onCreateInvite,
-    newChannelName, newChannelType, isConnected, ephem,
-    onNavigateBack, onChannelClick, onCreateChannel,
-    onNewChannelNameChange, onNewChannelTypeToggle,
-    members, kickMember,
+    channelId, activeVoiceChannelId,
+    isConnected, ephem,
+    onNavigateBack, onChannelClick,
+    members
   } = useHubLayout();
-
+  
   const { roomList } = useVoIPContext();
 
-  useEffect(() => {
-    console.log("Is Owner:", isOwner);
-  }, [isOwner]);
 
   return (
     <div className="w-60 border-r flex flex-col bg-muted/30">
@@ -36,10 +31,7 @@ export default function ChannelSidebar() {
         <HubMembersDrawer
           members={members}
           viewerIsOwner={isOwner}
-          kickMember={kickMember}
           hub={hub!}
-          inviteCode={inviteCode}
-          onCreateInvite={onCreateInvite}
           trigger={
             <Button variant="outline" size="sm" className="mt-2 w-full gap-2">
               <Users className="h-3.5 w-3.5" />
@@ -50,35 +42,7 @@ export default function ChannelSidebar() {
       </div>
 
       {isOwner && (
-        <div className="p-3 border-b">
-          <div className="flex gap-1">
-            <Input
-              placeholder="New channel..."
-              value={newChannelName}
-              onChange={e => onNewChannelNameChange(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && onCreateChannel()}
-              className="h-8 text-xs"
-            />
-            <button
-              onClick={onNewChannelTypeToggle}
-              className="h-8 px-2 rounded-md border text-muted-foreground hover:text-foreground transition-colors"
-              title={`Type: ${newChannelType}`}
-            >
-              {newChannelType === "text"
-                ? <Hash className="h-3 w-3" />
-                : <Volume2 className="h-3 w-3" />
-              }
-            </button>
-            <Button
-              size="sm"
-              className="h-8 px-2"
-              onClick={onCreateChannel}
-              disabled={!newChannelName.trim()}
-            >
-              <Plus className="h-3 w-3" />
-            </Button>
-          </div>
-        </div>
+        <CreateChannel />
       )}
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1">

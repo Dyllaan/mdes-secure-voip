@@ -1,10 +1,10 @@
-import ChangePasswordPage from '@/components/auth/page/ChangePassword';
+import ChangePasswordPage from '@/components/auth/forms/ChangePassword';
 import { useAuth } from "@/hooks/auth/useAuth";
 
-import ManageMfa from '@/components/auth/page/ManageMfa';
+import ManageMfa from '@/components/auth/forms/ManageMfa';
 import Logout from '@/components/auth/Logout';
 import Page from '@/components/layout/Page';
-import DeleteAccount from '@/components/auth/page/DeleteAccount';
+import DeleteAccount from '@/components/auth/forms/DeleteAccount';
 import Back from '@/components/layout/Back';
 
 export default function ProfilePage() {

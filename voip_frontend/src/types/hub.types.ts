@@ -34,6 +34,11 @@ export interface EncryptedMessage {
     timestamp: string;
 }
 
+export interface MessageHistoryResponse {
+    messages: EncryptedMessage[];
+    hasMore: boolean;
+}
+
 /** P-256 ECDH public key registered by a member's device for this hub. */
 export interface MemberDeviceKey {
     id: string;

@@ -17,7 +17,8 @@ import {
     eciesUnwrap,
 } from '@/crypto/channelCrypto';
 import { ChannelKeyNotFoundError } from '@/crypto/errors';
-import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
+import { CryptKeyStorage } from '@/utils/crypto/CryptKeyStorage';
+import type { HubApi } from '@/hooks/hub/useHubApi';
 
 interface EncryptedPayload {
     ciphertext: string;
@@ -30,14 +31,6 @@ interface KeyDistributedEvent {
     channelId: string;
     newVersion: number;
 }
-
-type HubAPI = {
-    registerDeviceKey(hubId: string, deviceId: string, publicKey: string): Promise<unknown>;
-    getDeviceKeys(hubId: string): Promise<MemberDeviceKey[]>;
-    postKeyBundles(hubId: string, payload: PostKeyBundlesPayload): Promise<unknown>;
-    getKeyBundles(hubId: string, channelId?: string): Promise<ChannelKeyBundle[]>;
-    clearRotationNeeded(hubId: string, channelId: string): Promise<unknown>;
-};
 
 export class CryptKeyManager {
     private storage: CryptKeyStorage;
@@ -57,7 +50,7 @@ export class CryptKeyManager {
         this.ecdhPublicKeySpki = ecdhPublicKeySpki;
     }
 
-    static async create(userId: string, hubAPI: HubAPI, hubIds: string[]): Promise<CryptKeyManager> {
+    static async create(userId: string, hubAPI: HubApi, hubIds: string[]): Promise<CryptKeyManager> {
         const storage = await CryptKeyStorage.open(userId);
         const deviceId = await storage.getOrCreateDeviceId();
         const { keyPair, publicKeySpki } = await storage.getOrCreateEcdhKeyPair();
@@ -83,7 +76,7 @@ export class CryptKeyManager {
         return this.ecdhPublicKeySpki;
     }
 
-    async registerWithHub(hubAPI: HubAPI, hubId: string): Promise<void> {
+    async registerWithHub(hubAPI: HubApi, hubId: string): Promise<void> {
         await hubAPI.registerDeviceKey(hubId, this.deviceId, this.ecdhPublicKeySpki);
     }
 
@@ -92,7 +85,7 @@ export class CryptKeyManager {
         hubId: string,
         senderId: string,
         plaintext: string,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
         onKeyDistributed?: (event: KeyDistributedEvent) => void,
     ): Promise<EncryptedPayload> {
         let version = await this.storage.getCurrentVersion(channelId);
@@ -127,7 +120,7 @@ export class CryptKeyManager {
         senderId: string,
         payload: EncryptedPayload,
         hubId: string,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<string | null> {
         const version = parseInt(payload.keyVersion, 10);
         if (isNaN(version)) return null;
@@ -161,7 +154,7 @@ export class CryptKeyManager {
     async syncKeyBundles(
         hubId: string,
         channelId: string | undefined,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<void> {
         const bundles: ChannelKeyBundle[] = await hubAPI.getKeyBundles(hubId, channelId);
 
@@ -189,7 +182,7 @@ export class CryptKeyManager {
     async rotateChannelKey(
         channelId: string,
         hubId: string,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<void> {
         const currentVersion = await this.storage.getCurrentVersion(channelId);
         const newVersion = (currentVersion ?? 0) + 1;
@@ -206,7 +199,7 @@ export class CryptKeyManager {
     private async generateAndDistributeKey(
         channelId: string,
         hubId: string,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<number> {
         const version = 1;
         const channelKey = await generateAesKey();
@@ -225,7 +218,7 @@ export class CryptKeyManager {
         version: number,
         channelKey: CryptoKey,
         deviceKeys: MemberDeviceKey[],
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<void> {
         const rawKey = await crypto.subtle.exportKey('raw', channelKey);
 
@@ -267,7 +260,7 @@ export class CryptKeyManager {
     async topUpChannelKey(
         channelId: string,
         hubId: string,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
         onKeyDistributed?: (event: KeyDistributedEvent) => void,
     ): Promise<void> {
         const version = await this.storage.getCurrentVersion(channelId);
@@ -288,7 +281,7 @@ export class CryptKeyManager {
         hubId: string,
         version: number,
         channelKey: CryptoKey,
-        hubAPI: HubAPI,
+        hubAPI: HubApi,
     ): Promise<boolean> {
         const [deviceKeys, existingBundles] = await Promise.all([
             hubAPI.getDeviceKeys(hubId),

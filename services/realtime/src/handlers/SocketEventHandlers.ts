@@ -29,15 +29,26 @@ class SocketEventHandlers {
     }
 
     setup(): void {
+        const lim = this.config.security;
+
+        const tamper = (event: string, socket: AuthenticatedSocket, reason: string) =>
+            console.error(`[TAMPER] event=${event} userId=${socket.userId} socketId=${socket.id} reason=${reason}`);
+
         this.io.use((socket, next) => {
             const token = socket.handshake.auth.token as string | undefined;
             if (!token) return next(new Error('Authentication required'));
+
+            const username = socket.handshake.auth.username;
+            if (typeof username !== 'string' || !username || username.length > lim.maxUsernameLength) {
+                return next(new Error('Invalid username'));
+            }
+
             try {
                 const secret = Buffer.from(this.config.jwt.secret, 'base64');
                 const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
                 const s = socket as unknown as AuthenticatedSocket;
                 s.userId = decoded.sub!;
-                s.username = socket.handshake.auth.username as string;
+                s.username = username;
                 s.token = token;
                 next();
             } catch {
@@ -95,12 +106,21 @@ class SocketEventHandlers {
             socket.on('webrtc-answer',          (d) => rl('webrtc-answer', 10, 60_000)        && this.webrtc.handleAnswer(socket, d));
             socket.on('webrtc-ice-candidate',   (d) => rl('webrtc-ice-candidate', 50, 10_000) && this.webrtc.handleIceCandidate(socket, d));
 
-
             socket.on('channel-message-sent', (d) => {
                 if (!rl('channel-message-sent', 30, 10000)) return;
                 if (typeof d?.hubId !== 'string' || !d.hubId) return;
                 if (!socket.rooms.has(`hub:${d.hubId}`)) return;
-                socket.to(`hub:${d.hubId}`).emit('channel-message-sent', d);
+                if (typeof d?.channelId !== 'string') return;
+                if (typeof d?.content !== 'string') return;
+                if (d.content.length > lim.maxChannelMessageLength) {
+                    tamper('channel-message-sent', socket, `content length ${d.content.length} exceeds limit`);
+                    return;
+                }
+                socket.to(`hub:${d.hubId}`).emit('channel-message-sent', {
+                    hubId: d.hubId,
+                    channelId: d.channelId,
+                    content: d.content,
+                });
             });
 
             socket.on('hub:join', async (hubId: unknown) => {
@@ -122,35 +142,118 @@ class SocketEventHandlers {
             socket.on('channel-created', (d) => {
                 if (!rl('channel-created', 5, 60000)) return;
                 if (typeof d?.hubId !== 'string' || !d.hubId) return;
-                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
-                socket.to(`hub:${d.hubId}`).emit('channel-created', d);
+                if (typeof d?.channelId !== 'string' || !d.channelId) return;
+                if (typeof d?.name !== 'string') return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) {
+                    tamper('channel-created', socket, `not in hub:${d.hubId}`);
+                    return;
+                }
+                if (d.name.length > lim.maxChannelNameLength) {
+                    tamper('channel-created', socket, `name length ${d.name.length} exceeds limit`);
+                    return;
+                }
+                socket.to(`hub:${d.hubId}`).emit('channel-created', {
+                    hubId: d.hubId,
+                    channelId: d.channelId,
+                    name: d.name,
+                });
             });
+
             socket.on('channel-deleted', (d) => {
                 if (!rl('channel-deleted', 5, 60000)) return;
                 if (typeof d?.hubId !== 'string' || !d.hubId) return;
-                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
-                socket.to(`hub:${d.hubId}`).emit('channel-deleted', d);
+                if (typeof d?.channelId !== 'string' || !d.channelId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) {
+                    tamper('channel-deleted', socket, `not in hub:${d.hubId}`);
+                    return;
+                }
+                socket.to(`hub:${d.hubId}`).emit('channel-deleted', {
+                    hubId: d.hubId,
+                    channelId: d.channelId,
+                });
             });
+
             socket.on('member-joined', (d) => {
                 if (!rl('member-joined', 5, 60000)) return;
                 if (typeof d?.hubId !== 'string' || !d.hubId) return;
-                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
-                socket.to(`hub:${d.hubId}`).emit('member-joined', d);
+                if (typeof d?.userId !== 'string' || !d.userId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) {
+                    tamper('member-joined', socket, `not in hub:${d.hubId}`);
+                    return;
+                }
+                socket.to(`hub:${d.hubId}`).emit('member-joined', {
+                    hubId: d.hubId,
+                    userId: d.userId,
+                });
             });
+
             socket.on('channel-key-rotated', (d) => {
                 if (!rl('channel-key-rotated', 5, 60000)) return;
                 if (typeof d?.hubId !== 'string' || !d.hubId) return;
-                if (!socket.rooms.has(`hub:${d.hubId}`)) return;
-                socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', d);
+                if (typeof d?.channelId !== 'string' || !d.channelId) return;
+                if (!socket.rooms.has(`hub:${d.hubId}`)) {
+                    tamper('channel-key-rotated', socket, `not in hub:${d.hubId}`);
+                    return;
+                }
+                socket.to(`hub:${d.hubId}`).emit('channel-key-rotated', {
+                    hubId: d.hubId,
+                    channelId: d.channelId,
+                });
             });
 
-            socket.on('musicman:track-changed', (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-changed', d); });
-            socket.on('musicman:track-ended',   (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:track-ended', d); });
-            socket.on('musicman:state-changed', (d) => { if (d?.roomId) this.io.to(d.roomId).emit('musicman:state-changed', d); });
+            socket.on('musicman:track-changed', (d) => {
+                if (!rl('musicman', 10, 10000)) return;
+                if (typeof d?.roomId !== 'string' || !socket.rooms.has(d.roomId)) {
+                    tamper('musicman:track-changed', socket, `not in room ${d?.roomId}`);
+                    return;
+                }
+                if (typeof d.title === 'string' && d.title.length > lim.maxMusicmanTitle) {
+                    tamper('musicman:track-changed', socket, `title length ${d.title.length} exceeds limit`);
+                    return;
+                }
+                if (typeof d.url === 'string' && d.url.length > lim.maxMusicmanUrl) {
+                    tamper('musicman:track-changed', socket, `url length ${d.url.length} exceeds limit`);
+                    return;
+                }
+                this.io.to(d.roomId).emit('musicman:track-changed', {
+                    roomId: d.roomId,
+                    title: typeof d.title === 'string' ? d.title : undefined,
+                    url: typeof d.url === 'string' ? d.url : undefined,
+                });
+            });
+
+            socket.on('musicman:track-ended', (d) => {
+                if (!rl('musicman', 10, 10000)) return;
+                if (typeof d?.roomId !== 'string' || !socket.rooms.has(d.roomId)) {
+                    tamper('musicman:track-ended', socket, `not in room ${d?.roomId}`);
+                    return;
+                }
+                this.io.to(d.roomId).emit('musicman:track-ended', { roomId: d.roomId });
+            });
+
+            socket.on('musicman:state-changed', (d) => {
+                if (!rl('musicman', 10, 10000)) return;
+                if (typeof d?.roomId !== 'string' || !socket.rooms.has(d.roomId)) {
+                    tamper('musicman:state-changed', socket, `not in room ${d?.roomId}`);
+                    return;
+                }
+                if (typeof d.state === 'string' && d.state.length > lim.maxMusicmanState) {
+                    tamper('musicman:state-changed', socket, `state length ${d.state.length} exceeds limit`);
+                    return;
+                }
+                this.io.to(d.roomId).emit('musicman:state-changed', {
+                    roomId: d.roomId,
+                    state: typeof d.state === 'string' ? d.state : undefined,
+                });
+            });
 
             socket.on('register-rsa-key', (d: { publicKey: string }) => {
                 if (!rl('register-rsa-key', 5, 60000)) return;
                 if (typeof d?.publicKey !== 'string' || !d.publicKey) return;
+                if (d.publicKey.length > lim.maxRsaKeySize) {
+                    tamper('register-rsa-key', socket, `publicKey length ${d.publicKey.length} exceeds limit`);
+                    return;
+                }
                 this.rsaPublicKeys.set(socket.userId, d.publicKey);
                 socket.emit('rsa-key-registered');
                 // notify everyone in the same room so they can encrypt the room key for this user
@@ -162,8 +265,15 @@ class SocketEventHandlers {
             socket.on('request-room-key', (d: { roomId: string; fromUserId: string }) => {
                 if (!rl('request-room-key', 10, 60000)) return;
                 if (typeof d?.roomId !== 'string' || typeof d?.fromUserId !== 'string') return;
+                if (!socket.rooms.has(d.roomId)) {
+                    tamper('request-room-key', socket, `not in room ${d.roomId}`);
+                    return;
+                }
                 const target = this.findSocketByUserId(d.fromUserId);
-                if (!target) return;
+                if (!target || !target.rooms.has(d.roomId)) {
+                    tamper('request-room-key', socket, `target ${d.fromUserId} not in room ${d.roomId}`);
+                    return;
+                }
                 // send the requester's public key to the target so they can wrap the room key
                 const requesterPublicKey = this.rsaPublicKeys.get(socket.userId);
                 if (requesterPublicKey) {
@@ -175,6 +285,14 @@ class SocketEventHandlers {
             socket.on('room-key-response', (d: { roomId: string; requesterId: string; encryptedKey: string; keyId: string }) => {
                 if (!rl('room-key-response', 10, 60000)) return;
                 if (typeof d?.requesterId !== 'string' || typeof d?.encryptedKey !== 'string') return;
+                if (d.encryptedKey.length > lim.maxEncryptedKeySize) {
+                    tamper('room-key-response', socket, `encryptedKey length ${d.encryptedKey.length} exceeds limit`);
+                    return;
+                }
+                if (typeof d?.keyId !== 'string' || d.keyId.length > lim.maxChatKeyId) {
+                    tamper('room-key-response', socket, `keyId length ${d.keyId?.length} exceeds limit`);
+                    return;
+                }
                 const target = this.findSocketByUserId(d.requesterId);
                 if (!target) return;
                 target.emit('room-key-response', { encryptedKey: d.encryptedKey, keyId: d.keyId });
@@ -183,6 +301,19 @@ class SocketEventHandlers {
             socket.on('room-chat-message', (d: { roomId: string; ciphertext: string; iv: string; keyId: string }) => {
                 if (!rl('room-chat-message', 30, 10000)) return;
                 if (typeof d?.roomId !== 'string' || !socket.rooms.has(d.roomId)) return;
+                if (typeof d?.ciphertext !== 'string' || typeof d?.iv !== 'string' || typeof d?.keyId !== 'string') return;
+                if (d.ciphertext.length > lim.maxChatCiphertext) {
+                    tamper('room-chat-message', socket, `ciphertext length ${d.ciphertext.length} exceeds limit`);
+                    return;
+                }
+                if (d.iv.length > lim.maxChatIv) {
+                    tamper('room-chat-message', socket, `iv length ${d.iv.length} exceeds limit`);
+                    return;
+                }
+                if (d.keyId.length > lim.maxChatKeyId) {
+                    tamper('room-chat-message', socket, `keyId length ${d.keyId.length} exceeds limit`);
+                    return;
+                }
                 socket.to(d.roomId).emit('room-chat-message', {
                     senderUserId: socket.userId,
                     senderAlias: socket.username,
@@ -194,7 +325,7 @@ class SocketEventHandlers {
                 });
             });
 
-            // Periodically re-validate room access; kick 
+            // Periodically re-validate room access; kick
             const REVALIDATION_MS = 5 * 60 * 1000;
             const revalidationTimer = setInterval(async () => {
                 if (!socket.roomId) return;
@@ -204,7 +335,7 @@ class SocketEventHandlers {
                 }
             }, REVALIDATION_MS);
 
-            // Re-verify JWT every 15 min, disconnect if expired/
+            // Re-verify JWT every 15 min, disconnect if expired
             const REAUTH_MS = 15 * 60 * 1000;
             const jwtSecret = Buffer.from(this.config.jwt.secret, 'base64');
             const reauthTimer = setInterval(() => {

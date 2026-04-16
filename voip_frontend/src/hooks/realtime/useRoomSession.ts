@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from "react";
 import type { Socket } from "socket.io-client";
-import type { RoomClient } from "@/utils/RoomClient";
+import type { RoomClient } from "@/utils/crypto/RoomClient";
 import type { UserConnectedData } from "@/types/voip.types";
 
 const BOT_ALIASES = ["musicman"];

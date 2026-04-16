@@ -95,22 +95,15 @@ function RailButton({
 interface ScreensharePanelProps {
     screenshareVisible: boolean;
     onShowScreenshare: () => void;
-    onClose: () => void;
 }
 
-function ScreensharePanel({ screenshareVisible, onShowScreenshare, onClose }: ScreensharePanelProps) {
+function ScreensharePanel({ screenshareVisible, onShowScreenshare }: ScreensharePanelProps) {
     const {
-        remoteScreenStreams,
-        localScreenStream,
-        isSharing,
-        startScreenShare,
-        stopScreenShare,
-        dismissedPeerIds,
-        restoreScreenShare,
-    } = useHubLayout();
-
-    const hasScreens = remoteScreenStreams.length > 0 || (isSharing && !!localScreenStream);
-    const totalStreams = remoteScreenStreams.length + (isSharing && localScreenStream ? 1 : 0);
+            remoteScreenStreams, localScreenStream, isSharing,
+            startScreenShare, stopScreenShare,
+            dismissedPeerIds, restoreScreenShare,
+            hasScreens, totalStreams,
+        } = useHubLayout();
 
     return (
         <div className="flex flex-col gap-4 p-4">
@@ -192,7 +185,6 @@ function ScreensharePanel({ screenshareVisible, onShowScreenshare, onClose }: Sc
                         className="gap-2 w-full justify-start"
                         onClick={() => {
                             onShowScreenshare();
-                            onClose();
                         }}
                     >
                         {screenshareVisible
@@ -315,7 +307,6 @@ export default function ActionsSidebar({ screenshareVisible, onShowScreenshare }
                     <ScreensharePanel
                         screenshareVisible={screenshareVisible}
                         onShowScreenshare={onShowScreenshare}
-                        onClose={close}
                     />
                 </SheetContent>
             </Sheet>

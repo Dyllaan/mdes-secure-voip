@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"hub-service/internal/config"
 	"hub-service/internal/db"
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
@@ -41,8 +42,13 @@ func CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "Channel name is required")
+		return
+	}
+	if len(req.Name) > config.C.MaxChannelNameLen {
+		writeError(w, http.StatusBadRequest, "Channel name too long")
 		return
 	}
 

@@ -6,8 +6,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from "@/hooks/auth/useAuth";
-
+import Validator, { type ValidationResult } from '@/utils/validation/Validator';
+import Errors from '@/components/layout/Errors';
 import MfaCodeInput from '../MfaCodeInput';
+
+const validator = new Validator();
 
 export default function ChangePasswordPage() {
     const { updatePassword, user } = useAuth();
@@ -20,13 +23,30 @@ export default function ChangePasswordPage() {
     const [isLoadingPassword, setIsLoadingPassword] = useState(false);
     const [showMfaInput, setShowMfaInput] = useState(false);
 
+    const hasInteracted = !!(currentPassword || newPassword || confirmPassword);
+
+    const validationErrors: ValidationResult[] = [];
+
+    if (newPassword) {
+        const result = validator.validate('Password', newPassword);
+        if (!result.valid) validationErrors.push(result);
+    }
+
+    if (newPassword && confirmPassword && newPassword !== confirmPassword) {
+        validationErrors.push({ valid: false, errors: ['New password and confirmation do not match'] });
+    }
+
+    if (user?.mfaEnabled && mfaCode.length > 0 && mfaCode.length < 6) {
+        validationErrors.push({ valid: false, errors: [`MFA code must be 6 digits (${mfaCode.length}/6 entered)`] });
+    }
+
+    if (user?.mfaEnabled && mfaCode.length > 0 && !/^\d+$/.test(mfaCode)) {
+        validationErrors.push({ valid: false, errors: ['MFA code must contain numbers only'] });
+    }
+
     async function handlePasswordChange(e: React.FormEvent) {
         e.preventDefault();
-
-        if (newPassword !== confirmPassword) {
-            toast.error("New password and confirmation do not match");
-            return;
-        }
+        if (validationErrors.length > 0) return;
 
         setIsLoadingPassword(true);
 
@@ -71,6 +91,7 @@ export default function ChangePasswordPage() {
                 <p className="text-sm text-muted-foreground">
                     Update your password to keep your account secure.
                 </p>
+
                 <form onSubmit={handlePasswordChange} className="space-y-4 pt-2 pb-2">
                     <div className="space-y-2">
                         <Label htmlFor="current-password">Current Password</Label>
@@ -112,7 +133,11 @@ export default function ChangePasswordPage() {
                     </div>
 
                     {user?.mfaEnabled && (
-                        <MfaCodeInput verificationCode={mfaCode} setVerificationCode={setMfaCode} isLoading={isLoadingPassword} />
+                        <MfaCodeInput
+                            verificationCode={mfaCode}
+                            setVerificationCode={setMfaCode}
+                            isLoading={isLoadingPassword}
+                        />
                     )}
 
                     {showMfaInput && !user?.mfaEnabled && (
@@ -123,7 +148,13 @@ export default function ChangePasswordPage() {
                         </div>
                     )}
 
-                    <Button type="submit" disabled={isLoadingPassword} className="w-full">
+                    {hasInteracted && <Errors errors={validationErrors} />}
+
+                    <Button
+                        type="submit"
+                        disabled={isLoadingPassword || validationErrors.length > 0}
+                        className="w-full"
+                    >
                         <Save className="w-4 h-4 mr-2" />
                         {isLoadingPassword ? 'Updating...' : 'Update Password'}
                     </Button>

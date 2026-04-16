@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/auth/useAuth";
 
 import { useConnection } from "@/components/providers/ConnectionProvider";
-import type { DecryptedRoomMessage } from "@/utils/RoomClient";
+import type { DecryptedRoomMessage } from "@/utils/crypto/RoomClient";
 import type { ChatMessage } from "@/types/voip.types";
 import type { RoomInfo } from "@/hooks/realtime/useRoomManager";
 import config from "@/config/config";

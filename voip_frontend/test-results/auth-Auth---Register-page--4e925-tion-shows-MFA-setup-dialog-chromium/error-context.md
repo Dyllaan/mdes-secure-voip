@@ -1,0 +1,52 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - main [ref=e4]:
+      - navigation [ref=e5]:
+        - link "MDES" [ref=e6] [cursor=pointer]:
+          - /url: "#/"
+        - link "GitHub" [ref=e7] [cursor=pointer]:
+          - /url: https://github.com/Dyllaan/voip_and_content_synchronisation
+          - img [ref=e8]
+          - text: GitHub
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]:
+            - img [ref=e14]
+            - text: Username
+          - textbox "Username" [ref=e17]:
+            - /placeholder: Choose a username
+            - text: newuser
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - img [ref=e20]
+            - text: Password
+          - textbox "Password" [ref=e23]:
+            - /placeholder: Create a password
+            - text: ValidPass1!
+        - generic [ref=e24]:
+          - generic [ref=e25]:
+            - img [ref=e26]
+            - text: Confirm Password
+          - textbox "Confirm Password" [ref=e29]:
+            - /placeholder: Confirm your password
+            - text: ValidPass1!
+        - button "Create Account" [ref=e30] [cursor=pointer]
+        - button "Already have an account? Sign in" [ref=e32] [cursor=pointer]
+      - generic [ref=e34]:
+        - img [ref=e36]
+        - list
+    - contentinfo [ref=e39]:
+      - generic [ref=e40]:
+        - paragraph [ref=e41]: © 2026 MDES
+        - generic [ref=e42]:
+          - link "Privacy" [ref=e43] [cursor=pointer]:
+            - /url: "#/privacy"
+          - link "Terms" [ref=e44] [cursor=pointer]:
+            - /url: "#/terms"
+          - link "GitHub" [ref=e45] [cursor=pointer]:
+            - /url: https://github.com/Dyllaan/voip_and_content_synchronisation
+  - region "Notifications alt+T"
+```

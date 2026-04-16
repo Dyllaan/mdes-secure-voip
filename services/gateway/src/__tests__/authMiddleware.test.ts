@@ -24,7 +24,7 @@ describe('requireAuth - missing or malformed header', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('returns 401 when header is "Bearer" with no token (split gives undefined)', () => {
+  it('returns 401 when header is "Bearer" with no token', () => {
     const req  = mockReq('Bearer');
     const res  = mockRes();
     const next = jest.fn();
@@ -34,8 +34,28 @@ describe('requireAuth - missing or malformed header', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('returns 401 when header is "Bearer " with empty token (falsy empty string)', () => {
+  it('returns 401 when header is "Bearer " with empty token', () => {
     const req  = mockReq('Bearer ');
+    const res  = mockRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorised' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 Unauthorised when a non-Bearer scheme is used', () => {
+    const req  = mockReq('Basic dXNlcjpwYXNz');
+    const res  = mockRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Unauthorised' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 Unauthorised when scheme is not Bearer regardless of token value', () => {
+    const req  = mockReq(`Token ${makeJwt('user-1')}`);
     const res  = mockRes();
     const next = jest.fn();
     requireAuth(req, res, next);
@@ -46,16 +66,6 @@ describe('requireAuth - missing or malformed header', () => {
 });
 
 describe('requireAuth - invalid tokens', () => {
-  it('returns 401 when wrong scheme is used ("Basic abc" - token is not a valid JWT)', () => {
-    const req  = mockReq('Basic abc');
-    const res  = mockRes();
-    const next = jest.fn();
-    requireAuth(req, res, next);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token' });
-    expect(next).not.toHaveBeenCalled();
-  });
-
   it('returns 401 with "Invalid token" for an expired token', () => {
     const req  = mockReq(`Bearer ${makeExpiredJwt('user-1')}`);
     const res  = mockRes();
@@ -73,10 +83,9 @@ describe('requireAuth - invalid tokens', () => {
     const payload = Buffer.from(JSON.stringify({ sub: 'hacker', iat: now, exp: now + 3600 })).toString('base64url');
     const sig     = createHmac('sha256', wrongSecret).update(`${header}.${payload}`).digest('base64url');
     const token   = `${header}.${payload}.${sig}`;
-
-    const req  = mockReq(`Bearer ${token}`);
-    const res  = mockRes();
-    const next = jest.fn();
+    const req     = mockReq(`Bearer ${token}`);
+    const res     = mockRes();
+    const next    = jest.fn();
     requireAuth(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token' });
@@ -94,12 +103,12 @@ describe('requireAuth - invalid tokens', () => {
   });
 
   it('returns 401 for a token with a tampered payload segment', () => {
-    const valid = makeJwt('user-tamper');
-    const parts = valid.split('.');
+    const valid    = makeJwt('user-tamper');
+    const parts    = valid.split('.');
     const tampered = `${parts[0]}.dGFtcGVyZWQ.${parts[2]}`;
-    const req  = mockReq(`Bearer ${tampered}`);
-    const res  = mockRes();
-    const next = jest.fn();
+    const req      = mockReq(`Bearer ${tampered}`);
+    const res      = mockRes();
+    const next     = jest.fn();
     requireAuth(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();

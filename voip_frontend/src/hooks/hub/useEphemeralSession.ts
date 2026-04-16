@@ -3,6 +3,9 @@ import { useAuth } from "@/hooks/auth/useAuth";
 
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EphemeralMessage } from '@/types/hub.types';
+import useHubApi from './useHubApi';
+import Validator from '@/utils/validation/Validator';
+import { toast } from 'sonner';
 
 export interface EphemeralSession {
     active: boolean;
@@ -18,8 +21,8 @@ export interface EphemeralSession {
 
 export function useEphemeralSession(hubId: string | undefined): EphemeralSession {
     const { user } = useAuth();
-    const { socket, roomClient, hubClient } = useConnection();
-    const { startEphemeral, getEphemeral, endEphemeral } = hubClient;
+    const { socket, roomClient } = useConnection();
+    const { startEphemeral, getEphemeral, endEphemeral } = useHubApi();
 
     const [roomId, setRoomId]       = useState<string | null>(null);
     const [active, setActive]       = useState(false);
@@ -27,6 +30,7 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
     const [messages, setMessages]   = useState<EphemeralMessage[]>([]);
     const [expiresAt, setExpiresAt] = useState<number | null>(null);
     const [timeLeft, setTimeLeft]   = useState('');
+    const validator = new Validator();
 
     useEffect(() => {
         if (!hubId) return;
@@ -142,12 +146,18 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
     };
 
     const send = async (text: string) => {
-        if (!roomClient || !text.trim()) return;
+        const validation = validator.validate("Message", text);
+        if (!validation.valid || !validation.value) {
+            toast.error('Message validation failed: ' + validation.errors.join(', '));
+            return;
+        }
+        const value = validation.value;
+        if (!roomClient || !value.trim()) return;
         try {
-            await roomClient.sendMessage(text.trim());
+            await roomClient.sendMessage(value);
             setMessages(prev => [...prev, {
                 sender: 'me',
-                message: text.trim(),
+                message: value,
                 alias: user?.username ?? 'Me',
             }]);
         } catch (err) {

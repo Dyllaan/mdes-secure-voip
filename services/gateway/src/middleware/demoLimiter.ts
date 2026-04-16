@@ -1,7 +1,3 @@
-/**
- * Ensures the demo at Mdes.sh is not used indefinitely.
- */
-
 import { type Request, type Response, type NextFunction } from 'express';
 import { redis } from '../redis';
 import { config, logger } from '../config/config';
@@ -15,14 +11,28 @@ function keys(uid: string) {
   };
 }
 
+function redisConnected(): boolean {
+  return (redis as { isOpen?: boolean }).isOpen !== false;
+}
+
 export async function onLogin(uid: string): Promise<void> {
+  if (!redisConnected()) {
+    logger.warn({ uid }, 'Skipping demo onLogin because Redis is not connected');
+    return;
+  }
+
   const k = keys(uid);
   const nowSec = Math.floor(Date.now() / 1000);
   await redis.set(k.start, nowSec);
-  await redis.setnx(k.used, 0); // only initialises if absent
+  await redis.set(k.used, 0, { NX: true });
 }
 
 export async function onLogout(uid: string): Promise<void> {
+  if (!redisConnected()) {
+    logger.warn({ uid }, 'Skipping demo onLogout because Redis is not connected');
+    return;
+  }
+
   const k = keys(uid);
   const startRaw = await redis.get(k.start);
   if (!startRaw) return;
@@ -37,26 +47,37 @@ export async function demoGuard(
   res: Response,
   next: NextFunction
 ): Promise<void> {
-  if (!process.env.DEMO_MODE) return next();
+  if (!config.DEMO_MODE) return next();
 
   const uid: string = (req.user as any).sub;
-  const k = keys(uid);
+  if (config.UNRESTRICTED_USERNAMES.has(uid)) return next();
 
-  const [usedRaw, startRaw] = await Promise.all([
-    redis.get(k.used),
-    redis.get(k.start),
-  ]);
-
-  const used = parseInt(usedRaw ?? '0', 10);
-  const delta = startRaw
-    ? Math.floor(Date.now() / 1000) - parseInt(startRaw, 10)
-    : 0;
-
-  if (used + delta >= DEMO_LIMIT_SECONDS) {
-    logger.info({ uid, used, delta }, 'Demo limit reached for user');
-    res.status(403).json({ error: 'Demo limit reached', code: 'DEMO_EXPIRED' });
-    return;
+  if (!redisConnected()) {
+    logger.warn({ uid }, 'Skipping demoGuard because Redis is not connected');
+    return next();
   }
 
-  next();
+  try {
+    const k = keys(uid);
+    const [usedRaw, startRaw] = await Promise.all([
+      redis.get(k.used),
+      redis.get(k.start),
+    ]);
+
+    const used = parseInt(usedRaw ?? '0', 10);
+    const delta = startRaw
+      ? Math.floor(Date.now() / 1000) - parseInt(startRaw, 10)
+      : 0;
+
+    if (used + delta >= DEMO_LIMIT_SECONDS) {
+      logger.info({ uid, used, delta }, 'Demo limit reached for user');
+      res.status(403).json({ error: 'Demo limit reached', code: 'DEMO_EXPIRED' });
+      return;
+    }
+
+    next();
+  } catch (err) {
+    logger.error({ err, uid }, 'demoGuard failed, allowing request');
+    next();
+  }
 }

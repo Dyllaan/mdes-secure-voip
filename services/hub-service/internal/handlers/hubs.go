@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"hub-service/internal/config"
 	"hub-service/internal/db"
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
@@ -25,8 +27,13 @@ func CreateHub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "Hub name is required")
+		return
+	}
+	if len(req.Name) > config.C.MaxHubNameLen {
+		writeError(w, http.StatusBadRequest, "Hub name too long")
 		return
 	}
 

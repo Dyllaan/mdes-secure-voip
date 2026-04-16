@@ -1,57 +1,30 @@
 import { useState } from 'react';
 import { ArrowLeft, KeyRound } from 'lucide-react';
 import { useAuth } from "@/hooks/auth/useAuth";
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { toast } from 'sonner';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Errors from '@/components/layout/Errors';
+import useMfaCode from '@/hooks/auth/useMfaCode';
 
 interface MfaFormProps {
   onSuccess: () => void;
 }
 
 export default function MfaForm({ onSuccess }: MfaFormProps) {
-  const [mfaCode, setMfaCode] = useState('');
   const [trustDevice, setTrustDevice] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const { verifyMfa, logout } = useAuth();
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setIsLoading(true);
-    
-    try {
-      const result = await verifyMfa(mfaCode, trustDevice);
-      
-      if (result.success) {
-        onSuccess();
-      } else {
-        toast.error(result.error || 'Invalid authentication code');
-        setMfaCode('');
-      }
-    } catch (error) {
-      console.error('MFA verification failed:', error);
-      toast.error('An unexpected error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  const handleBack = () => {
-    logout();
-  };
+  const { mfaCode, handleSubmit, handleChange, errors, isValid, isLoading } = useMfaCode({
+    onSubmit: verifyMfa,
+    trustDevice,
+    onSuccess,
+  });
 
   return (
+    <>
       <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-        {/* MFA Code Input */}
         <div className="space-y-2">
           <Label htmlFor="mfaCode" className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-muted-foreground" />
@@ -61,9 +34,8 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
             id="mfaCode"
             type="text"
             value={mfaCode}
-            onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+            onChange={handleChange}
             placeholder="000000"
-            required
             disabled={isLoading}
             maxLength={8}
             autoComplete="one-time-code"
@@ -71,13 +43,11 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
             className="text-center text-2xl tracking-widest font-mono"
           />
         </div>
-
-        {/* Trust Device Checkbox */}
         <div className="flex items-center space-x-2 pt-2">
-          <Checkbox 
-            id="trustDevice" 
+          <Checkbox
+            id="trustDevice"
             checked={trustDevice}
-            onCheckedChange={(checked: boolean) => setTrustDevice(checked as boolean)}
+            onCheckedChange={(checked) => setTrustDevice(checked as boolean)}
             disabled={isLoading}
           />
           <label
@@ -87,8 +57,6 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
             Trust this device for 30 days
           </label>
         </div>
-
-        {/* Info Card */}
         <Card className="bg-muted/50 border-muted">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium">Need help?</CardTitle>
@@ -99,21 +67,17 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
             <p>• Codes refresh every 30 seconds</p>
           </CardContent>
         </Card>
-
-        {/* Submit Button */}
         <Button
           type="submit"
-          disabled={isLoading || mfaCode.length < 6}
+          disabled={isLoading || !isValid}
           className="w-full mt-6"
         >
           {isLoading ? 'Verifying...' : 'Verify Code'}
         </Button>
-
-        {/* Back to Login */}
         <Button
           type="button"
           variant="ghost"
-          onClick={handleBack}
+          onClick={logout}
           disabled={isLoading}
           className="w-full"
         >
@@ -121,5 +85,7 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
           Back to Login
         </Button>
       </form>
+      <Errors errors={errors} />
+    </>
   );
 }

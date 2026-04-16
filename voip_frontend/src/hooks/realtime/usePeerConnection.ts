@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
-import { optimiseBitrate } from "@/utils/OptimiseBitrate";
+import { optimiseBitrate } from "@/utils/realtime/OptimiseBitrate";
 import type { RemoteStream } from "@/types/voip.types";
 import useIceServers from "./useIceServers";
 

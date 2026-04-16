@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { Shield } from 'lucide-react';
 import { useAuth } from "@/hooks/auth/useAuth";
-
 import {
   Dialog,
   DialogContent,
@@ -10,35 +8,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import Errors from '@/components/layout/Errors';
 import MfaCodeInput from '../MfaCodeInput';
+import useMfaCode from '@/hooks/auth/useMfaCode';
 
 interface MfaDisableDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onComplete?: () => void;
 }
 
-export default function MfaDisableDialog({ 
-  open, 
-  onOpenChange, 
-}: MfaDisableDialogProps) {
-  const [verificationCode, setVerificationCode] = useState('');
+export default function MfaDisableDialog({ open, onOpenChange }: MfaDisableDialogProps) {
   const { disableMfa } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
 
-    const handleDisableMfa = async () => {
-        setIsLoading(true);
-        try {
-            await disableMfa(verificationCode);
-            setVerificationCode('');
-            onOpenChange(false);
-        } catch {
-            toast.error('Failed to disable MFA. Please check your code and try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    }
+  const { mfaCode, handleChange, handleSubmit, errors, isValid, isLoading } = useMfaCode({
+    onSubmit: async (code) => {
+      try {
+        await disableMfa(code);
+        return { success: true };
+      } catch {
+        return { success: false, error: 'Failed to disable MFA. Please check your code and try again.' };
+      }
+    },
+    onSuccess: () => onOpenChange(false),
+  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -49,21 +41,20 @@ export default function MfaDisableDialog({
             Disable Two-Factor Authentication
           </DialogTitle>
           <DialogDescription>
-             Enter your verification code
+            Enter your verification code
           </DialogDescription>
         </DialogHeader>
-          <div className="space-y-4">
-            <MfaCodeInput verificationCode={verificationCode} setVerificationCode={setVerificationCode} isLoading={isLoading} />
-
-            <Button
-              onClick={handleDisableMfa}
-              disabled={isLoading || verificationCode.length !== 6}
-              className="w-full"
-              type="button"
-            >
-              Verify & Disable
-            </Button>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <MfaCodeInput verificationCode={mfaCode} setVerificationCode={handleChange} isLoading={isLoading} />
+          <Errors errors={errors} />
+          <Button
+            type="submit"
+            disabled={isLoading || !isValid}
+            className="w-full"
+          >
+            Verify & Disable
+          </Button>
+        </form>
       </DialogContent>
     </Dialog>
   );

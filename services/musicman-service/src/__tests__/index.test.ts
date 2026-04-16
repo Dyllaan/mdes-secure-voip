@@ -16,6 +16,7 @@ const mockBotFactory = (_roomId: string, url: string) => ({
     seek:                 jest.fn(),
     changeTrack:          jest.fn(),
     setAutoLeaveCallback: jest.fn(),
+    videoMode:            false,
     getStatus:            jest.fn().mockReturnValue({
         playing: true, paused: false, positionMs: 1000, url, videoMode: false,
     }),
@@ -265,6 +266,16 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(400);
         });
 
+        it('should return 400 when seconds is a string', async () => {
+            const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'room1', seconds: 'thirty' });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when seconds is Infinity', async () => {
+            const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'room1', seconds: Infinity });
+            expect(res.status).toBe(400);
+        });
+
         it('should return 404 when no bot in room', async () => {
             const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'no-bot', seconds: 30 });
             expect(res.status).toBe(404);
@@ -381,6 +392,68 @@ describe('Express routes (index.ts)', () => {
             const res = await request(app).post('/join').set(headers)
                 .send({ roomId: `rl-room-5-${Math.random()}`, url: ALLOWED_URL });
             expect(res.status).toBe(429);
+        });
+    });
+
+    describe('POST /resolve', () => {
+        it('should return 401 when unauthenticated', async () => {
+            const res = await request(app).post('/resolve').send({ url: ALLOWED_URL });
+            expect(res.status).toBe(401);
+        });
+
+        it('should return 400 when url is missing', async () => {
+            const res = await request(app).post('/resolve').set(authHeader()).send({});
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 for disallowed domain', async () => {
+            const res = await request(app).post('/resolve').set(authHeader()).send({ url: DISALLOWED_URL });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when url exceeds max length', async () => {
+            const res = await request(app).post('/resolve').set(authHeader())
+                .send({ url: 'https://youtube.com/' + 'a'.repeat(2048) });
+            expect(res.status).toBe(400);
+        });
+    });
+
+    describe('Input length and type validation', () => {
+        it('should return 400 when roomId exceeds 128 chars on /join', async () => {
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when url exceeds 2048 chars on /join', async () => {
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId: 'room1', url: 'https://youtube.com/' + 'a'.repeat(2048) });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when roomId exceeds 128 chars on /play', async () => {
+            const res = await request(app).post('/play').set(authHeader())
+                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when seconds is a string on /seek', async () => {
+            const res = await request(app).post('/seek').set(authHeader())
+                .send({ roomId: 'room1', seconds: 'thirty' });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when seconds is Infinity on /seek', async () => {
+            const res = await request(app).post('/seek').set(authHeader())
+                .send({ roomId: 'room1', seconds: Infinity });
+            expect(res.status).toBe(400);
+        });
+
+        it('should treat non-boolean videoMode as false on /join', async () => {
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId: `room-vm-${Math.random()}`, url: ALLOWED_URL, videoMode: 'yes' });
+            expect(res.status).toBe(200);
+            expect(res.body.videoMode).toBe(false);
         });
     });
 });

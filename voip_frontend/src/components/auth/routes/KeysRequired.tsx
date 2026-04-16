@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
+import { CryptKeyStorage } from '@/utils/crypto/CryptKeyStorage';
 import { useAuth } from '@/hooks/auth/useAuth';
 import KeyErrorPage from '@/components/layout/KeyErrorPage';
 import { Navigate, Outlet } from 'react-router-dom';

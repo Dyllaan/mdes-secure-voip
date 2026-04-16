@@ -32,6 +32,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }));
+app.use(express.json({ limit: config.MAX_REQUEST_BODY_BYTES }));
 
 function makeProxy(target: string, opts: Partial<Options> = {}) {
   return createProxyMiddleware({
@@ -47,8 +48,7 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
   });
 }
 
-
-app.get('/health', async (_req: Request, res: Response) => {
+app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
   const services: Record<string, string> = {
     auth:     config.AUTH_SERVICE_URL,
     realtime: config.REALTIME_SERVICE_URL,
@@ -87,24 +87,37 @@ app.get('/health', async (_req: Request, res: Response) => {
 
 app.post('/auth/user/login',
   authLimiter,
-  express.json(),
-  async (req: Request, res: Response, next: NextFunction) => {
-    if (!process.env.DEMO_MODE) return next();
+  async (req: Request, res: Response) => {
+    const { username, password } = req.body ?? {};
+
+    if (typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+    if (username.length > 64 || password.length > 128) {
+      return res.status(400).json({ error: 'Field length exceeded' });
+    }
+
     try {
-      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/login`, {
+      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
       });
-      const body = await upstream.json() as Record<string, unknown>;
+
+      const text = await upstream.text();
+      const body = text ? JSON.parse(text) : {};
+
       if (upstream.ok && body.accessToken) {
         const payload = verify(body.accessToken as string) as { sub: string };
-        await onLogin(payload.sub);
+        if (config.DEMO_MODE) {
+          await onLogin(payload.sub);
+        }
       }
-      res.status(upstream.status).json(body);
+
+      return res.status(upstream.status).json(body);
     } catch (err) {
       logger.error({ err }, 'Login proxy error');
-      res.status(503).json({ error: 'Auth service unavailable' });
+      return res.status(503).json({ error: 'Auth service unavailable' });
     }
   },
 );
@@ -112,7 +125,7 @@ app.post('/auth/user/login',
 app.post('/auth/user/logout',
   requireAuth,
   async (req: Request, res: Response, next: NextFunction) => {
-    if (process.env.DEMO_MODE) {
+    if (config.DEMO_MODE) {
       await onLogout((req.user as { sub: string }).sub).catch(
         (err) => logger.error({ err }, 'demoLimiter onLogout failed')
       );
@@ -123,36 +136,44 @@ app.post('/auth/user/logout',
 
 app.post('/auth/user/refresh',
   authLimiter,
-  express.json(),
-  async (req: Request, res: Response, next: NextFunction) => {
-    if (!process.env.DEMO_MODE) return next();
+  async (req: Request, res: Response) => {
+    const { refreshToken } = req.body ?? {};
+
+    if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
     try {
-      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/refresh`, {
+      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
       });
-      const body = await upstream.json() as Record<string, unknown>;
+
+      const text = await upstream.text();
+      const body = text ? JSON.parse(text) : {};
+
       if (upstream.ok && body.accessToken) {
         const payload = verify(body.accessToken as string) as { sub: string };
-        await onLogin(payload.sub);
+        if (config.DEMO_MODE) {
+          await onLogin(payload.sub);
+        }
       }
-      res.status(upstream.status).json(body);
+
+      return res.status(upstream.status).json(body);
     } catch (err) {
       logger.error({ err }, 'Refresh proxy error');
-      res.status(503).json({ error: 'Auth service unavailable' });
+      return res.status(503).json({ error: 'Auth service unavailable' });
     }
   },
 );
 
-// catch-all for all other /auth routes
 app.use('/auth',
   authLimiter,
   circuitBreaker(breakers.auth, 'Auth'),
   makeProxy(config.AUTH_SERVICE_URL, {
     pathRewrite: { '^/auth': '' },
     onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
-      breakers.auth.open();
       logger.error({ err }, 'Auth service error');
       res.status(503).json({ error: 'Auth service unavailable' });
     },
@@ -202,8 +223,6 @@ app.use('/musicman',
   }),
 );
 
-
-
 const socketIoProxy = makeProxy(config.REALTIME_SERVICE_URL, {
   ws: true,
   logLevel: 'silent',
@@ -213,7 +232,7 @@ const socketIoProxy = makeProxy(config.REALTIME_SERVICE_URL, {
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'Socket.IO proxy error'),
 });
-app.use('/socket.io', requireAuth, demoGuard, socketIoProxy);
+app.use('/socket.io', socketIoProxy);
 
 const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   ws: true,
@@ -224,7 +243,7 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
 });
-app.use('/peerjs', requireAuth, demoGuard, peerJsProxy);
+app.use('/peerjs', peerJsProxy);
 
 app.get('/turn-credentials', generalLimiter, requireAuth, demoGuard, turnCredentials);
 

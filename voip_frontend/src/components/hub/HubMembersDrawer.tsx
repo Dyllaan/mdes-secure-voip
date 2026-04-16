@@ -29,6 +29,8 @@ import { Users, Search, MoreHorizontal, UserMinus } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import type { Hub, Member } from "@/types/hub.types";
 import InviteCodeButton from "./InviteCodeButton";
+import useHubApi from "@/hooks/hub/useHubApi";
+import { toast } from "sonner";
 
 const ROLE_ORDER: Record<Member["role"], number> = {
   owner: 0,
@@ -140,22 +142,17 @@ interface HubMembersDrawerProps {
   hub: Hub;
   members: Member[];
   trigger?: React.ReactNode;
-  kickMember: (memberId: string) => void;
-  inviteCode: string | null;
-  onCreateInvite: () => void;
   viewerIsOwner: boolean;
 }
 
 export function HubMembersDrawer({
-    hub,
-    members,
-    trigger,
-    kickMember,
-    inviteCode,
-    onCreateInvite,
-    viewerIsOwner
-
+  hub,
+  members,
+  trigger,
+  viewerIsOwner
 }: HubMembersDrawerProps) {
+  const { kickMember, createInvite } = useHubApi();
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("joinedAt-desc");
@@ -187,6 +184,23 @@ export function HubMembersDrawer({
 
     return list;
   }, [members, search, roleFilter, sortBy]);
+
+  const handleCreateInvite = async () => {
+    try {
+        const data = await createInvite(hub!.id);
+        if (data) setInviteCode(data.code);
+    } catch (err) {
+        toast.error('Failed to create invite');
+    }
+  };
+
+  const handleKickMember = async (memberId: string) => {
+    try {
+        await kickMember(hub.id, memberId);
+    } catch (err) {
+        toast.error('Failed to kick member:');
+    }
+  };
 
   return (
     <Sheet>
@@ -270,7 +284,7 @@ export function HubMembersDrawer({
                 <MemberRow
                     key={m.id}
                     member={m}
-                    kickMember={kickMember}
+                    kickMember={handleKickMember}
                     viewerIsOwner={viewerIsOwner}
                 />
               ))}
@@ -281,7 +295,7 @@ export function HubMembersDrawer({
         <Separator />
 
         <div className="px-5 py-3">
-          <InviteCodeButton inviteCode={inviteCode} onCreateInvite={onCreateInvite} />
+          <InviteCodeButton inviteCode={inviteCode} onCreateInvite={handleCreateInvite} />
         </div>
       </SheetContent>
     </Sheet>

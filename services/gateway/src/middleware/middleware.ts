@@ -48,6 +48,7 @@ export const breakers = {
 export function circuitBreaker(breaker: typeof breakers.auth, serviceName: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (breaker.opened) {
+      logger.warn({ service: serviceName }, 'Circuit breaker is open, rejecting request');
       return res.status(503).json({ error: `${serviceName} is currently unavailable, try again shortly` });
     }
     next();

@@ -8,7 +8,7 @@ import { createRouter } from './http/Routes';
 export const app = express();
 const bots = new Map<string, BotInstance>();
 
-app.use(express.json());
+app.use(express.json({ limit: '4kb' }));
 app.use(createRouter(bots));
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

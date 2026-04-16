@@ -180,6 +180,17 @@ function makeBotInstance(roomId: string, url: string, videoMode: boolean): BotIn
         : new BotInstance(roomId, url, token, creds);
 }
 
+const MAX_URL_LENGTH    = 2048;
+const MAX_ID_LENGTH     = 128;
+
+function isValidId(id: unknown): id is string {
+    return typeof id === 'string' && id.length > 0 && id.length <= MAX_ID_LENGTH;
+}
+
+function isValidUrl(url: unknown): url is string {
+    return typeof url === 'string' && url.length > 0 && url.length <= MAX_URL_LENGTH;
+}
+
 export function createRouter(bots: Map<string, BotInstance>): Router {
     const router = express.Router();
 
@@ -189,7 +200,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
         const { hubId } = req.body as { hubId?: string };
-        if (!hubId) return res.status(400).json({ error: 'hubId is required' });
+        if (!isValidId(hubId)) return res.status(400).json({ error: 'hubId is required' });
 
         let token: string;
         try {
@@ -208,12 +219,11 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
     });
 
     router.post('/join', async (req: Request, res: Response) => {
-        const { roomId, url, videoMode = false } =
-            req.body as { roomId?: string; url?: string; videoMode?: boolean };
+        const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
 
-        if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
-        if (!url) return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url)) return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
+        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
 
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
@@ -227,7 +237,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
             return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
         }
 
-        const resolvedVideoMode = resolveVideoMode(url, videoMode);
+        const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
 
         const bot = makeBotInstance(roomId, url, resolvedVideoMode);
         bot.setAutoLeaveCallback(() => { bot.destroy(); bots.delete(roomId); });
@@ -245,12 +255,11 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
     });
 
     router.post('/play', async (req: Request, res: Response) => {
-        const { roomId, url, videoMode = false } =
-            req.body as { roomId?: string; url?: string; videoMode?: boolean };
+        const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
 
-        if (!roomId)     return res.status(400).json({ error: 'roomId is required' });
-        if (!url) return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url)) return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
+        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
 
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
@@ -260,7 +269,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
             return res.status(403).json({ error: 'Not a member of this room' });
         }
 
-        const resolvedVideoMode = resolveVideoMode(url, videoMode);
+        const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
 
         const existing = bots.get(roomId);
         if (existing) {
@@ -294,7 +303,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
-        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -308,7 +317,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
-        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -321,7 +330,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
-        if (!roomId) return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -333,9 +342,9 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
     router.post('/seek', (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
-        const { roomId, seconds } = req.body as { roomId?: string; seconds?: number };
-        if (!roomId)              return res.status(400).json({ error: 'roomId is required' });
-        if (seconds === undefined) return res.status(400).json({ error: 'seconds is required' });
+        const { roomId, seconds } = req.body as { roomId?: string; seconds?: unknown };
+        if (!isValidId(roomId))                                     return res.status(400).json({ error: 'roomId is required' });
+        if (typeof seconds !== 'number' || !isFinite(seconds))      return res.status(400).json({ error: 'seconds must be a finite number' });
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -346,10 +355,11 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
 
     router.post('/resolve', async (req: Request, res: Response) => {
         const { url } = req.body as { url?: string };
-        if (!url) return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url)) return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
+        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
 
         const userId = extractUserId(req.headers.authorization);
+        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
         if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
         try {

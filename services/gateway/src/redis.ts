@@ -9,5 +9,6 @@ export const redis = createClient({ url: config.REDIS_URL });
 redis.on('error', (err) => console.error({ err }, 'Redis error'));
 
 export async function connectRedis(): Promise<void> {
+  if (redis.isOpen) return;
   await redis.connect();
 }

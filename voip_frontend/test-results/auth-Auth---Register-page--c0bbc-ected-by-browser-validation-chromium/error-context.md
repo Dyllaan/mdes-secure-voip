@@ -1,0 +1,56 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - main [ref=e4]:
+      - navigation [ref=e5]:
+        - link "MDES" [ref=e6] [cursor=pointer]:
+          - /url: "#/"
+        - link "GitHub" [ref=e7] [cursor=pointer]:
+          - /url: https://github.com/Dyllaan/voip_and_content_synchronisation
+          - img [ref=e8]
+          - text: GitHub
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - generic [ref=e13]:
+            - img [ref=e14]
+            - text: Username
+          - textbox "Username" [ref=e17]:
+            - /placeholder: Choose a username
+            - text: newuser
+        - generic [ref=e18]:
+          - generic [ref=e19]:
+            - img [ref=e20]
+            - text: Password
+          - textbox "Password" [ref=e23]:
+            - /placeholder: Create a password
+            - text: short
+        - generic [ref=e24]:
+          - generic [ref=e25]:
+            - img [ref=e26]
+            - text: Confirm Password
+          - textbox "Confirm Password" [active] [ref=e29]:
+            - /placeholder: Confirm your password
+            - text: short
+        - button "Create Account" [disabled]
+        - button "Already have an account? Sign in" [ref=e31] [cursor=pointer]
+      - generic [ref=e33]:
+        - img [ref=e35]
+        - list [ref=e37]:
+          - listitem [ref=e38]: Password is too short
+          - listitem [ref=e39]: Password must contain at least one uppercase letter
+          - listitem [ref=e40]: Password must contain at least one digit
+          - listitem [ref=e41]: Password must be at least 8 characters
+    - contentinfo [ref=e42]:
+      - generic [ref=e43]:
+        - paragraph [ref=e44]: © 2026 MDES
+        - generic [ref=e45]:
+          - link "Privacy" [ref=e46] [cursor=pointer]:
+            - /url: "#/privacy"
+          - link "Terms" [ref=e47] [cursor=pointer]:
+            - /url: "#/terms"
+          - link "GitHub" [ref=e48] [cursor=pointer]:
+            - /url: https://github.com/Dyllaan/voip_and_content_synchronisation
+  - region "Notifications alt+T"
+```

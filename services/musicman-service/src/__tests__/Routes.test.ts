@@ -23,7 +23,7 @@ function makeJwt(sub: string, expiresInSecs = 3600): string {
         sub,
         exp: Math.floor(Date.now() / 1000) + expiresInSecs,
     })).toString('base64url');
-    const secret = Buffer.from('test-secret');
+    const secret = Buffer.from(Buffer.from('test-secret').toString('base64'), 'base64');
     const sig    = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
     return `${header}.${payload}.${sig}`;
 }
@@ -42,6 +42,7 @@ function mockBot(overrides: Partial<BotInstance> = {}): BotInstance & AVBotInsta
         changeTrack:          jest.fn(),
         getStatus:            jest.fn().mockReturnValue({ playing: true }),
         setAutoLeaveCallback: jest.fn(),
+        videoMode:            false,
         ...overrides,
     } as unknown as BotInstance & AVBotInstance;
 }
@@ -88,6 +89,13 @@ describe('POST /hub/join', () => {
             .set('Authorization', authHeader())
             .send({ hubId: 'h1' })
             .expect(403);
+    });
+
+    it('returns 400 when hubId exceeds max length', async () => {
+        await request(app).post('/hub/join')
+            .set('Authorization', authHeader())
+            .send({ hubId: 'a'.repeat(129) })
+            .expect(400);
     });
 });
 
@@ -172,6 +180,30 @@ describe('POST /join', () => {
             .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
             .expect(500);
         expect(bots.has('r1')).toBe(false);
+    });
+
+    it('returns 400 when roomId exceeds max length', async () => {
+        await request(app).post('/join')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'a'.repeat(129), url: 'https://youtube.com/watch?v=abc' })
+            .expect(400);
+    });
+
+    it('returns 400 when url exceeds max length', async () => {
+        await request(app).post('/join')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1', url: 'https://youtube.com/' + 'a'.repeat(2048) })
+            .expect(400);
+    });
+
+    it('ignores truthy non-boolean videoMode and treats it as false', async () => {
+        const res = await request(app).post('/join')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc', videoMode: 'yes' })
+            .expect(200);
+        expect(res.body.videoMode).toBe(false);
+        expect(BotInstance).toHaveBeenCalled();
+        expect(AVBotInstance).not.toHaveBeenCalled();
     });
 });
 
@@ -380,11 +412,31 @@ describe('POST /seek', () => {
             .expect(200);
         expect(bot.seek).toHaveBeenCalledWith(0);
     });
+
+    it('returns 400 when seconds is a string', async () => {
+        await request(app).post('/seek')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1', seconds: 'thirty' })
+            .expect(400);
+    });
+
+    it('returns 400 when seconds is Infinity', async () => {
+        await request(app).post('/seek')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1', seconds: Infinity })
+            .expect(400);
+    });
 });
 
 // ── /resolve ───────────────────────────────────────────────────────────────────
 
 describe('POST /resolve', () => {
+    it('returns 401 without auth', async () => {
+        await request(app).post('/resolve')
+            .send({ url: 'https://youtube.com/watch?v=abc' })
+            .expect(401);
+    });
+
     it('returns 400 when url missing', async () => {
         await request(app).post('/resolve')
             .set('Authorization', authHeader())
@@ -396,6 +448,13 @@ describe('POST /resolve', () => {
         await request(app).post('/resolve')
             .set('Authorization', authHeader())
             .send({ url: 'https://evil.com/track' })
+            .expect(400);
+    });
+
+    it('returns 400 when url exceeds max length', async () => {
+        await request(app).post('/resolve')
+            .set('Authorization', authHeader())
+            .send({ url: 'https://youtube.com/' + 'a'.repeat(2048) })
             .expect(400);
     });
 });

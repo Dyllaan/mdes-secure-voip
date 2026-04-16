@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 
+	"hub-service/internal/config"
 	"hub-service/internal/db"
 	"hub-service/internal/handlers"
 	"hub-service/internal/middleware"
@@ -65,6 +66,13 @@ func redeemRateLimitMiddleware(next http.Handler) http.Handler {
 
 func buildRouter(allowedSet map[string]struct{}) http.Handler {
 	r := chi.NewRouter()
+
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, config.C.MaxRequestBodyBytes)
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -149,6 +157,7 @@ func main() {
 	}
 
 	middleware.InitAuth()
+	config.InitLimits()
 
 	if err := db.Connect(); err != nil {
 		log.Fatal("Database connection failed:", err)

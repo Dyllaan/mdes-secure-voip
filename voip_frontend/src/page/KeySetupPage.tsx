@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { generateNewMnemonic, isMnemonicValid, deriveDeviceIdentity } from '@/crypto/mnemonicKey';
-import { CryptKeyStorage } from '@/utils/CryptKeyStorage';
+import { CryptKeyStorage } from '@/utils/crypto/CryptKeyStorage';
 import { useAuth } from '@/hooks/auth/useAuth';
 import KeyErrorPage from '@/components/layout/KeyErrorPage';
 

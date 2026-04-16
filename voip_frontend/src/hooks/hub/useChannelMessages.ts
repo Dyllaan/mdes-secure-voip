@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from "@/hooks/auth/useAuth";
-
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EncryptedMessage } from '@/types/hub.types';
+import useHubApi from './useHubApi';
+import { toast } from 'sonner';
+import Validator from '@/utils/validation/Validator';
 
 interface UseChannelMessagesReturn {
     messages: EncryptedMessage[];
@@ -17,11 +19,13 @@ export function useChannelMessages(
     channelId: string | undefined,
 ): UseChannelMessagesReturn {
     const { user } = useAuth();
-    const { socket, channelKeyManager, hubClient } = useConnection();
-    const { getMessages, sendMessage: apiSendMessage } = hubClient;
+    const { socket, channelKeyManager } = useConnection();
+    const hubApi = useHubApi();
+    const { getMessages, sendMessage: apiSendMessage } = hubApi;
 
     const [messages, setMessages] = useState<EncryptedMessage[]>([]);
     const [hasMore, setHasMore] = useState(false);
+    const validator = new Validator();
 
     useEffect(() => {
         if (!hubId || !channelId) {
@@ -34,7 +38,7 @@ export function useChannelMessages(
                 setMessages(data.messages || []);
                 setHasMore(data.hasMore || false);
             })
-            .catch(err => console.error('[useChannelMessages] Failed to load messages:', err));
+            .catch(() => toast.error('Failed to load messages:'));
     }, [hubId, channelId, getMessages]);
 
     const refreshMessages = useCallback(async () => {
@@ -79,7 +83,13 @@ export function useChannelMessages(
     };
 
     const sendMessage = async (text: string) => {
+        const validation = validator.validate("Message", text);
+        if (!validation.valid || !validation.value) {
+            toast.error('Message validation failed: ' + validation.errors.join(', '));
+            return;
+        }
         if (!hubId || !channelId) return;
+        
         if (!channelKeyManager || !user?.sub) {
             throw new Error('Encryption not ready');
         }
@@ -88,8 +98,8 @@ export function useChannelMessages(
             channelId,
             hubId,
             user.sub,
-            text,
-            hubClient,
+            validation.value,
+            hubApi,
             (event) => { socket?.emit('channel-key-rotated', event); },
         );
 

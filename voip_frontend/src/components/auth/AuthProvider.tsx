@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { toast } from "sonner";
 import useLocalStorage from '@/hooks/useLocalStorage';
 import { setAccessToken as setModuleAccessToken, setRefreshToken as setModuleRefreshToken, setupInterceptors } from '@/axios/api';
-import { decodeJwt } from '@/utils/jwt';
-import { getDeviceFingerprint } from '@/utils/deviceFingerprint';
+import { decodeJwt } from '@/utils/auth/jwt';
+import { getDeviceFingerprint } from '@/utils/auth/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
 import { authApi, gateway } from '@/axios/api';
 import type { AuthContextType } from '@/types/AuthContextType';
@@ -93,7 +93,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   async function logout() {
     try {
-      await authApi.post('/user/logout');
+      const refreshToken = persistedUser?.refreshToken;
+      await authApi.post('/user/logout', { refreshToken: refreshToken ?? '' });
     } catch {
       // ignore
     }

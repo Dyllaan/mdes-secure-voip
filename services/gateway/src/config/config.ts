@@ -15,7 +15,6 @@ const REQUIRED = [
   'TURN_SECRET',
   'JWT_SECRET',
   'REDIS_URL', // not needed if you dont want demo rate limiting 
-  'DEMO_TIME_LIMIT_SECONDS', // not needed if you dont want demo rate limiting
 ];
 
 const missing = REQUIRED.filter(k => !process.env[k]);
@@ -37,6 +36,11 @@ const config = {
   JWT_SECRET: process.env.JWT_SECRET as string,
   REDIS_URL: process.env.REDIS_URL as string, // not needed if you dont want demo rate limiting
   DEMO_TIME_LIMIT_SECONDS: parseInt(process.env.DEMO_TIME_LIMIT_SECONDS ?? '10800', 10), // not needed if you dont want demo rate limiting
+  DEMO_MODE: process.env.DEMO_MODE === 'true',
+  UNRESTRICTED_USERNAMES: new Set(
+    (process.env.UNRESTRICTED_USERNAMES ?? '').split(',').map(u => u.trim()).filter(Boolean)
+  ),
+  MAX_REQUEST_BODY_BYTES: parseInt(process.env.MAX_REQUEST_BODY_BYTES ?? '1048576', 10),
 };
 
 const logger = pino({ level: config.LOG_LEVEL });

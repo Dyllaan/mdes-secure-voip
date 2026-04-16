@@ -9,7 +9,10 @@ export const verify = createVerifier({
 });
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const token = req.headers.authorization?.split(' ')[1];
+  const [scheme, token] = req.headers.authorization?.split(' ') ?? [];
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: 'Unauthorised' });
+  }
   if (!token) return res.status(401).json({ error: 'Unauthorised' });
   try {
     req.user = verify(token);

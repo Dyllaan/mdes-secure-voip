@@ -3,6 +3,8 @@ import { useAuth } from "@/hooks/auth/useAuth";
 
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { Hub, Channel, Member } from '@/types/hub.types';
+import useHubApi from './useHubApi';
+import { toast } from 'sonner';
 
 interface UseHubStateReturn {
     hub: Hub | null;
@@ -16,10 +18,17 @@ interface UseHubStateReturn {
     refreshMembers: () => Promise<void>;
 }
 
+/**
+ * Performs only GET operations related to hub state (hub info, channels, members) and listens for relevant socket events to keep data up-to-date.
+ * Does not include any action functions (create channel, kick member, etc) - those are handled separately in useHubActions to keep this hook focused on state management.
+ * This separation allows components to use hub state without being forced to also include action logic, and helps avoid unnecessary re-renders when actions are performed.
+ */
+
 export default function useHubState(hubId: string | undefined): UseHubStateReturn {
     const { user } = useAuth();
-    const { socket, channelKeyManager, hubClient } = useConnection();
-    const { getHub, listChannels, listMembers } = hubClient;
+    const { socket, channelKeyManager } = useConnection();
+    const hubApi = useHubApi();
+    const { getHub, listChannels, listMembers } = hubApi;
 
     const [hub, setHub] = useState<Hub | null>(null);
     const [channels, setChannels] = useState<Channel[]>([]);
@@ -98,11 +107,11 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
             if (data.hubId !== hubId) return;
             listMembers(hubId)
                 .then(setMembers)
-                .catch(err => console.warn('Failed to refresh members:', err));
+                .catch(() => toast.error('Failed to refresh members after join event:'));
 
             if (channelKeyManager) {
                 for (const ch of channels) {
-                    channelKeyManager.topUpChannelKey(ch.id, hubId, hubClient, (event) => {
+                    channelKeyManager.topUpChannelKey(ch.id, hubId, hubApi, (event) => {
                         socket?.emit('channel-key-rotated', event);
                     }).catch(err =>
                         console.warn('Key top-up failed for channel', ch.id, ':', err)
@@ -113,7 +122,7 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
 
         socket.on('member-joined', onMemberJoined);
         return () => { socket.off('member-joined', onMemberJoined); };
-    }, [socket, hubId, listMembers, channels, channelKeyManager, hubClient]);
+    }, [socket, hubId, listMembers, channels, channelKeyManager, hubApi]);
 
     const isOwner = !!hub && !!user?.sub && hub.ownerId === user.sub;
     const hasMusicman = members.some(m => m.role === 'bot');

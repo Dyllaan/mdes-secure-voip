@@ -3,16 +3,16 @@ import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import config from '@/config/config';
 import { useAuth } from "@/hooks/auth/useAuth";
-import { RoomClient } from '@/utils/RoomClient';
-import { CryptKeyManager } from '@/utils/CryptKeyManager';
-import useHubClient from '@/hooks/hub/useHubClient';
-import type { HubClient } from '@/hooks/hub/useHubClient';
+import { RoomClient } from '@/utils/crypto/RoomClient';
+import { CryptKeyManager } from '@/utils/crypto/CryptKeyManager';
+import useHubApi from '@/hooks/hub/useHubApi';
+import type { HubApi } from '@/hooks/hub/useHubApi';
 
 interface ConnectionContextType {
     socket: Socket | null;
     roomClient: RoomClient | null;
     channelKeyManager: CryptKeyManager | null;
-    hubClient: HubClient;
+    hubApi: HubApi;
     isConnected: boolean;
     assignedPeerId: string | null;
 }
@@ -21,7 +21,7 @@ const ConnectionContext = createContext<ConnectionContextType>({
     socket: null,
     roomClient: null,
     channelKeyManager: null,
-    hubClient: {} as HubClient,
+    hubApi: {} as HubApi,
     isConnected: false,
     assignedPeerId: null,
 });
@@ -35,7 +35,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     const username = user?.username ?? null;
     const accessToken = user?.accessToken ?? null;
 
-    const hubClient = useHubClient();
+    const hubApi = useHubApi();
 
     const [socket, setSocket] = useState<Socket | null>(null);
     const [roomClient, setRoomClient] = useState<RoomClient | null>(null);
@@ -47,10 +47,10 @@ export default function ConnectionProvider({ children }: { children: React.React
     const roomClientRef = useRef<RoomClient | null>(null);
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
-    const hubClientRef = useRef(hubClient);
+    const hubApiRef = useRef(hubApi);
 
     useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
-    useEffect(() => { hubClientRef.current = hubClient; }, [hubClient]);
+    useEffect(() => { hubApiRef.current = hubApi; }, [hubApi]);
 
     useEffect(() => {
         if (!signedIn || !accessToken || !username) return;
@@ -93,7 +93,7 @@ export default function ConnectionProvider({ children }: { children: React.React
             }
 
             try {
-                const client = hubClientRef.current;
+                const client = hubApiRef.current;
                 const hubs: Array<{ id: string }> = await client.listHubs();
                 const hubIds = hubs.map((h) => h.id);
                 const manager = await CryptKeyManager.create(user?.sub ?? username ?? '',client, hubIds);
@@ -138,7 +138,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     }, [signedIn, accessToken, username]);
 
     return (
-        <ConnectionContext.Provider value={{ socket, roomClient, channelKeyManager, hubClient, isConnected, assignedPeerId }}>
+        <ConnectionContext.Provider value={{ socket, roomClient, channelKeyManager, hubApi, isConnected, assignedPeerId }}>
             {children}
         </ConnectionContext.Provider>
     );
