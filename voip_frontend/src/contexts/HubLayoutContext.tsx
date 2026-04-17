@@ -23,7 +23,7 @@ interface HubLayoutContextValue {
     refreshChannels: () => Promise<void>;
     ephem: EphemeralContextSlice;
     isConnected: boolean;
-    onBotJoined: () => void;
+    refreshMembers: () => void;
     remoteScreenStreams: Array<{ peerId: string; stream: MediaStream; alias: string }>;
     localScreenStream: MediaStream | null;
     isSharing: boolean;

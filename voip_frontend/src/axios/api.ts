@@ -1,5 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
 import config from '@/config/config';
+import type { DemoLimitResponse } from '@/types/User';
 
 const AUTH_URL = config.AUTH_URL;
 const GATEWAY_URL = config.GATEWAY_URL;
@@ -26,18 +27,23 @@ let _refreshQueue: Array<(token: string | null) => void> = [];
 export const setAccessToken = (token: string | null) => { _accessToken = token; };
 export const setRefreshToken = (token: string | null) => { _refreshToken = token; };
 
-type LogoutCallback = () => void;
+type LogoutCallback = () => void | Promise<void>;
 type TokenUpdateCallback = (accessToken: string, refreshToken: string) => void;
+type DemoLimitedCallback = (payload: DemoLimitResponse) => void;
+type AuthRecoveryOutcome = 'recovered' | 'logged_out' | 'demo_limited';
 
 let onLogout: LogoutCallback | null = null;
 let onTokenUpdate: TokenUpdateCallback | null = null;
+let onDemoLimited: DemoLimitedCallback | null = null;
 
 export const setupInterceptors = (
   logoutCallback: LogoutCallback,
   tokenUpdateCallback: TokenUpdateCallback,
+  demoLimitedCallback?: DemoLimitedCallback,
 ) => {
   onLogout = logoutCallback;
   onTokenUpdate = tokenUpdateCallback;
+  onDemoLimited = demoLimitedCallback ?? null;
 };
 
 export const authApi = axios.create({
@@ -66,10 +72,22 @@ export const musicmanApi = axios.create({
 });
 
 function attachAuthHeader(cfg: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
-  if (_accessToken) {
+  if (_accessToken && !cfg.headers.Authorization) {
     cfg.headers.Authorization = `Bearer ${_accessToken}`;
   }
   return cfg;
+}
+
+export function parseDemoLimitResponse(response: { status: number; data?: unknown }): DemoLimitResponse | null {
+  if (response.status !== 403) return null;
+  const data = response.data as Partial<DemoLimitResponse> | undefined;
+  if (typeof data?.demoToken !== 'string' || typeof data?.message !== 'string') {
+    return null;
+  }
+  return {
+    demoToken: data.demoToken,
+    message: data.message,
+  };
 }
 
 authApi.interceptors.request.use(attachAuthHeader);
@@ -79,7 +97,7 @@ musicmanApi.interceptors.request.use(attachAuthHeader);
 signalingApi.interceptors.request.use(attachAuthHeader);
 
 
-async function attemptRefresh(): Promise<string | null> {
+async function attemptRefresh(): Promise<string | DemoLimitResponse | null> {
   if (!_refreshToken) return null;
   try {
     const res = await authApi.post('/user/refresh', { refreshToken: _refreshToken });
@@ -90,16 +108,58 @@ async function attemptRefresh(): Promise<string | null> {
       onTokenUpdate?.(data.accessToken, data.refreshToken);
       return data.accessToken;
     }
+    const demoLimit = parseDemoLimitResponse(res);
+    if (demoLimit) {
+      return demoLimit;
+    }
   } catch {
     // refresh failed
   }
   return null;
 }
 
+export async function recoverFromAuthFailure(): Promise<AuthRecoveryOutcome> {
+  if (_isRefreshing) {
+    return new Promise((resolve) => {
+      _refreshQueue.push((token) => {
+        if (token) {
+          resolve('recovered');
+          return;
+        }
+        resolve('logged_out');
+      });
+    });
+  }
+
+  _isRefreshing = true;
+  const newToken = await attemptRefresh();
+  _isRefreshing = false;
+
+  if (newToken) {
+    if (typeof newToken !== 'string') {
+      onDemoLimited?.(newToken);
+      _refreshQueue.forEach((cb) => cb(null));
+      _refreshQueue = [];
+      return 'demo_limited';
+    }
+
+    _refreshQueue.forEach((cb) => cb(newToken));
+    _refreshQueue = [];
+    return 'recovered';
+  }
+
+  _refreshQueue.forEach((cb) => cb(null));
+  _refreshQueue = [];
+  await onLogout?.();
+  return 'logged_out';
+}
+
 function attachRefreshInterceptor(instance: typeof gateway) {
   instance.interceptors.response.use(async (response) => {
     if (response.status === 401) {
       const originalRequest = response.config;
+      const authorizationHeader = originalRequest.headers.Authorization ?? originalRequest.headers.authorization;
+      const isSessionBootstrapRequest = originalRequest.url?.includes('/user/me');
 
       if (
         originalRequest.url?.includes('/user/logout') ||
@@ -108,34 +168,23 @@ function attachRefreshInterceptor(instance: typeof gateway) {
         return response;
       }
 
-      if (_isRefreshing) {
-        return new Promise((resolve) => {
-          _refreshQueue.push((token) => {
-            if (token) originalRequest.headers.Authorization = `Bearer ${token}`;
-            resolve(instance(originalRequest));
-          });
-        });
+      if (!authorizationHeader && !isSessionBootstrapRequest) {
+        return response;
       }
 
-      _isRefreshing = true;
-      const newToken = await attemptRefresh();
-      _isRefreshing = false;
+      const recovery = await recoverFromAuthFailure();
 
-      if (newToken) {
-        _refreshQueue.forEach((cb) => cb(newToken));
-        _refreshQueue = [];
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+      if (recovery === 'recovered' && _accessToken) {
+        originalRequest.headers.Authorization = `Bearer ${_accessToken}`;
         return instance(originalRequest);
       }
 
-      _refreshQueue.forEach((cb) => cb(null));
-      _refreshQueue = [];
-      onLogout?.();
       return response;
     }
 
-    if (response.status === 403 && (response.data as any)?.code === 'DEMO_EXPIRED') {
-      onLogout?.();
+    const demoLimit = parseDemoLimitResponse(response);
+    if (demoLimit) {
+      onDemoLimited?.(demoLimit);
       return response;
     }
 
@@ -145,5 +194,8 @@ function attachRefreshInterceptor(instance: typeof gateway) {
 
 attachRefreshInterceptor(authApi);
 attachRefreshInterceptor(gateway);
+attachRefreshInterceptor(hubApi);
+attachRefreshInterceptor(musicmanApi);
+attachRefreshInterceptor(signalingApi);
 
 export const getAccessToken = () => _accessToken;

@@ -6,7 +6,4 @@ process.env.HUB_SERVICE_URL      = 'http://hub:5000';
 process.env.MUSICMAN_URL         = 'http://musicman:8080';
 process.env.TURN_SECRET          = 'test-turn-secret';
 process.env.JWT_SECRET           = Buffer.from('test-jwt-secret').toString('base64');
-process.env.REDIS_URL            = 'redis://localhost:6379';
-process.env.DEMO_TIME_LIMIT_SECONDS = '10800';
 process.env.MAX_REQUEST_BODY_BYTES  = '1048576';
-process.env.DEMO_MODE = 'true';

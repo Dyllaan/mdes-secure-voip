@@ -86,7 +86,7 @@ export default function HubView() {
             refreshChannels,
             ephem: { ...ephemSession, open: ephemOpen, setOpen: setEphemOpen },
             isConnected,
-            onBotJoined: refreshMembers,
+            refreshMembers,
             remoteScreenStreams,
             localScreenStream,
             isSharing,

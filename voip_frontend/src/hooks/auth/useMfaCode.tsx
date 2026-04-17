@@ -2,6 +2,8 @@ import { useState, useMemo } from "react";
 import { type ValidationResult } from '@/utils/validation/Validator';
 import { toast } from 'sonner';
 
+const DEMO_LIMITED_ERROR = 'DEMO_LIMITED';
+
 export default function useMfaCode(
   {
     onSubmit,
@@ -48,6 +50,8 @@ export default function useMfaCode(
             const result = await onSubmit?.(mfaCode, trustDevice);
             if (result?.success) {
                 onSuccess?.();
+            } else if (result?.error === DEMO_LIMITED_ERROR) {
+                setMfaCode('');
             } else {
                 toast.error(result?.error || 'Invalid authentication code');
                 setMfaCode('');

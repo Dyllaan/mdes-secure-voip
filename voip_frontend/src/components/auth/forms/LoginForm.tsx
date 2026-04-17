@@ -12,6 +12,8 @@ interface LoginFormProps {
   onToggleMode: () => void;
 }
 
+const DEMO_LIMITED_ERROR = 'DEMO_LIMITED';
+
 export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +33,8 @@ export default function LoginForm({ onSuccess, onToggleMode }: LoginFormProps) {
       } else if (result.mfaRequired) {
         // MFA form will be shown automatically by AuthPage
         toast.info('Please enter your authentication code');
+      } else if (result.error === DEMO_LIMITED_ERROR) {
+        return;
       } else {
         toast.error(result.error || 'Login failed');
       }

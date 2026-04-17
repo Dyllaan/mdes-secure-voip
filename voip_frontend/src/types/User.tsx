@@ -18,6 +18,11 @@ export type LoginResult = {
   error?: string;
 }
 
+export type DemoLimitResponse = {
+  demoToken: string;
+  message: string;
+}
+
 export type MeResponse = {
   username: string;
   mfaEnabled: boolean;

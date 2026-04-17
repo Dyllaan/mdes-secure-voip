@@ -215,7 +215,7 @@ export default function ActionsSidebar({ screenshareVisible, onShowScreenshare }
     const {
         hub,
         hasMusicman,
-        onBotJoined,
+        refreshMembers,
         activeVoiceChannelId,
         remoteScreenStreams,
         localScreenStream,
@@ -276,7 +276,7 @@ export default function ActionsSidebar({ screenshareVisible, onShowScreenshare }
                             roomId={activeVoiceChannelId}
                             hubId={hub?.id ?? ''}
                             hasMusicman={hasMusicman}
-                            onBotJoined={onBotJoined}
+                            onBotJoined={refreshMembers}
                         />
                     </div>
                 </SheetContent>

@@ -56,6 +56,35 @@ export const MOCK_ENCRYPTED_MESSAGE = {
   timestamp: '2024-01-01T09:00:00.000Z',
 };
 
+export const DEMO_LIMIT_RESPONSE = {
+  demoToken: 'demo-delete-token',
+  message: 'Your demo session has expired. Use the demo token to delete your account.',
+};
+
+export function authRecoveryOptions(
+  outcome: 'success' | 'unauthorized' | 'demo-limited',
+  user = MOCK_USER,
+) {
+  if (outcome === 'success') {
+    return {
+      refreshStatus: 200,
+      refreshBody: user,
+    };
+  }
+
+  if (outcome === 'demo-limited') {
+    return {
+      refreshStatus: 403,
+      refreshBody: DEMO_LIMIT_RESPONSE,
+    };
+  }
+
+  return {
+    refreshStatus: 401,
+    refreshBody: { cause: 'Refresh failed' },
+  };
+}
+
 // CORS headers added to every mocked cross-origin (localhost:8080) response
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': 'http://localhost:5173',
@@ -244,6 +273,14 @@ export async function emitSocketEvent(page: Page, event: string, payload?: unkno
   }, [event, payload] as const);
 }
 
+export async function emitSocketAuthFailure(page: Page, message: 'Invalid or expired token' | 'Authentication required') {
+  await emitSocketEvent(page, 'connect_error', { message });
+}
+
+export async function emitSocketSessionExpired(page: Page) {
+  await emitSocketEvent(page, 'session-expired', { message: 'Session expired, please log in again' });
+}
+
 export async function addRemoteAudioPeer(page: Page, peerId: string, alias: string) {
   await page.evaluate(([id, label]) => {
     window.__APP_E2E__?.addRemoteAudioStream(id, label);
@@ -405,18 +442,28 @@ export async function mockAuthRoutes(
     meStatus?: number;
     meStatuses?: number[];
     refreshStatus?: number;
+    refreshBody?: Record<string, unknown>;
     mfaEnabled?: boolean;
     mfaVerified?: boolean;
     includeTurnCredentials?: boolean;
+    deleteStatus?: number;
+    deleteBody?: Record<string, unknown>;
+    logoutStatus?: number;
+    logoutBody?: Record<string, unknown>;
   } = {},
 ) {
   const {
     meStatus = 200,
     meStatuses,
     refreshStatus = 200,
+    refreshBody,
     mfaEnabled = false,
     mfaVerified = true,
     includeTurnCredentials = true,
+    deleteStatus = 200,
+    deleteBody = { message: 'User deleted successfully' },
+    logoutStatus = 200,
+    logoutBody = { message: 'Logged out successfully' },
   } = options;
   const queuedMeStatuses = [...(meStatuses ?? [meStatus])];
 
@@ -437,7 +484,23 @@ export async function mockAuthRoutes(
     route.fulfill({
       status: refreshStatus,
       contentType: 'application/json',
-      body: JSON.stringify(refreshStatus === 200 ? user : { cause: 'Refresh failed' }),
+      body: JSON.stringify(refreshStatus === 200 ? user : (refreshBody ?? { cause: 'Refresh failed' })),
+    }),
+  );
+
+  await page.route('**/auth/user/delete', (route) =>
+    route.fulfill({
+      status: deleteStatus,
+      contentType: 'application/json',
+      body: JSON.stringify(deleteBody),
+    }),
+  );
+
+  await page.route('**/auth/user/logout', (route) =>
+    route.fulfill({
+      status: logoutStatus,
+      contentType: 'application/json',
+      body: JSON.stringify(logoutBody),
     }),
   );
 

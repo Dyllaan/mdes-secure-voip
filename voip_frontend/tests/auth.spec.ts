@@ -1,10 +1,49 @@
-import { test, expect } from '@playwright/test';
-import { MOCK_USER, mockAuthRoutes } from './fixtures/index';
+import { test, expect, type Page } from '@playwright/test';
+import {
+  DEMO_LIMIT_RESPONSE,
+  MOCK_HUBS,
+  MOCK_USER,
+  bootstrapSignedInWithKeys,
+  connectAppSocket,
+  emitSocketAuthFailure,
+  emitSocketSessionExpired,
+  mockAuthRoutes,
+  setAuthState,
+} from './fixtures/index';
 
 const VERIFIED_MFA_USER = {
   ...MOCK_USER,
   accessToken: 'header.eyJzdWIiOiJ0ZXN0LXVzZXItaWQifQ==.signature',
 };
+
+async function mockHubListResponses(page: Page, statuses: number[]) {
+  let requestCount = 0;
+  await page.route('**/hub/hubs', async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        },
+      });
+      return;
+    }
+
+    const status = statuses[Math.min(requestCount, statuses.length - 1)] ?? 200;
+    requestCount += 1;
+    await route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(status === 200 ? MOCK_HUBS : { cause: 'Unauthorized' }),
+    });
+  });
+
+  return {
+    getRequestCount: () => requestCount,
+  };
+}
 
 test.describe('Auth - Login page', () => {
   test('renders username, password inputs and Sign In button', async ({ page }) => {
@@ -58,6 +97,95 @@ test.describe('Auth - Login page', () => {
     await page.getByTestId('login-submit').click();
 
     await expect(page.getByText('Invalid username or password').first()).toBeVisible();
+  });
+
+  test('demo-expired login shows the demo ended dialog', async ({ page }) => {
+    await mockAuthRoutes(page);
+    await page.route('**/auth/user/login', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          demoToken: 'demo-delete-token',
+          message: 'Your demo session has expired. Use the demo token to delete your account.',
+        }),
+      }),
+    );
+
+    await page.goto('/#/login');
+    await page.getByTestId('username-input').fill('testuser');
+    await page.getByTestId('password-input').fill('password123');
+    await page.getByTestId('login-submit').click();
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText('Demo Ended')).toBeVisible();
+    await expect(page.getByText('Your demo session has expired. Use the demo token to delete your account.')).toBeVisible();
+    await expect(page.getByTestId('demo-delete-submit')).toBeVisible();
+  });
+
+  test('demo-limited login dialog deletes the demo account with the demo token', async ({ page }) => {
+    let deleteAuthorization = '';
+
+    await mockAuthRoutes(page);
+    await page.route('**/auth/user/login', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          demoToken: 'demo-delete-token',
+          message: 'Your demo session has expired. Use the demo token to delete your account.',
+        }),
+      }),
+    );
+    await page.route('**/auth/user/delete', async (route) => {
+      deleteAuthorization = route.request().headers()['authorization'] ?? '';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'User deleted successfully' }),
+      });
+    });
+
+    await page.goto('/#/login');
+    await page.getByTestId('username-input').fill('testuser');
+    await page.getByTestId('password-input').fill('password123');
+    await page.getByTestId('login-submit').click();
+
+    await page.getByTestId('demo-delete-submit').click();
+
+    await expect.poll(() => deleteAuthorization).toBe('Bearer demo-delete-token');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  test('demo-limited login dialog keeps the modal open when delete fails', async ({ page }) => {
+    await mockAuthRoutes(page);
+    await page.route('**/auth/user/login', (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          demoToken: 'demo-delete-token',
+          message: 'Your demo session has expired. Use the demo token to delete your account.',
+        }),
+      }),
+    );
+    await page.route('**/auth/user/delete', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ cause: 'Invalid token' }),
+      });
+    });
+
+    await page.goto('/#/login');
+    await page.getByTestId('username-input').fill('testuser');
+    await page.getByTestId('password-input').fill('password123');
+    await page.getByTestId('login-submit').click();
+    await page.getByTestId('demo-delete-submit').click();
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByTestId('demo-delete-error')).toHaveText('Invalid token');
   });
 
   test('MFA-required response shows MFA form', async ({ page }) => {
@@ -153,6 +281,297 @@ test.describe('Auth - Login page', () => {
 
     await expect(page.getByTestId('login-submit')).toBeDisabled();
     await expect(page.getByText('Signing in...')).toBeVisible();
+  });
+
+  test('demo-expired refresh on app load shows the demo ended dialog', async ({ page }) => {
+    await setAuthState(page, MOCK_USER);
+    await mockAuthRoutes(page, MOCK_USER, {
+      meStatus: 401,
+      refreshStatus: 403,
+      refreshBody: {
+        demoToken: 'refresh-demo-token',
+        message: 'Your demo session has expired. Use the demo token to delete your account.',
+      },
+      includeTurnCredentials: false,
+    });
+
+    await page.goto('/#/login');
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText('Demo Ended')).toBeVisible();
+    await expect(page.getByText('Your demo session has expired. Use the demo token to delete your account.')).toBeVisible();
+  });
+
+  test('demo-limited refresh dialog deletes the demo account with the demo token', async ({ page }) => {
+    let deleteAuthorization = '';
+
+    await setAuthState(page, MOCK_USER);
+    await mockAuthRoutes(page, MOCK_USER, {
+      meStatus: 401,
+      refreshStatus: 403,
+      refreshBody: {
+        demoToken: 'refresh-demo-token',
+        message: 'Your demo session has expired. Use the demo token to delete your account.',
+      },
+      includeTurnCredentials: false,
+    });
+    await page.route('**/auth/user/delete', async (route) => {
+      deleteAuthorization = route.request().headers()['authorization'] ?? '';
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'User deleted successfully' }),
+      });
+    });
+
+    await page.goto('/#/login');
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.getByTestId('demo-delete-submit').click();
+
+    await expect.poll(() => deleteAuthorization).toBe('Bearer refresh-demo-token');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  test('invalid refresh on app load logs the user out without showing the demo dialog', async ({ page }) => {
+    await setAuthState(page, MOCK_USER);
+    await mockAuthRoutes(page, MOCK_USER, {
+      meStatus: 401,
+      refreshStatus: 401,
+      refreshBody: { cause: 'Refresh failed' },
+      includeTurnCredentials: false,
+    });
+
+    await page.goto('/#/login');
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  test('protected hub request retries after refresh success', async ({ page }) => {
+    let refreshRequests = 0;
+
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.goto('/#/profile');
+    await page.route('**/auth/user/refresh', async (route) => {
+      refreshRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_USER),
+      });
+    });
+    const hubRoute = await mockHubListResponses(page, [401, 200]);
+
+    await page.goto('/#/hub-list');
+
+    await expect(page.getByRole('button', { name: /Test Hub One/i })).toBeVisible();
+    await expect.poll(() => refreshRequests).toBe(1);
+    await expect.poll(() => hubRoute.getRequestCount() >= 2).toBe(true);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('protected hub request logs out on refresh 401 without showing the demo dialog', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.goto('/#/profile');
+    await page.route('**/auth/user/refresh', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ cause: 'Refresh failed' }),
+      });
+    });
+    await mockHubListResponses(page, [401]);
+
+    await page.goto('/#/hub-list');
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page).toHaveURL(/#\/login$/, { timeout: 5000 });
+  });
+
+  test('protected hub request shows the demo dialog when refresh is demo-limited', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.goto('/#/profile');
+    await page.route('**/auth/user/refresh', async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify(DEMO_LIMIT_RESPONSE),
+      });
+    });
+    await mockHubListResponses(page, [401]);
+
+    await page.goto('/#/hub-list');
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText(DEMO_LIMIT_RESPONSE.message)).toBeVisible();
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  for (const socketAuthMessage of ['Invalid or expired token', 'Authentication required'] as const) {
+    test(`realtime ${socketAuthMessage} recovers when refresh succeeds`, async ({ page }) => {
+      let refreshRequests = 0;
+
+      await mockHubListResponses(page, [200]);
+      await bootstrapSignedInWithKeys(page);
+      await page.route('**/auth/user/refresh', async (route) => {
+        refreshRequests += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(MOCK_USER),
+        });
+      });
+
+      await page.goto('/#/hub-list');
+      await connectAppSocket(page);
+      await emitSocketAuthFailure(page, socketAuthMessage);
+
+      await expect.poll(() => refreshRequests).toBe(1);
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /Profile/i })).toBeVisible();
+    });
+
+    test(`realtime ${socketAuthMessage} logs out on refresh 401`, async ({ page }) => {
+      await mockHubListResponses(page, [200]);
+      await bootstrapSignedInWithKeys(page);
+      await page.route('**/auth/user/refresh', async (route) => {
+        await route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({ cause: 'Refresh failed' }),
+        });
+      });
+      await mockHubListResponses(page, [200]);
+
+      await page.goto('/#/hub-list');
+      await connectAppSocket(page);
+      await emitSocketAuthFailure(page, socketAuthMessage);
+
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByTestId('login-form')).toBeVisible();
+    });
+
+    test(`realtime ${socketAuthMessage} shows the demo dialog on refresh 403`, async ({ page }) => {
+      await mockHubListResponses(page, [200]);
+      await bootstrapSignedInWithKeys(page);
+      await page.route('**/auth/user/refresh', async (route) => {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify(DEMO_LIMIT_RESPONSE),
+        });
+      });
+      await mockHubListResponses(page, [200]);
+
+      await page.goto('/#/hub-list');
+      await connectAppSocket(page);
+      await emitSocketAuthFailure(page, socketAuthMessage);
+
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await expect(page.getByText(DEMO_LIMIT_RESPONSE.message)).toBeVisible();
+      await expect(page.getByTestId('login-form')).toBeVisible();
+    });
+  }
+
+  test('realtime session-expired recovers when refresh succeeds', async ({ page }) => {
+    let refreshRequests = 0;
+
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.route('**/auth/user/refresh', async (route) => {
+      refreshRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_USER),
+      });
+    });
+
+    await page.goto('/#/hub-list');
+    await connectAppSocket(page);
+    await emitSocketSessionExpired(page);
+
+    await expect.poll(() => refreshRequests).toBe(1);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Profile/i })).toBeVisible();
+  });
+
+  test('realtime session-expired logs out on refresh 401', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.route('**/auth/user/refresh', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ cause: 'Refresh failed' }),
+      });
+    });
+    await mockHubListResponses(page, [200]);
+
+    await page.goto('/#/hub-list');
+    await connectAppSocket(page);
+    await emitSocketSessionExpired(page);
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  test('realtime session-expired shows the demo dialog on refresh 403', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await page.route('**/auth/user/refresh', async (route) => {
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify(DEMO_LIMIT_RESPONSE),
+      });
+    });
+    await mockHubListResponses(page, [200]);
+
+    await page.goto('/#/hub-list');
+    await connectAppSocket(page);
+    await emitSocketSessionExpired(page);
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByText(DEMO_LIMIT_RESPONSE.message)).toBeVisible();
+    await expect(page.getByTestId('login-form')).toBeVisible();
+  });
+
+  test('ordinary realtime disconnect does not log the user out or show the demo dialog', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await mockHubListResponses(page, [200]);
+
+    await page.goto('/#/hub-list');
+    await connectAppSocket(page);
+    await page.evaluate(() => {
+      const harness = window.__APP_E2E__;
+      harness?.emitSocketEvent('disconnect', 'transport close');
+    });
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Profile/i })).toBeVisible();
+  });
+
+  test('generic realtime socket errors do not log the user out or show the demo dialog', async ({ page }) => {
+    await mockHubListResponses(page, [200]);
+    await bootstrapSignedInWithKeys(page);
+    await mockHubListResponses(page, [200]);
+
+    await page.goto('/#/hub-list');
+    await connectAppSocket(page);
+    await page.evaluate(() => {
+      const harness = window.__APP_E2E__;
+      harness?.emitSocketEvent('connect_error', { message: 'Temporary network error' });
+    });
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Profile/i })).toBeVisible();
   });
 });
 

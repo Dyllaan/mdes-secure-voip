@@ -17,8 +17,7 @@ import {
   requestId,
 } from './middleware/middleware';
 import { turnCredentials } from './config/turnCredentials';
-import { requireAuth, verify } from './middleware/authMiddleware';
-import { onLogin, onLogout, demoGuard } from './middleware/demoLimiter';
+import { requireAuth } from './middleware/authMiddleware';
 
 const app = express();
 
@@ -117,13 +116,6 @@ app.post('/auth/user/login',
       const text = await upstream.text();
       const body = text ? JSON.parse(text) : {};
 
-      if (upstream.ok && body.accessToken) {
-        const payload = verify(body.accessToken as string) as { sub: string };
-        if (config.DEMO_MODE) {
-          await onLogin(payload.sub);
-        }
-      }
-
       return res.status(upstream.status).json(body);
     } catch (err) {
       logger.error({ err }, 'Login proxy error');
@@ -134,12 +126,7 @@ app.post('/auth/user/login',
 
 app.post('/auth/user/logout',
   requireAuth,
-  async (req: Request, res: Response, next: NextFunction) => {
-    if (config.DEMO_MODE) {
-      await onLogout((req.user as { sub: string }).sub).catch(
-        (err) => logger.error({ err }, 'demoLimiter onLogout failed')
-      );
-    }
+  async (_req: Request, _res: Response, next: NextFunction) => {
     next();
   },
 );
@@ -162,13 +149,6 @@ app.post('/auth/user/refresh',
 
       const text = await upstream.text();
       const body = text ? JSON.parse(text) : {};
-
-      if (upstream.ok && body.accessToken) {
-        const payload = verify(body.accessToken as string) as { sub: string };
-        if (config.DEMO_MODE) {
-          await onLogin(payload.sub);
-        }
-      }
 
       return res.status(upstream.status).json(body);
     } catch (err) {
@@ -194,7 +174,6 @@ app.use('/realtime',
   generalLimiter,
   circuitBreaker(breakers.realtime, 'Realtime'),
   requireAuth,
-  demoGuard,
   makeProxy(config.REALTIME_SERVICE_URL, {
     onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
       logger.error({ err }, 'Realtime service error');
@@ -207,7 +186,6 @@ app.use('/hub',
   generalLimiter,
   circuitBreaker(breakers.hub, 'Hub'),
   requireAuth,
-  demoGuard,
   makeProxy(config.HUB_SERVICE_URL, {
     pathRewrite: { '^/hub': '/api' },
     onError: /* istanbul ignore next */ (err: Error, _req: Request, res: Response) => {
@@ -221,7 +199,6 @@ app.use('/musicman',
   musicLimiter,
   circuitBreaker(breakers.musicman, 'MusicMan'),
   requireAuth,
-  demoGuard,
   makeProxy(config.MUSICMAN_URL, {
     pathRewrite: { '^/musicman': '' },
     proxyTimeout: 120_000,
@@ -255,7 +232,7 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
 });
 app.use('/peerjs', peerJsProxy);
 
-app.get('/turn-credentials', generalLimiter, requireAuth, demoGuard, turnCredentials);
+app.get('/turn-credentials', generalLimiter, requireAuth, turnCredentials);
 
 app.use((_req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });

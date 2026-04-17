@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import config from '@/config/config';
 import { useAuth } from "@/hooks/auth/useAuth";
+import { getAccessToken, recoverFromAuthFailure } from '@/axios/api';
 import { RoomClient } from '@/utils/crypto/RoomClient';
 import { CryptKeyManager } from '@/utils/crypto/CryptKeyManager';
 import useHubApi from '@/hooks/hub/useHubApi';
@@ -49,6 +50,7 @@ export default function ConnectionProvider({ children }: { children: React.React
     const channelKeyManagerRef = useRef<CryptKeyManager | null>(null);
     const accessTokenRef = useRef(accessToken);
     const hubApiRef = useRef(hubApi);
+    const isRecoveringAuthRef = useRef(false);
 
     useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
     useEffect(() => { hubApiRef.current = hubApi; }, [hubApi]);
@@ -57,6 +59,23 @@ export default function ConnectionProvider({ children }: { children: React.React
         if (!signedIn || !accessToken || !username) return;
 
         let cancelled = false;
+
+        const recoverSocketAuth = async () => {
+            if (cancelled || isRecoveringAuthRef.current) return;
+            isRecoveringAuthRef.current = true;
+
+            try {
+                const recovery = await recoverFromAuthFailure();
+                if (recovery === 'recovered') {
+                    accessTokenRef.current = getAccessToken();
+                    if (!cancelled && !voipSocket.connected) {
+                        voipSocket.connect();
+                    }
+                }
+            } finally {
+                isRecoveringAuthRef.current = false;
+            }
+        };
 
         const voipSocket = io(config.SIGNALING_SERVER, {
             path: '/socket.io/',
@@ -117,6 +136,14 @@ export default function ConnectionProvider({ children }: { children: React.React
         voipSocket.on('connect_error', (error) => {
             console.error('Socket.IO connection error:', error.message);
             if (!cancelled) setIsConnected(false);
+            if (error.message === 'Invalid or expired token' || error.message === 'Authentication required') {
+                void recoverSocketAuth();
+            }
+        });
+
+        voipSocket.on('session-expired', () => {
+            if (!cancelled) setIsConnected(false);
+            void recoverSocketAuth();
         });
 
         voipSocket.on('disconnect', (reason) => {

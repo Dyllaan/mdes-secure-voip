@@ -1,21 +1,24 @@
 import { useState, useEffect } from 'react';
 import { toast } from "sonner";
+import { useNavigate } from 'react-router-dom';
 import useLocalStorage from '@/hooks/useLocalStorage';
-import { setAccessToken as setModuleAccessToken, setRefreshToken as setModuleRefreshToken, setupInterceptors } from '@/axios/api';
+import { authApi, gateway, parseDemoLimitResponse, setAccessToken as setModuleAccessToken, setRefreshToken as setModuleRefreshToken, setupInterceptors } from '@/axios/api';
 import { decodeJwt } from '@/utils/auth/jwt';
 import { getDeviceFingerprint } from '@/utils/auth/deviceFingerprint';
-import type { User, MfaStatus, LoginResult, MeResponse } from '@/types/User';
-import { authApi, gateway } from '@/axios/api';
+import type { User, MfaStatus, LoginResult, MeResponse, DemoLimitResponse } from '@/types/User';
 import type { AuthContextType } from '@/types/AuthContextType';
 import { AuthContext } from '@/contexts/AuthContext';
+import DemoExpiredDialog from './dialog/DemoExpiredDialog';
 
 interface AuthProviderProps {
   children: React.ReactNode;
 }
 
 type PersistedUser = Omit<User, 'accessToken'>;
+const DEMO_LIMITED_ERROR = 'DEMO_LIMITED';
 
 export default function AuthProvider({ children }: AuthProviderProps) {
+  const navigate = useNavigate();
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
   const [accessToken, _setAccessToken] = useState<string | null>(null);
 
@@ -54,15 +57,39 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [pendingMfaToken, setPendingMfaToken] = useState<string | null>(null);
   const [mfaStatus, setMfaStatus] = useState<MfaStatus | null>(null);
   const [turnCredentials, setTurnCredentials] = useState<{ username: string; password: string; ttl: number } | null>(null);
+  const [showDemoExpiredDialog, setShowDemoExpiredDialog] = useState(false);
+  const [demoLimitResponse, setDemoLimitResponse] = useState<DemoLimitResponse | null>(null);
+  const [isDeletingDemoAccount, setIsDeletingDemoAccount] = useState(false);
+  const [demoDeleteError, setDemoDeleteError] = useState<string | null>(null);
+
+  const clearAuthState = () => {
+    setPersistedUser(null);
+    setAccessToken(null);
+    setModuleRefreshToken(null);
+    setSignedIn(false);
+    setMfaRequired(false);
+    setPendingMfaToken(null);
+    setMfaStatus(null);
+    setTurnCredentials(null);
+  };
+
+  const presentDemoLimitDialog = (payload: DemoLimitResponse) => {
+    setDemoLimitResponse(payload);
+    setDemoDeleteError(null);
+    setShowDemoExpiredDialog(true);
+    clearAuthState();
+  };
 
   useEffect(() => {
     setupInterceptors(
       logout,
-      (accessToken, refreshToken) => {
-        setAccessToken(accessToken);
-        setModuleRefreshToken(refreshToken);
-        // update persisted refresh token without triggering full setUser
-        setPersistedUser((prev) => prev ? { ...prev, refreshToken } : prev);
+      (nextAccessToken, nextRefreshToken) => {
+        setAccessToken(nextAccessToken);
+        setModuleRefreshToken(nextRefreshToken);
+        setPersistedUser((prev) => prev ? { ...prev, refreshToken: nextRefreshToken } : prev);
+      },
+      (payload) => {
+        presentDemoLimitDialog(payload);
       },
     );
   }, []);
@@ -92,20 +119,58 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   async function logout() {
+    const refreshToken = persistedUser?.refreshToken;
+    clearAuthState();
     try {
-      const refreshToken = persistedUser?.refreshToken;
       await authApi.post('/user/logout', { refreshToken: refreshToken ?? '' });
     } catch {
       // ignore
     }
-    setPersistedUser(null);
-    setAccessToken(null);
-    setModuleRefreshToken(null);
-    setSignedIn(false);
-    setMfaRequired(false);
-    setPendingMfaToken(null);
-    setMfaStatus(null);
   }
+
+  const closeDemoExpiredDialog = (open: boolean) => {
+    setShowDemoExpiredDialog(open);
+    if (!open) {
+      setDemoDeleteError(null);
+      navigate('/login');
+    }
+  };
+
+  const deleteDemoAccount = async () => {
+    if (!demoLimitResponse) return;
+
+    setIsDeletingDemoAccount(true);
+    setDemoDeleteError(null);
+
+    try {
+      const response = await authApi.delete('/user/delete', {
+        headers: {
+          Authorization: `Bearer ${demoLimitResponse.demoToken}`,
+        },
+        validateStatus: () => true,
+      });
+
+      if (response.status === 200) {
+        toast.success('Demo account deleted successfully');
+        clearAuthState();
+        setDemoLimitResponse(null);
+        setShowDemoExpiredDialog(false);
+        navigate('/login');
+        return;
+      }
+
+      const errorData = response.data as { cause?: string; reason?: string; message?: string };
+      const errorMessage = errorData.cause || errorData.reason || errorData.message || 'Failed to delete demo account';
+      setDemoDeleteError(errorMessage);
+      toast.error(errorMessage);
+    } catch {
+      const errorMessage = 'Failed to delete demo account';
+      setDemoDeleteError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsDeletingDemoAccount(false);
+    }
+  };
 
   const fetchTurnCredentials = async () => {
     try {
@@ -137,7 +202,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       return false;
     }
 
-    // sync refresh token to module so interceptor can use it on the /user/me call
     if (storedRefreshToken) setModuleRefreshToken(storedRefreshToken);
 
     try {
@@ -183,7 +247,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-
   const login = async (username: string, password: string, mfaCode?: string, trustDevice?: boolean): Promise<LoginResult> => {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
@@ -207,7 +270,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       }
 
       if (response.status === 200) {
-        console.log(response.data);
         const userData = response.data as User;
         setUser(userData);
         setSignedIn(true);
@@ -220,6 +282,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         }
 
         return { success: true };
+      }
+
+      const demoLimit = parseDemoLimitResponse(response);
+      if (demoLimit) {
+        presentDemoLimitDialog(demoLimit);
+        setSignedIn(false);
+        return { success: false, error: DEMO_LIMITED_ERROR };
       }
 
       const errorData = response.data as { cause?: string };
@@ -265,6 +334,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
         toast.success('Authentication successful!');
         return { success: true };
+      }
+
+      const demoLimit = parseDemoLimitResponse(response);
+      if (demoLimit) {
+        presentDemoLimitDialog(demoLimit);
+        return { success: false, error: DEMO_LIMITED_ERROR };
       }
 
       const errorData = response.data as { cause?: string };
@@ -371,6 +446,14 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
+      <DemoExpiredDialog
+        open={showDemoExpiredDialog}
+        onOpenChange={closeDemoExpiredDialog}
+        message={demoLimitResponse?.message ?? 'Your demo session has expired. Use the demo token to delete your account.'}
+        onDelete={deleteDemoAccount}
+        isDeleting={isDeletingDemoAccount}
+        error={demoDeleteError}
+      />
     </AuthContext.Provider>
   );
 }

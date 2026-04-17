@@ -27,13 +27,7 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-//
-// HEALTH
-//
-describe.each([
-  { name: 'DEMO_MODE off', env: { DEMO_MODE: 'false' } },
-  { name: 'DEMO_MODE on',  env: { DEMO_MODE: 'true'  } },
-])('GET /health (%s)', ({ env }) => {
+describe('GET /health', () => {
   let fetchSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -43,7 +37,7 @@ describe.each([
   afterEach(() => fetchSpy.mockRestore());
 
   it('returns 200 when all services are UP', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
     fetchSpy.mockResolvedValue({ ok: true } as Response);
 
     const res = await request(app).get('/health');
@@ -53,7 +47,7 @@ describe.each([
   });
 
   it('returns DEGRADED when one fails', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
 
     let count = 0;
     fetchSpy.mockImplementation(() => {
@@ -66,21 +60,15 @@ describe.each([
   });
 });
 
-//
-// AUTH PROXY
-//
-describe.each([
-  { name: 'DEMO_MODE off', env: { DEMO_MODE: 'false' } },
-  { name: 'DEMO_MODE on',  env: { DEMO_MODE: 'true'  } },
-])('/auth proxy (%s)', ({ env }) => {
+describe('/auth proxy', () => {
   it('passes when breaker closed', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
     const res = await request(app).post('/auth/login');
     expect(res.status).toBe(200);
   });
 
   it('returns 503 when breaker open', async () => {
-    const { app, breakers } = await loadApp(env);
+    const { app, breakers } = await loadApp();
 
     await breakers.auth.open();
     const res = await request(app).post('/auth/login');
@@ -89,56 +77,36 @@ describe.each([
   });
 
   it('has correct rate limit header', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
     const res = await request(app).post('/auth/login');
     expect(res.headers['ratelimit-limit']).toBe('20');
   });
 });
 
-//
-// REALTIME (demo mode matters here)
-//
-describe('realtime with demo mode OFF', () => {
-  it('passes without Redis / demo checks', async () => {
-    const { app } = await loadApp({ DEMO_MODE: 'false' });
+describe('GET /realtime/status', () => {
+  it('requires auth and passes through with a valid token', async () => {
+    const { app } = await loadApp();
 
-    const token = makeJwt('user');
-    const res = await request(app)
+    const unauthorized = await request(app).get('/realtime/status');
+    expect(unauthorized.status).toBe(401);
+
+    const authorized = await request(app)
       .get('/realtime/status')
-      .set('Authorization', `Bearer ${token}`);
+      .set('Authorization', `Bearer ${makeJwt('user')}`);
 
-    expect(res.status).toBe(200);
+    expect(authorized.status).toBe(200);
   });
 });
 
-describe('realtime with demo mode ON', () => {
-  it('still passes (Redis fail-open)', async () => {
-    const { app } = await loadApp({ DEMO_MODE: 'true' });
-
-    const token = makeJwt('user');
-    const res = await request(app)
-      .get('/realtime/status')
-      .set('Authorization', `Bearer ${token}`);
-
-    expect(res.status).toBe(200);
-  });
-});
-
-//
-// TURN CREDENTIALS
-//
-describe.each([
-  { name: 'DEMO_MODE off', env: { DEMO_MODE: 'false' } },
-  { name: 'DEMO_MODE on',  env: { DEMO_MODE: 'true'  } },
-])('GET /turn-credentials (%s)', ({ env }) => {
+describe('GET /turn-credentials', () => {
   it('returns 401 without token', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
     const res = await request(app).get('/turn-credentials');
     expect(res.status).toBe(401);
   });
 
   it('returns credentials with valid token', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
 
     const token = makeJwt('user');
     const res = await request(app)
@@ -156,11 +124,11 @@ describe.each([
 describe.each([
   { route: '/socket.io/test', user: 'ws' },
   { route: '/peerjs/test',    user: 'peer' },
-])('$route auth behaviour', ({ route, user }) => {
-  it('returns 401 without token', async () => {
+])('$route proxy behaviour', ({ route, user }) => {
+  it('passes through without token', async () => {
     const { app } = await loadApp();
     const res = await request(app).get(route);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(200);
   });
 
   it('passes with token', async () => {
@@ -174,13 +142,7 @@ describe.each([
   });
 });
 
-//
-// LOGIN (important: demo mode should not break this)
-//
-describe.each([
-  { name: 'DEMO_MODE off', env: { DEMO_MODE: 'false' } },
-  { name: 'DEMO_MODE on',  env: { DEMO_MODE: 'true'  } },
-])('POST /auth/user/login (%s)', ({ env }) => {
+describe('POST /auth/user/login', () => {
   let fetchSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -190,7 +152,7 @@ describe.each([
   afterEach(() => fetchSpy.mockRestore());
 
   it('returns 503 when upstream fails', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
     fetchSpy.mockRejectedValue(new Error('fail'));
 
     const res = await request(app)
@@ -201,7 +163,7 @@ describe.each([
   });
 
   it('returns 200 on success', async () => {
-    const { app } = await loadApp(env);
+    const { app } = await loadApp();
 
     fetchSpy.mockResolvedValue({
       ok: true,
@@ -214,6 +176,67 @@ describe.each([
       .send({ username: 'a', password: 'b' });
 
     expect(res.status).toBe(200);
+  });
+
+  it('passes through a DEMO_EXPIRED response from auth', async () => {
+    const { app } = await loadApp();
+
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({ error: 'Demo limit reached', code: 'DEMO_EXPIRED' }),
+    } as any);
+
+    const res = await request(app)
+      .post('/auth/user/login')
+      .send({ username: 'a', password: 'b' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual(expect.objectContaining({ code: 'DEMO_EXPIRED' }));
+  });
+});
+
+describe('POST /auth/user/refresh', () => {
+  let fetchSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    fetchSpy = jest.spyOn(global, 'fetch' as any);
+  });
+
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('returns 403 with DEMO_EXPIRED when auth denies refresh', async () => {
+    const { app } = await loadApp();
+
+    fetchSpy.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({ error: 'Demo limit reached', code: 'DEMO_EXPIRED' }),
+    } as any);
+
+    const res = await request(app)
+      .post('/auth/user/refresh')
+      .send({ refreshToken: 'r1' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual(expect.objectContaining({ code: 'DEMO_EXPIRED' }));
+  });
+
+  it('returns 200 and refreshed tokens when auth refresh succeeds', async () => {
+    const { app } = await loadApp();
+
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ accessToken: makeJwt('fresh-user'), refreshToken: 'r2' }),
+    } as any);
+
+    const res = await request(app)
+      .post('/auth/user/refresh')
+      .send({ refreshToken: 'r1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({ refreshToken: 'r2' }));
   });
 });
 

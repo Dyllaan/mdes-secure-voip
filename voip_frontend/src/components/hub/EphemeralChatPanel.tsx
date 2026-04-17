@@ -6,7 +6,7 @@ import Validator from '@/utils/validation/Validator';
 import { isAppE2EEnabled } from '@/testing/e2eHarness';
 import { useHubLayout } from '@/contexts/HubLayoutContext';
 
-export default function EphemeralChatPanel({ hubId, ephemOpen, setEphemOpen }: { hubId: string | undefined; ephemOpen: boolean; setEphemOpen: (open: boolean) => void }) {
+export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId: string | undefined; ephemOpen: boolean; setEphemOpen: (open: boolean) => void }) {
     const { ephem } = useHubLayout();
     const { joined, messages, timeLeft, leave, send } = ephem;
     const [input, setInput] = useState('');

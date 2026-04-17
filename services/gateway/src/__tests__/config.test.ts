@@ -7,7 +7,6 @@ const REQUIRED_VARS = [
   'MUSICMAN_URL',
   'TURN_SECRET',
   'JWT_SECRET',
-  'REDIS_URL',
 ];
 
 const VALID_ENV: Record<string, string> = {
@@ -19,7 +18,6 @@ const VALID_ENV: Record<string, string> = {
   MUSICMAN_URL:               'http://musicman:8080',
   TURN_SECRET:                'test-turn-secret',
   JWT_SECRET:                 Buffer.from('test-jwt-secret').toString('base64'),
-  REDIS_URL:                  'redis://localhost:6379',
 };
 
 function restoreEnv() {
@@ -110,51 +108,6 @@ describe('config - exports', () => {
 });
 
 describe('config - parsed optional vars', () => {
-  it('DEMO_TIME_LIMIT_SECONDS parses env string to number', () => {
-    process.env.DEMO_TIME_LIMIT_SECONDS = '7200';
-    const { config } = require('../config/config');
-    expect(config.DEMO_TIME_LIMIT_SECONDS).toBe(7200);
-  });
-
-  it('DEMO_TIME_LIMIT_SECONDS defaults to 10800 when absent', () => {
-    delete process.env.DEMO_TIME_LIMIT_SECONDS;
-    const { config } = require('../config/config');
-    expect(config.DEMO_TIME_LIMIT_SECONDS).toBe(10800);
-  });
-
-  it('DEMO_MODE is true only when env var is exactly the string "true"', () => {
-    process.env.DEMO_MODE = 'true';
-    const { config } = require('../config/config');
-    expect(config.DEMO_MODE).toBe(true);
-  });
-
-  it('DEMO_MODE is false for any value other than "true"', () => {
-    process.env.DEMO_MODE = '1';
-    const { config } = require('../config/config');
-    expect(config.DEMO_MODE).toBe(false);
-  });
-
-  it('DEMO_MODE is false when absent', () => {
-    delete process.env.DEMO_MODE;
-    const { config } = require('../config/config');
-    expect(config.DEMO_MODE).toBe(false);
-  });
-
-  it('UNRESTRICTED_USERNAMES is a Set of trimmed entries', () => {
-    process.env.UNRESTRICTED_USERNAMES = 'alice, bob , charlie';
-    const { config } = require('../config/config');
-    expect(config.UNRESTRICTED_USERNAMES).toBeInstanceOf(Set);
-    expect(config.UNRESTRICTED_USERNAMES.has('alice')).toBe(true);
-    expect(config.UNRESTRICTED_USERNAMES.has('bob')).toBe(true);
-    expect(config.UNRESTRICTED_USERNAMES.has('charlie')).toBe(true);
-  });
-
-  it('UNRESTRICTED_USERNAMES is an empty Set when absent', () => {
-    delete process.env.UNRESTRICTED_USERNAMES;
-    const { config } = require('../config/config');
-    expect(config.UNRESTRICTED_USERNAMES.size).toBe(0);
-  });
-
   it('MAX_REQUEST_BODY_BYTES parses env string to number', () => {
     process.env.MAX_REQUEST_BODY_BYTES = '2097152';
     const { config } = require('../config/config');

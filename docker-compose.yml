@@ -20,15 +20,22 @@ services:
       - CORS_ORIGIN=${ALLOWED_ORIGINS}
       - JWT_SECRET=${SECRET_KEY}
       - TURN_SECRET=${TURN_SECRET}
-      - REDIS_URL=redis://redis:6379
-      - DEMO_TIME_LIMIT_SECONDS=${DEMO_TIME_LIMIT_SECONDS}
-      - DEMO_MODE=${DEMO_MODE}
     depends_on:
-      - p2p-voip-realtime-service
-      - redis
+      p2p-auth-service:
+        condition: service_healthy
+      p2p-voip-realtime-service:
+        condition: service_started
+      p2p-hub-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - voip-network
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))\""]
       interval: 5s
@@ -37,7 +44,9 @@ services:
       start_period: 10s
 
   p2p-auth-service:
-    image: dflouis/dedicate-auth-service:latest
+    build:
+      context: ./services/auth-service
+      dockerfile: ../../Dockerfile.auth-service
     container_name: voip-auth-service
     expose:
       - "8010"
@@ -52,13 +61,32 @@ services:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
-      - CORS_ALLOWED_ORIGINS=http://voip-gateway:3000
+      - DEMO_MODE=${DEMO_MODE}
+      - DEMO_ALLOWED_USERS=${DEMO_ALLOWED_USERS}
+      - DEMO_TOKEN_SECRET=${DEMO_TOKEN_SECRET}
+      - ACCESS_TOKEN_EXP_SECONDS=${ACCESS_TOKEN_EXP_SECONDS}
+      - REFRESH_TOKEN_EXP_SECONDS=${REFRESH_TOKEN_EXP_SECONDS}
+      - MFA_TOKEN_EXP_SECONDS=${MFA_TOKEN_EXP_SECONDS}
+      - DEMO_TOKEN_EXP_SECONDS=${DEMO_TOKEN_EXP_SECONDS}
+      - TRUSTED_DEVICE_VALIDITY_DAYS=${TRUSTED_DEVICE_VALIDITY_DAYS}
     restart: always
     networks:
       - voip-network
     depends_on:
-      - p2p-auth-db
-      - redis
+      p2p-auth-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8010/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   p2p-voip-realtime-service:
     build:
@@ -77,6 +105,10 @@ services:
     networks:
       - voip-network
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   p2p-hub-service:
     build:
@@ -93,10 +125,21 @@ services:
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - INVITE_TTL_HOURS=24
     depends_on:
-      - p2p-hub-service-db
+      p2p-hub-service-db:
+        condition: service_healthy
     networks:
       - voip-network
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   p2p-hub-service-db:
     image: postgres:16-alpine
@@ -110,6 +153,13 @@ services:
     networks:
       - voip-network
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hub-service"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   p2p-auth-db:
     image: postgres:latest
@@ -123,6 +173,13 @@ services:
     restart: always
     networks:
       - voip-network
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nanny -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   p2p-musicman-service:
     build:
@@ -158,11 +215,15 @@ services:
       p2p-voip-gateway:
         condition: service_healthy
       p2p-auth-service:
-        condition: service_started
+        condition: service_healthy
       p2p-voip-realtime-service:
         condition: service_started
     networks:
       - voip-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   p2p-coturn:
     image: coturn/coturn:latest
@@ -187,15 +248,31 @@ services:
       voip-network:
         ipv4_address: 10.10.10.10
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
 
   redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    container_name: redis
-    ports:
-      - "6379:6379"
-    networks:
-      - voip-network
+      image: redis:7-alpine
+      restart: unless-stopped
+      container_name: redis
+      user: "999"
+      ports:
+        - "6379:6379"
+      networks:
+        - voip-network
+      security_opt:
+        - no-new-privileges:true
+      cap_drop:
+        - ALL
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 10
 
 volumes:
   auth-db-data:

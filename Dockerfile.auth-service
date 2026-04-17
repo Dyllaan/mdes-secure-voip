@@ -1,15 +1,8 @@
-FROM node:18-alpine
-
+FROM amazoncorretto:21 AS build
 WORKDIR /app
-
-# Install build tools for bcrypt
-RUN apk add --no-cache python3 make g++
-
-COPY package*.json ./
-RUN npm install --omit=dev
-
 COPY . .
-
-EXPOSE 3003
-
-CMD ["npm", "start"]
+RUN chmod +x gradlew && ./gradlew bootJar -x test --no-daemon
+FROM amazoncorretto:21
+WORKDIR /app
+COPY --from=build /app/build/libs/AuthService-*-RELEASE.jar app.jar
+CMD ["java", "-jar", "app.jar", "--spring.profiles.active=docker"]
