@@ -8,14 +8,12 @@ import com.louisfiges.auth.dto.response.AuthSuccessResponse;
 import com.louisfiges.auth.dto.response.DeleteResult;
 import com.louisfiges.auth.dto.response.LoginResult;
 import com.louisfiges.auth.dto.response.UpdatePasswordResult;
-import com.louisfiges.auth.http.exceptions.MfaValidationException;
 import com.louisfiges.auth.repo.UserRepository;
 import com.louisfiges.auth.config.DemoLimiter;
 import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
-import dev.samstevens.totp.exceptions.QrGenerationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -42,44 +40,21 @@ import static org.mockito.Mockito.*;
 @DisplayName("UserService Tests")
 class UserServiceTest {
 
-    @Mock
-    private UserRepository userRepository;
+    @Mock private UserRepository userRepository;
+    @Mock private PasswordEncoder passwordEncoder;
+    @Mock private UserTokenProvider userTokenProvider;
+    @Mock private MfaTokenProvider mfaTokenProvider;
+    @Mock private DemoTokenProvider demoTokenProvider;
+    @Mock private TotpService totpService;
+    @Mock private BackupCodeService backupCodeService;
+    @Mock private TrustedDeviceService trustedDeviceService;
+    @Mock private TokenDenyList tokenDenyList;
+    @Mock private DemoLimiter demoLimiter;
+    @Mock private DemoSessionService demoSessionService;
 
-    @Mock
-    private PasswordEncoder passwordEncoder;
+    @InjectMocks private UserService userService;
 
-    @Mock
-    private UserTokenProvider userTokenProvider;
-
-    @Mock
-    private MfaTokenProvider mfaTokenProvider;
-
-    @Mock
-    private DemoTokenProvider demoTokenProvider;
-
-    @Mock
-    private TotpService totpService;
-
-    @Mock
-    private BackupCodeService backupCodeService;
-
-    @Mock
-    private TrustedDeviceService trustedDeviceService;
-
-    @InjectMocks
-    private UserService userService;
-
-    @Captor
-    private ArgumentCaptor<UserDAO> userCaptor;
-
-    @Mock
-    private TokenDenyList tokenDenyList;
-
-    @Mock
-    private DemoLimiter demoLimiter;
-
-    @Mock
-    private DemoSessionService demoSessionService;
+    @Captor private ArgumentCaptor<UserDAO> userCaptor;
 
     private UserDAO testUser;
     private static final String USERNAME = "testuser";
@@ -108,16 +83,13 @@ class UserServiceTest {
         @Test
         @DisplayName("Should login successfully with valid credentials and no MFA")
         void shouldLoginSuccessfullyWithoutMfa() {
-            // Given
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             LoginResult.Success success = (LoginResult.Success) result;
             assertThat(success.response().username()).isEqualTo(USERNAME);
@@ -133,13 +105,10 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail login with invalid username")
         void shouldFailLoginWithInvalidUsername() {
-            // Given
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("Invalid credentials");
 
@@ -150,14 +119,11 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail login with invalid password")
         void shouldFailLoginWithInvalidPassword() {
-            // Given
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(false);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("Invalid credentials");
         }
@@ -165,17 +131,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should require MFA when enabled and not trusted device")
         void shouldRequireMfaWhenEnabled() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(mfaTokenProvider.generateToken(USER_ID)).thenReturn(MFA_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.MfaRequired.class);
             LoginResult.MfaRequired mfaRequired = (LoginResult.MfaRequired) result;
             assertThat(mfaRequired.mfaToken()).isEqualTo(MFA_TOKEN);
@@ -187,7 +150,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should skip MFA for trusted device")
         void shouldSkipMfaForTrustedDevice() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -196,10 +158,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, null, DEVICE_TOKEN, DEVICE_FINGERPRINT, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(trustedDeviceService).isDeviceTrusted(DEVICE_TOKEN, DEVICE_FINGERPRINT);
             verify(totpService, never()).verifyCode(anyString(), anyString());
@@ -208,7 +168,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should verify MFA code and login successfully")
         void shouldVerifyMfaCodeAndLogin() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -217,10 +176,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(totpService).verifyCode(MFA_SECRET, MFA_CODE);
         }
@@ -228,7 +185,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should verify backup code when TOTP fails")
         void shouldVerifyBackupCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -238,10 +194,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(totpService).verifyCode(MFA_SECRET, MFA_CODE);
             verify(backupCodeService).verifyAndUseBackupCode(testUser, MFA_CODE);
@@ -250,7 +204,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail login with invalid MFA code")
         void shouldFailLoginWithInvalidMfaCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -258,10 +211,8 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(false);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("Invalid MFA code");
         }
@@ -269,7 +220,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should create trusted device token when requested")
         void shouldCreateTrustedDeviceToken() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -280,10 +230,8 @@ class UserServiceTest {
             when(trustedDeviceService.createTrustedDevice(testUser, DEVICE_FINGERPRINT, "Browser"))
                     .thenReturn(DEVICE_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, DEVICE_FINGERPRINT, true);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             LoginResult.Success success = (LoginResult.Success) result;
             assertThat(success.response().deviceToken()).isEqualTo(DEVICE_TOKEN);
@@ -293,17 +241,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should handle empty MFA code as requiring MFA")
         void shouldHandleEmptyMfaCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(mfaTokenProvider.generateToken(USER_ID)).thenReturn(MFA_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, "", null, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.MfaRequired.class);
             verify(mfaTokenProvider).generateToken(USER_ID);
             verify(totpService, never()).verifyCode(anyString(), anyString());
@@ -312,7 +257,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should not create device token when fingerprint is null even if trust is requested")
         void shouldNotCreateDeviceTokenWithoutFingerprint() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -321,10 +265,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, true);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             LoginResult.Success success = (LoginResult.Success) result;
             assertThat(success.response().deviceToken()).isNull();
@@ -431,7 +373,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should verify MFA and return success with device trust")
         void shouldVerifyMfaSuccessfully() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
@@ -442,10 +383,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When - NOTE: Current code has a bug where trustDevice must be true to succeed
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, DEVICE_FINGERPRINT, true);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(totpService).verifyCode(MFA_SECRET, MFA_CODE);
             verify(trustedDeviceService).createTrustedDevice(testUser, DEVICE_FINGERPRINT, "Browser");
@@ -454,13 +393,10 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid MFA token")
         void shouldFailWithInvalidMfaToken() {
-            // Given
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.empty());
 
-            // When
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("Invalid or expired MFA token");
         }
@@ -468,7 +404,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid MFA code")
         void shouldFailWithInvalidMfaCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
@@ -476,10 +411,8 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(false);
 
-            // When
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("Invalid MFA code");
         }
@@ -487,7 +420,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should create device token when trust device is true")
         void shouldCreateDeviceTokenOnMfaVerification() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
@@ -498,10 +430,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, DEVICE_FINGERPRINT, true);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             LoginResult.Success success = (LoginResult.Success) result;
             assertThat(success.response().deviceToken()).isEqualTo(DEVICE_TOKEN);
@@ -510,17 +440,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should handle exceptions during MFA verification")
         void shouldHandleExceptionsDuringMfaVerification() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenThrow(new RuntimeException("TOTP service error"));
 
-            // When
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result).reason()).isEqualTo("TOTP service error");
         }
@@ -528,7 +455,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should verify MFA with backup code when TOTP fails")
         void shouldVerifyMfaWithBackupCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
@@ -538,10 +464,8 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, null, false);
 
-            // Then
             assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(totpService).verifyCode(MFA_SECRET, MFA_CODE);
             verify(backupCodeService).verifyAndUseBackupCode(testUser, MFA_CODE);
@@ -575,17 +499,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should register new user successfully")
         void shouldRegisterNewUser() {
-            // Given
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
             when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
             when(userRepository.save(any(UserDAO.class))).thenReturn(testUser);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
-            // When
             RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
 
-            // Then
             assertThat(result).isInstanceOf(RegisterResult.Success.class);
             RegisterResult.Success success = (RegisterResult.Success) result;
             assertThat(success.response().username()).isEqualTo(USERNAME);
@@ -603,13 +524,10 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail to register existing user")
         void shouldFailToRegisterExistingUser() {
-            // Given
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
 
-            // When
             RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
 
-            // Then
             assertThat(result).isInstanceOf(RegisterResult.UsernameTaken.class);
             verify(userRepository, never()).save(any(UserDAO.class));
         }
@@ -735,7 +653,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should update password without MFA")
         void shouldUpdatePasswordWithoutMfa() {
-            // Given
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, null);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
@@ -743,10 +660,8 @@ class UserServiceTest {
             when(passwordEncoder.encode(NEW_PASSWORD)).thenReturn(NEW_ENCODED_PASSWORD);
             when(userRepository.save(testUser)).thenReturn(testUser);
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.Success.class);
             assertThat(((UpdatePasswordResult.Success) result.get()).message())
@@ -760,16 +675,13 @@ class UserServiceTest {
         @Test
         @DisplayName("Should require MFA when enabled")
         void shouldRequireMfaForPasswordUpdate() {
-            // Given
             testUser.setMfaEnabled(true);
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, null);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.MfaRequired.class);
             verify(userRepository, never()).save(any());
@@ -778,7 +690,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should update password with valid MFA")
         void shouldUpdatePasswordWithValidMfa() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, MFA_CODE);
@@ -788,10 +699,8 @@ class UserServiceTest {
             when(passwordEncoder.matches(OLD_PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(passwordEncoder.encode(NEW_PASSWORD)).thenReturn(NEW_ENCODED_PASSWORD);
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.Success.class);
             verify(totpService).verifyCode(MFA_SECRET, MFA_CODE);
@@ -800,7 +709,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid MFA code")
         void shouldFailWithInvalidMfaCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, MFA_CODE);
@@ -809,10 +717,8 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(false);
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.Failure.class);
             verify(userRepository, never()).save(any());
@@ -821,16 +727,13 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with incorrect old password")
         void shouldFailWithIncorrectOldPassword() {
-            // Given
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, null);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(OLD_PASSWORD, ENCODED_PASSWORD)).thenReturn(false);
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.Failure.class);
             assertThat(((UpdatePasswordResult.Failure) result.get()).message())
@@ -840,14 +743,11 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid token")
         void shouldFailWithInvalidToken() {
-            // Given
             UpdatePasswordRequest request = new UpdatePasswordRequest(OLD_PASSWORD, NEW_PASSWORD, null);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.empty());
 
-            // When
             Optional<UpdatePasswordResult> result = userService.updatePassword(ACCESS_TOKEN, request);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(UpdatePasswordResult.Failure.class);
             assertThat(((UpdatePasswordResult.Failure) result.get()).message()).isEqualTo("Invalid token");
@@ -861,14 +761,11 @@ class UserServiceTest {
         @Test
         @DisplayName("Should get user from valid token")
         void shouldGetUserFromValidToken() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             Optional<UserDAO> result = userService.getUserFromToken(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isEqualTo(testUser);
         }
@@ -876,13 +773,10 @@ class UserServiceTest {
         @Test
         @DisplayName("Should return empty for invalid token")
         void shouldReturnEmptyForInvalidToken() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.empty());
 
-            // When
             Optional<UserDAO> result = userService.getUserFromToken(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isEmpty();
         }
     }
@@ -893,19 +787,16 @@ class UserServiceTest {
 
         @Test
         @DisplayName("Should setup MFA for user without existing secret")
-        void shouldSetupMfaWithNewSecret() throws QrGenerationException {
-            // Given
+        void shouldSetupMfaWithNewSecret() {
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.generateSecret()).thenReturn(MFA_SECRET);
-            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME)).thenReturn("qr_code_uri");
+            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME)).thenReturn(Optional.of("qr_code_uri"));
             List<String> backupCodes = List.of("backup1", "backup2");
             when(backupCodeService.generateAndSaveBackupCodes(testUser, 10)).thenReturn(backupCodes);
 
-            // When
             Optional<MfaSetupResponse> result = userService.setupMfa(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get().secret()).isEqualTo(MFA_SECRET);
             assertThat(result.get().qrCode()).isEqualTo("qr_code_uri");
@@ -914,42 +805,36 @@ class UserServiceTest {
             verify(userRepository).save(userCaptor.capture());
             UserDAO savedUser = userCaptor.getValue();
             assertThat(savedUser.getMfaSecret()).isEqualTo(MFA_SECRET);
-            assertThat(savedUser.isMfaEnabled()).isFalse(); // Not enabled until verified
+            assertThat(savedUser.isMfaEnabled()).isFalse();
         }
 
         @Test
         @DisplayName("Should use existing secret if present")
-        void shouldUseExistingSecret() throws QrGenerationException {
-            // Given
+        void shouldUseExistingSecret() {
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
-            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME)).thenReturn("qr_code_uri");
+            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME)).thenReturn(Optional.of("qr_code_uri"));
 
-            // When
             Optional<MfaSetupResponse> result = userService.setupMfa(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get().secret()).isEqualTo(MFA_SECRET);
             assertThat(result.get().qrCode()).isEqualTo("qr_code_uri");
-            assertThat(result.get().backupCodes()).isEmpty(); // No new backup codes when secret exists
+            assertThat(result.get().backupCodes()).isEmpty();
             verify(totpService, never()).generateSecret();
-            verify(userRepository, never()).save(any()); // Don't save when secret already exists
+            verify(userRepository, never()).save(any());
         }
 
         @Test
         @DisplayName("Should return empty if MFA already enabled")
         void shouldReturnEmptyIfMfaAlreadyEnabled() {
-            // Given
             testUser.setMfaEnabled(true);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             Optional<MfaSetupResponse> result = userService.setupMfa(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isEmpty();
             verify(totpService, never()).generateSecret();
             verify(userRepository, never()).save(any());
@@ -957,33 +842,25 @@ class UserServiceTest {
 
         @Test
         @DisplayName("Should return empty if QR generation fails")
-        void shouldReturnEmptyIfQrGenerationFails() throws QrGenerationException {
-            // Given
+        void shouldReturnEmptyIfQrGenerationFails() {
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.generateSecret()).thenReturn(MFA_SECRET);
-            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME))
-                    .thenThrow(new QrGenerationException("QR generation failed", null));
+            when(totpService.generateQrCodeDataUri(MFA_SECRET, USERNAME)).thenReturn(Optional.empty());
 
-            // When
             Optional<MfaSetupResponse> result = userService.setupMfa(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isEmpty();
-            // User was still saved with the secret before QR generation failed
             verify(userRepository).save(any());
         }
 
         @Test
         @DisplayName("Should return empty if token is invalid")
         void shouldReturnEmptyIfTokenInvalid() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.empty());
 
-            // When
             Optional<MfaSetupResponse> result = userService.setupMfa(ACCESS_TOKEN);
 
-            // Then
             assertThat(result).isEmpty();
             verify(totpService, never()).generateSecret();
         }
@@ -996,16 +873,13 @@ class UserServiceTest {
         @Test
         @DisplayName("Should enable MFA with valid code")
         void shouldEnableMfaWithValidCode() {
-            // Given
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
 
-            // When
             Optional<String> result = userService.verifyAndEnableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isEqualTo("MFA enabled successfully");
             assertThat(testUser.isMfaEnabled()).isTrue();
@@ -1015,16 +889,13 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid code")
         void shouldFailWithInvalidCode() {
-            // Given
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
 
-            // When
             Optional<String> result = userService.verifyAndEnableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isEmpty();
             verify(userRepository, never()).save(any());
         }
@@ -1032,14 +903,11 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail if no MFA secret exists")
         void shouldFailIfNoMfaSecret() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             Optional<String> result = userService.verifyAndEnableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isEmpty();
         }
     }
@@ -1051,17 +919,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should disable MFA with valid code")
         void shouldDisableMfaWithValidCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
 
-            // When
             Optional<String> result = userService.disableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isPresent();
             assertThat(result.get()).isEqualTo("MFA disabled successfully");
             assertThat(testUser.isMfaEnabled()).isFalse();
@@ -1073,31 +938,25 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail if MFA not enabled")
         void shouldFailIfMfaNotEnabled() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             Optional<String> result = userService.disableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isEmpty();
         }
 
         @Test
         @DisplayName("Should fail with invalid code")
         void shouldFailWithInvalidCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
 
-            // When
             Optional<String> result = userService.disableMfa(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isEmpty();
             verify(userRepository, never()).save(any());
         }
@@ -1110,14 +969,11 @@ class UserServiceTest {
         @Test
         @DisplayName("Should delete user without MFA")
         void shouldDeleteUserWithoutMfa() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             DeleteResult result = userService.deleteUser(ACCESS_TOKEN, null);
 
-            // Then
             assertThat(result).isInstanceOf(DeleteResult.Success.class);
             assertThat(((DeleteResult.Success) result).message()).isEqualTo("User deleted successfully");
             verify(userRepository).delete(testUser);
@@ -1126,15 +982,12 @@ class UserServiceTest {
         @Test
         @DisplayName("Should require MFA when enabled")
         void shouldRequireMfaForDeletion() {
-            // Given
             testUser.setMfaEnabled(true);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
 
-            // When
             DeleteResult result = userService.deleteUser(ACCESS_TOKEN, null);
 
-            // Then
             assertThat(result).isInstanceOf(DeleteResult.MfaRequired.class);
             verify(userRepository, never()).delete(any());
         }
@@ -1142,17 +995,14 @@ class UserServiceTest {
         @Test
         @DisplayName("Should delete user with valid MFA")
         void shouldDeleteUserWithValidMfa() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
 
-            // When
             DeleteResult result = userService.deleteUser(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isInstanceOf(DeleteResult.Success.class);
             verify(userRepository).delete(testUser);
         }
@@ -1160,7 +1010,6 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid MFA code")
         void shouldFailWithInvalidMfaCode() {
-            // Given
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.of(USER_ID));
@@ -1168,10 +1017,8 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(false);
 
-            // When
             DeleteResult result = userService.deleteUser(ACCESS_TOKEN, MFA_CODE);
 
-            // Then
             assertThat(result).isInstanceOf(DeleteResult.Failure.class);
             verify(userRepository, never()).delete(any());
         }
@@ -1179,13 +1026,10 @@ class UserServiceTest {
         @Test
         @DisplayName("Should fail with invalid token")
         void shouldFailWithInvalidToken() {
-            // Given
             when(userTokenProvider.validateAndGetUserId(ACCESS_TOKEN)).thenReturn(Optional.empty());
 
-            // When
             DeleteResult result = userService.deleteUser(ACCESS_TOKEN, null);
 
-            // Then
             assertThat(result).isInstanceOf(DeleteResult.Failure.class);
             assertThat(((DeleteResult.Failure) result).reason()).isEqualTo("Invalid token");
         }
