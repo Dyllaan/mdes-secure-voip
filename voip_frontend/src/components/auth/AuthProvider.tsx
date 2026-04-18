@@ -73,6 +73,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setTurnCredentials(null);
   };
 
+  const resetLoginFlowState = () => {
+    setSignedIn(false);
+    setMfaRequired(false);
+    setPendingMfaToken(null);
+  };
+
   const presentDemoLimitDialog = (payload: DemoLimitResponse) => {
     setDemoLimitResponse(payload);
     setDemoDeleteError(null);
@@ -292,11 +298,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const errorData = response.data as { cause?: string };
-      setSignedIn(false);
+      resetLoginFlowState();
       toast.error(errorData.cause || 'Login failed');
       return { success: false, error: errorData.cause };
 
     } catch {
+      resetLoginFlowState();
       toast.error('An unexpected error occurred');
       return { success: false, error: 'Network error' };
     }
@@ -343,11 +350,15 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       }
 
       const errorData = response.data as { cause?: string };
+      setSignedIn(false);
+      setMfaRequired(true);
       toast.error(errorData.cause || 'Invalid authentication code');
       return { success: false, error: errorData.cause };
 
     } catch (error) {
       console.error('MFA verification failed:', error);
+      setSignedIn(false);
+      setMfaRequired(true);
       toast.error('An unexpected error occurred');
       return { success: false, error: 'Network error' };
     }

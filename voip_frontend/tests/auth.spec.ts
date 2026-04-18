@@ -97,6 +97,11 @@ test.describe('Auth - Login page', () => {
     await page.getByTestId('login-submit').click();
 
     await expect(page.getByText('Invalid username or password').first()).toBeVisible();
+    await expect(page.getByTestId('login-form')).toBeVisible();
+    await expect(page.getByTestId('login-submit')).toBeEnabled();
+    await expect(page.getByTestId('login-submit')).toHaveText('Sign In');
+    await expect(page.getByTestId('username-input')).toBeEnabled();
+    await expect(page.getByTestId('password-input')).toBeEnabled();
   });
 
   test('demo-expired login shows the demo ended dialog', async ({ page }) => {
@@ -261,6 +266,10 @@ test.describe('Auth - Login page', () => {
 
     await expect(page.locator('#mfaCode')).toBeVisible();
     await expect(page.getByText('Invalid authentication code').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Verify Code' })).toHaveText('Verify Code');
+    await expect(page.locator('#mfaCode')).toBeEnabled();
+    await page.locator('#mfaCode').fill('654321');
+    await expect(page.getByRole('button', { name: 'Verify Code' })).toBeEnabled();
   });
 
   test('Sign In button is disabled while request is in flight', async ({ page }) => {

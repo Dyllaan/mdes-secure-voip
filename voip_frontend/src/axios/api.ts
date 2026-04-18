@@ -23,6 +23,12 @@ let _accessToken: string | null = null;
 let _refreshToken: string | null = null;
 let _isRefreshing = false;
 let _refreshQueue: Array<(token: string | null) => void> = [];
+const PUBLIC_AUTH_PATHS = new Set([
+  '/user/login',
+  '/user/register',
+  '/user/verify-mfa',
+  '/user/refresh',
+]);
 
 export const setAccessToken = (token: string | null) => { _accessToken = token; };
 export const setRefreshToken = (token: string | null) => { _refreshToken = token; };
@@ -71,7 +77,30 @@ export const musicmanApi = axios.create({
   validateStatus: () => true,
 });
 
+function normalizeRequestPath(url?: string): string | null {
+  if (!url) return null;
+
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return url.split('?')[0] ?? null;
+  }
+}
+
+function isPublicAuthPath(url?: string): boolean {
+  const path = normalizeRequestPath(url);
+  return path ? PUBLIC_AUTH_PATHS.has(path) : false;
+}
+
+function isSessionBootstrapPath(url?: string): boolean {
+  return normalizeRequestPath(url) === '/user/me';
+}
+
 function attachAuthHeader(cfg: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
+  if (isPublicAuthPath(cfg.url)) {
+    return cfg;
+  }
+
   if (_accessToken && !cfg.headers.Authorization) {
     cfg.headers.Authorization = `Bearer ${_accessToken}`;
   }
@@ -156,14 +185,17 @@ export async function recoverFromAuthFailure(): Promise<AuthRecoveryOutcome> {
 
 function attachRefreshInterceptor(instance: typeof gateway) {
   instance.interceptors.response.use(async (response) => {
+    const originalRequest = response.config;
+    const requestUrl = originalRequest.url;
+    const isPublicAuthRequest = isPublicAuthPath(requestUrl);
+
     if (response.status === 401) {
-      const originalRequest = response.config;
       const authorizationHeader = originalRequest.headers.Authorization ?? originalRequest.headers.authorization;
-      const isSessionBootstrapRequest = originalRequest.url?.includes('/user/me');
+      const isSessionBootstrapRequest = isSessionBootstrapPath(requestUrl);
 
       if (
-        originalRequest.url?.includes('/user/logout') ||
-        originalRequest.url?.includes('/user/refresh')
+        requestUrl?.includes('/user/logout') ||
+        isPublicAuthRequest
       ) {
         return response;
       }
@@ -179,6 +211,10 @@ function attachRefreshInterceptor(instance: typeof gateway) {
         return instance(originalRequest);
       }
 
+      return response;
+    }
+
+    if (isPublicAuthRequest) {
       return response;
     }
 
