@@ -2,3 +2,4 @@
 *.iml
 .env
 .env.local
+/voip_frontend/.vite
