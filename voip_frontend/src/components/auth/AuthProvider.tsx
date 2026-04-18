@@ -29,6 +29,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   // Session recovery uses localStorage for the refresh token and memory for the access token.
   const refreshTokenRef = useRef<string | null>(persistedUser?.refreshToken ?? null);
   const isLoggingOutRef = useRef(false);
+  const logoutRef = useRef<() => void | Promise<void>>(() => {});
 
   const user: User | null = persistedUser && accessToken
     ? { ...persistedUser, accessToken }
@@ -108,9 +109,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
+    logoutRef.current = logout;
+  });
+
+  useEffect(() => {
     authDebug('setupInterceptors.effect');
     setupInterceptors(
-      logout,
+      () => logoutRef.current(),
       (nextAccessToken, nextRefreshToken) => {
         authDebug('tokenUpdateCallback', {
           hasNextAccessToken: !!nextAccessToken,
