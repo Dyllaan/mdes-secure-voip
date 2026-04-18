@@ -42,11 +42,16 @@ let onLogout: LogoutCallback | null = null;
 let onTokenUpdate: TokenUpdateCallback | null = null;
 let onDemoLimited: DemoLimitedCallback | null = null;
 
+function authDebug(event: string, details?: Record<string, unknown>) {
+  console.info('[AuthDebug][api]', event, details ?? {});
+}
+
 export const setupInterceptors = (
   logoutCallback: LogoutCallback,
   tokenUpdateCallback: TokenUpdateCallback,
   demoLimitedCallback?: DemoLimitedCallback,
 ) => {
+  authDebug('setupInterceptors');
   onLogout = logoutCallback;
   onTokenUpdate = tokenUpdateCallback;
   onDemoLimited = demoLimitedCallback ?? null;
@@ -127,34 +132,59 @@ signalingApi.interceptors.request.use(attachAuthHeader);
 
 
 async function attemptRefresh(): Promise<string | DemoLimitResponse | null> {
-  if (!_refreshToken) return null;
+  if (!_refreshToken) {
+    authDebug('attemptRefresh.skipped', { reason: 'missing_refresh_token' });
+    return null;
+  }
+
+  authDebug('attemptRefresh.start', { hasRefreshToken: true });
   try {
     const res = await authApi.post('/user/refresh', { refreshToken: _refreshToken });
+    authDebug('attemptRefresh.response', { status: res.status });
     if (res.status === 200) {
       const data = res.data as { accessToken: string; refreshToken: string };
       setAccessToken(data.accessToken);
       setRefreshToken(data.refreshToken);
       onTokenUpdate?.(data.accessToken, data.refreshToken);
+      authDebug('attemptRefresh.success');
       return data.accessToken;
     }
     const demoLimit = parseDemoLimitResponse(res);
     if (demoLimit) {
+      authDebug('attemptRefresh.demo_limited');
       return demoLimit;
     }
   } catch {
-    // refresh failed
+    authDebug('attemptRefresh.error');
   }
+  authDebug('attemptRefresh.failed');
   return null;
 }
 
 export async function recoverFromAuthFailure(): Promise<AuthRecoveryOutcome> {
+  authDebug('recoverFromAuthFailure.enter', {
+    hasAccessToken: !!_accessToken,
+    hasRefreshToken: !!_refreshToken,
+    isRefreshing: _isRefreshing,
+    queuedRequests: _refreshQueue.length,
+  });
+  if (!_refreshToken) {
+    _refreshQueue.forEach((cb) => cb(null));
+    _refreshQueue = [];
+    authDebug('recoverFromAuthFailure.no_refresh_token');
+    return 'logged_out';
+  }
+
   if (_isRefreshing) {
+    authDebug('recoverFromAuthFailure.queue_wait');
     return new Promise((resolve) => {
       _refreshQueue.push((token) => {
         if (token) {
+          authDebug('recoverFromAuthFailure.queue_resolved', { outcome: 'recovered' });
           resolve('recovered');
           return;
         }
+        authDebug('recoverFromAuthFailure.queue_resolved', { outcome: 'logged_out' });
         resolve('logged_out');
       });
     });
@@ -169,16 +199,19 @@ export async function recoverFromAuthFailure(): Promise<AuthRecoveryOutcome> {
       onDemoLimited?.(newToken);
       _refreshQueue.forEach((cb) => cb(null));
       _refreshQueue = [];
+      authDebug('recoverFromAuthFailure.demo_limited');
       return 'demo_limited';
     }
 
     _refreshQueue.forEach((cb) => cb(newToken));
     _refreshQueue = [];
+    authDebug('recoverFromAuthFailure.recovered');
     return 'recovered';
   }
 
   _refreshQueue.forEach((cb) => cb(null));
   _refreshQueue = [];
+  authDebug('recoverFromAuthFailure.calling_logout');
   await onLogout?.();
   return 'logged_out';
 }
@@ -192,22 +225,37 @@ function attachRefreshInterceptor(instance: typeof gateway) {
     if (response.status === 401) {
       const authorizationHeader = originalRequest.headers.Authorization ?? originalRequest.headers.authorization;
       const isSessionBootstrapRequest = isSessionBootstrapPath(requestUrl);
+      authDebug('interceptor.401', {
+        url: requestUrl,
+        hasAuthorizationHeader: !!authorizationHeader,
+        isSessionBootstrapRequest,
+        hasRefreshToken: !!_refreshToken,
+      });
 
       if (
         requestUrl?.includes('/user/logout') ||
         isPublicAuthRequest
       ) {
+        authDebug('interceptor.401.ignored', { reason: 'public_or_logout_request', url: requestUrl });
         return response;
       }
 
       if (!authorizationHeader && !isSessionBootstrapRequest) {
+        authDebug('interceptor.401.ignored', { reason: 'missing_authorization_header', url: requestUrl });
+        return response;
+      }
+
+      if (isSessionBootstrapRequest && !authorizationHeader && !_refreshToken) {
+        authDebug('interceptor.401.ignored', { reason: 'anonymous_bootstrap', url: requestUrl });
         return response;
       }
 
       const recovery = await recoverFromAuthFailure();
+      authDebug('interceptor.401.recovery_result', { url: requestUrl, recovery });
 
       if (recovery === 'recovered' && _accessToken) {
         originalRequest.headers.Authorization = `Bearer ${_accessToken}`;
+        authDebug('interceptor.401.retrying', { url: requestUrl });
         return instance(originalRequest);
       }
 
@@ -220,6 +268,7 @@ function attachRefreshInterceptor(instance: typeof gateway) {
 
     const demoLimit = parseDemoLimitResponse(response);
     if (demoLimit) {
+      authDebug('interceptor.demo_limited', { url: requestUrl });
       onDemoLimited?.(demoLimit);
       return response;
     }

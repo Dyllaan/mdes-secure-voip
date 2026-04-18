@@ -18,6 +18,10 @@ type PersistedUser = Omit<User, 'accessToken'>;
 const DEMO_LIMITED_ERROR = 'DEMO_LIMITED';
 type SessionBootstrapState = 'anonymous' | 'valid' | 'invalid';
 
+function authDebug(event: string, details?: Record<string, unknown>) {
+  console.info('[AuthDebug][provider]', event, details ?? {});
+}
+
 export default function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
@@ -73,6 +77,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [demoDeleteError, setDemoDeleteError] = useState<string | null>(null);
 
   const clearAuthState = () => {
+    authDebug('clearAuthState', {
+      hadPersistedUser: !!persistedUser,
+      hadAccessToken: !!accessToken,
+      hadRefreshToken: !!refreshTokenRef.current,
+    });
     setPersistedUser(null);
     setAccessToken(null);
     refreshTokenRef.current = null;
@@ -91,6 +100,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const presentDemoLimitDialog = (payload: DemoLimitResponse) => {
+    authDebug('presentDemoLimitDialog', { message: payload.message });
     setDemoLimitResponse(payload);
     setDemoDeleteError(null);
     setShowDemoExpiredDialog(true);
@@ -98,14 +108,20 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
+    authDebug('setupInterceptors.effect');
     setupInterceptors(
       logout,
       (nextAccessToken, nextRefreshToken) => {
+        authDebug('tokenUpdateCallback', {
+          hasNextAccessToken: !!nextAccessToken,
+          hasNextRefreshToken: !!nextRefreshToken,
+        });
         setAccessToken(nextAccessToken);
         setModuleRefreshToken(nextRefreshToken);
         setPersistedUser((prev) => prev ? { ...prev, refreshToken: nextRefreshToken } : prev);
       },
       (payload) => {
+        authDebug('demoLimitedCallback');
         presentDemoLimitDialog(payload);
       },
     );
@@ -118,8 +134,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     const handleUnload = () => {
       const refreshToken = refreshTokenRef.current;
-      if (!refreshToken) return;
+      if (!refreshToken) {
+        authDebug('beforeunload.skip', { reason: 'missing_refresh_token' });
+        return;
+      }
 
+      authDebug('beforeunload.sendBeacon', { hasRefreshToken: true });
       navigator.sendBeacon(
         '/auth/user/logout',
         new Blob([JSON.stringify({ refreshToken })], { type: 'application/json' }),
@@ -147,12 +167,20 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   async function logout() {
     const refreshToken = refreshTokenRef.current;
     const currentAccessToken = accessToken;
+    authDebug('logout.called', {
+      hasRefreshToken: !!refreshToken,
+      hasAccessToken: !!currentAccessToken,
+      isLoggingOut: isLoggingOutRef.current,
+      currentPath: window.location.hash || window.location.pathname,
+    });
 
     if (isLoggingOutRef.current) {
+      authDebug('logout.skipped', { reason: 'already_in_progress' });
       return;
     }
 
     if (!refreshToken) {
+      authDebug('logout.skipped', { reason: 'missing_refresh_token' });
       clearAuthState();
       return;
     }
@@ -160,6 +188,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     isLoggingOutRef.current = true;
 
     try {
+      authDebug('logout.request.start', { hasAccessToken: !!currentAccessToken });
       await authApi.post(
         '/user/logout',
         { refreshToken },
@@ -171,11 +200,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
             }
           : undefined,
       );
+      authDebug('logout.request.complete');
     } catch {
-      // ignore
+      authDebug('logout.request.error');
     } finally {
       isLoggingOutRef.current = false;
       clearAuthState();
+      authDebug('logout.navigate', { to: '/login' });
       navigate('/login');
     }
   }
@@ -248,10 +279,16 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const checkToken = async (): Promise<SessionBootstrapState> => {
     const storedRefreshToken = persistedUser?.refreshToken;
+    authDebug('checkToken.start', {
+      hasAccessToken: !!accessToken,
+      hasStoredRefreshToken: !!storedRefreshToken,
+      hadPersistedUser: !!persistedUser,
+    });
 
     if (!accessToken && !storedRefreshToken) {
       clearAuthState();
       setSignedIn(false);
+      authDebug('checkToken.result', { state: 'anonymous' });
       return 'anonymous';
     }
 
@@ -259,29 +296,36 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       const response = await authApi.get('/user/me');
+      authDebug('checkToken.me_response', { status: response.status });
       if (response.status === 200) {
         const responseData = response.data as MeResponse;
         changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
         setSignedIn(true);
+        authDebug('checkToken.result', { state: 'valid' });
         return 'valid';
       }
     } catch {
-      // ignore
+      authDebug('checkToken.me_error');
     }
 
     if (!refreshTokenRef.current) {
       setSignedIn(false);
+      authDebug('checkToken.result', { state: 'anonymous_after_recovery' });
       return 'anonymous';
     }
 
     setSignedIn(false);
+    authDebug('checkToken.result', { state: 'invalid' });
     return 'invalid';
   };
 
   useEffect(() => {
+    authDebug('bootstrap.effect.start');
     checkToken().then((sessionState) => {
+      authDebug('bootstrap.effect.result', { sessionState });
       if (sessionState === 'invalid') logout();
     }).finally(() => {
+      authDebug('bootstrap.effect.complete');
       setIsLoading(false);
     });
   }, []);
