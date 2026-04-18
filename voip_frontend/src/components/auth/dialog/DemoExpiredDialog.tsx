@@ -18,6 +18,9 @@ interface DemoExpiredDialogProps {
   error: string | null;
 }
 
+/**
+ * Shown when the user has used their demo time and they cannot relogin or refresh their token anymore. They can only delete their demo account and start over with a new one.
+ */
 export default function DemoExpiredDialog({
   open,
   onOpenChange,
@@ -31,9 +34,7 @@ export default function DemoExpiredDialog({
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Demo Ended</DialogTitle>
-          <DialogDescription>
-            {message}
-          </DialogDescription>
+          <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
         {error ? (
           <p className="text-sm text-destructive" data-testid="demo-delete-error">
@@ -41,27 +42,27 @@ export default function DemoExpiredDialog({
           </p>
         ) : null}
         <DialogFooter>
-          <Button
-            type="button"
-            variant="destructive"
-            className="w-full"
-            onClick={() => void onDelete()}
-            disabled={isDeleting}
-            data-testid="demo-delete-submit"
-          >
-            {isDeleting ? 'Deleting Demo Account...' : 'Delete Demo Account'}
-          </Button>
           <DialogClose asChild>
             <Button
               type="button"
               variant="outline"
-              className="w-full"
+              className="sm:w-auto w-full"
               disabled={isDeleting}
               data-testid="demo-delete-close"
             >
               Close
             </Button>
           </DialogClose>
+          <Button
+            type="button"
+            variant="destructive"
+            className="sm:w-auto w-full"
+            onClick={() => void onDelete()}
+            disabled={isDeleting}
+            data-testid="demo-delete-submit"
+          >
+            {isDeleting ? 'Deleting Demo Account...' : 'Delete Demo Account'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

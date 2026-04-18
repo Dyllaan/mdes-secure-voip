@@ -1,5 +1,8 @@
 package com.louisfiges.auth.util;
 
+import com.louisfiges.auth.config.DemoLimiter;
+import com.louisfiges.auth.constants.PublicPaths;
+import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
 import jakarta.servlet.FilterChain;
@@ -19,34 +22,33 @@ import com.louisfiges.auth.service.UserService;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final UserService userService;
     private final UserTokenProvider userTokenProvider;
+    private final DemoLimiter demoLimiter;
     private final TokenDenyList tokenDenyList;
     private final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
-    public JwtAuthenticationFilter(UserService userService, UserTokenProvider userTokenProvider, TokenDenyList tokenDenyList) {
+    public JwtAuthenticationFilter(UserService userService, UserTokenProvider userTokenProvider,
+                                   DemoLimiter demoLimiter,
+                                   TokenDenyList tokenDenyList) {
         this.userService = userService;
         this.userTokenProvider = userTokenProvider;
+        this.demoLimiter = demoLimiter;
         this.tokenDenyList = tokenDenyList;
     }
-
-    private static final List<String> PUBLIC_PATHS = Arrays.asList(
-            "/user/login",
-            "/user/register",
-            "/user/refresh",
-            "/version"
-    );
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
         logger.info("Filter processing request to: {}", path);
 
-        if (PUBLIC_PATHS.contains(path)) {
+        if (PublicPaths.isPublicPath(path)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -62,19 +64,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            userTokenProvider.validateAndGetUserId(jwt)
-                    .ifPresentOrElse(
-                            userId -> {
-                                if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                                    userService.getUserFromToken(jwt).ifPresent(userDAO -> {
-                                        UsernamePasswordAuthenticationToken authenticationToken =
-                                                new UsernamePasswordAuthenticationToken(userDAO, null, null);
-                                        SecurityContextHolder.getContext().setAuthentication(authenticationToken);
-                                    });
-                                }
-                            },
-                            () -> logger.warn("Invalid or expired token")
-                    );
+            Optional<UUID> userId = userTokenProvider.validateAndGetUserId(jwt);
+
+            if (userId.isPresent()) {
+                if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                    userService.getUserFromToken(jwt).ifPresent(userDAO -> {
+                        UsernamePasswordAuthenticationToken auth =
+                                new UsernamePasswordAuthenticationToken(userDAO, null, null);
+                        SecurityContextHolder.getContext().setAuthentication(auth);
+                    });
+                }
+            } else if (demoLimiter.isDemoMode()) {
+                userService.getUserFromDemoToken(jwt).ifPresentOrElse(
+                        userDAO -> {
+                            UsernamePasswordAuthenticationToken auth =
+                                    new UsernamePasswordAuthenticationToken(userDAO, null, null);
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        },
+                        () -> logger.warn("Invalid or expired token")
+                );
+            } else {
+                logger.warn("Invalid or expired token");
+            }
         }
 
         filterChain.doFilter(request, response);

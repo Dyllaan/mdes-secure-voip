@@ -1,5 +1,6 @@
 package com.louisfiges.auth.config;
 
+import com.louisfiges.auth.constants.PublicPaths;
 import com.louisfiges.auth.util.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,7 +33,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> {
-                    authorize.requestMatchers("/user/login", "/user/refresh", "/user/register", "/user/verify-mfa", "/version", "/actuator/health").permitAll()
+                    authorize.requestMatchers(PublicPaths.getPublicPaths().toArray(String[]::new)).permitAll()
                             .anyRequest().authenticated();
                 })
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

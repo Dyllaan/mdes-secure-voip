@@ -1,11 +1,12 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.4.1'
+    id 'org.springframework.boot' version '3.5.0'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.owasp.dependencycheck' version '12.1.1'
 }
 
 group = 'com.louisfiges'
-version = '1.0.1-RELEASE'
+version = '1.0.2-RELEASE'
 
 java {
     toolchain {
@@ -24,24 +25,29 @@ repositories {
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
     implementation 'org.slf4j:slf4j-api:2.0.16'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.xerial:sqlite-jdbc:3.45.1.0'
     implementation 'org.hibernate.orm:hibernate-community-dialects'
     implementation 'io.github.cdimascio:dotenv-java:3.1.0'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
-    implementation 'dev.samstevens.totp:totp:1.7.1'
+    implementation 'com.github.bastiaanjansen:otp-java:2.0.3'
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.google.zxing:javase:3.5.3'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
-    // health checks
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
-    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
-    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
     runtimeOnly 'org.xerial:sqlite-jdbc:3.45.0.0'
-    runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'org.postgresql:postgresql:42.7.6'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyCheck {
+    analyzers.ossIndex.enabled = false
+    failOnError = false
 }
 
 tasks.named('test') {

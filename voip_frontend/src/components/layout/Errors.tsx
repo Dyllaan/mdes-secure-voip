@@ -6,7 +6,7 @@ export default function Errors({ errors }: { errors: ValidationResult[] }) {
   const hasErrors = allErrors.length > 0;
 
   return (
-    <div className="rounded-lg border px-4 py-3 w-96 mx-auto">
+    <div className={`rounded-lg ${hasErrors && 'border-destructive'} px-4 py-3 w-96 mx-auto`}>
         <div className="space-y-2 flex flex-col">
             <div className="mx-auto items-center">
             {hasErrors ? (

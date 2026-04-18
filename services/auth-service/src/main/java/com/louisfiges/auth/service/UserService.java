@@ -16,7 +16,6 @@ import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
-import dev.samstevens.totp.exceptions.QrGenerationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -291,17 +290,9 @@ public class UserService {
                         backupCodes = backupCodeService.generateAndSaveBackupCodes(user, 10);
                     }
 
-                    try {
-                        String qrCode = totpService.generateQrCodeDataUri(secret, user.getUsername());
-                        return Optional.of(new MfaSetupResponse(
-                                secret,
-                                qrCode,
-                                backupCodes,
-                                "Scan the QR code with your authenticator app and save your backup codes"
-                        ));
-                    } catch (QrGenerationException e) {
-                        return Optional.empty();
-                    }
+                    return totpService.generateQrCodeDataUri(secret, user.getUsername())
+                            .map(qrCode -> new MfaSetupResponse(secret, qrCode, backupCodes,
+                                    "Scan the QR code with your authenticator app and save your backup codes"));
                 });
     }
 
@@ -364,5 +355,10 @@ public class UserService {
                 .ifPresent(ms -> tokenDenyList.revoke(accessToken, ms));
         userTokenProvider.getRemainingExpiry(refreshToken)
                 .ifPresent(ms -> tokenDenyList.revoke(refreshToken, ms));
+    }
+
+    public Optional<UserDAO> getUserFromDemoToken(String token) {
+        return demoTokenProvider.validateAndGetUserId(token)
+                .flatMap(userRepository::findById);
     }
 }

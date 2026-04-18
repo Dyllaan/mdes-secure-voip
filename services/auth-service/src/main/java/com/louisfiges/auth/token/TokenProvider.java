@@ -5,57 +5,49 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.Claims;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * TokenProvider is responsible for generating JWT tokens
- * using a signing key provided via configuration.
- * @author Louis Figes 
- */
-
 public abstract class TokenProvider {
     private static final Logger logger = LoggerFactory.getLogger(TokenProvider.class);
-    
-    private final Key signingKey;
-    
+
+    private final SecretKey signingKey;
+
     public TokenProvider(String envVarName) {
         this.signingKey = KeyLoader.loadKeyFromEnv(envVarName);
     }
 
     protected String generate(UUID id, long expirationTime) {
         return Jwts.builder()
-                .setSubject(String.valueOf(id))
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .subject(String.valueOf(id))
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expirationTime))
+                .signWith(signingKey)
                 .compact();
     }
 
     protected String generate(UUID id, String username, long expirationTime) {
         return Jwts.builder()
-                .setSubject(String.valueOf(id))
+                .subject(String.valueOf(id))
                 .claim("username", username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expirationTime))
+                .signWith(signingKey)
                 .compact();
     }
 
     public Optional<UUID> validateAndGetUserId(String token) {
         try {
-            Claims claims = Jwts.parserBuilder()
-                    .setSigningKey(getSigningKey())
+            Claims claims = Jwts.parser()
+                    .verifyWith(signingKey)
                     .build()
-                    .parseClaimsJws(token)
-                    .getBody();
+                    .parseSignedClaims(token)
+                    .getPayload();
 
-            // Check expiration
             if (claims.getExpiration().before(new Date())) {
                 logger.debug("Token expired");
                 return Optional.empty();
@@ -70,11 +62,11 @@ public abstract class TokenProvider {
 
     public Optional<Long> getRemainingExpiry(String token) {
         try {
-            Date expiry = Jwts.parserBuilder()
-                    .setSigningKey(getSigningKey())
+            Date expiry = Jwts.parser()
+                    .verifyWith(signingKey)
                     .build()
-                    .parseClaimsJws(token)
-                    .getBody()
+                    .parseSignedClaims(token)
+                    .getPayload()
                     .getExpiration();
             long remaining = expiry.getTime() - System.currentTimeMillis();
             return remaining > 0 ? Optional.of(remaining) : Optional.empty();
@@ -83,20 +75,17 @@ public abstract class TokenProvider {
         }
     }
 
-    public Key getSigningKey() {
+    public SecretKey getSigningKey() {
         return signingKey;
     }
 
     protected static long getExpirationMsFromEnv(String envVarName, long defaultMs) {
         String raw = System.getenv(envVarName);
-        if (raw == null || raw.isBlank()) {
-            return defaultMs;
-        }
-
+        if (raw == null || raw.isBlank()) return defaultMs;
         try {
             long seconds = Long.parseLong(raw.trim());
             if (seconds <= 0) {
-                logger.warn("{} must be a positive integer number of seconds. Falling back to default.", envVarName);
+                logger.warn("{} must be positive. Falling back to default.", envVarName);
                 return defaultMs;
             }
             return seconds * 1000L;

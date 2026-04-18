@@ -59,10 +59,10 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
 
 app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
   const services: Record<string, string> = {
-    auth:     config.AUTH_SERVICE_URL,
-    realtime: config.REALTIME_SERVICE_URL,
-    musicman: config.MUSICMAN_URL,
-    hub:      config.HUB_SERVICE_URL,
+    auth:     `${config.AUTH_SERVICE_URL}/actuator/health`,
+    realtime: `${config.REALTIME_SERVICE_URL}/health`,
+    musicman: `${config.MUSICMAN_URL}/health`,
+    hub:      `${config.HUB_SERVICE_URL}/health`,
   };
 
   const results = await Promise.allSettled(
@@ -70,7 +70,7 @@ app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2000);
       try {
-        const r = await fetch(`${url}/health`, { signal: controller.signal });
+        const r = await fetch(url, { signal: controller.signal });
         return { name, status: r.ok ? 'UP' : 'DEGRADED' };
       } catch {
         return { name, status: 'DOWN' };
