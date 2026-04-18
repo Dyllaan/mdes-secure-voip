@@ -53,3 +53,4 @@ dependencyCheck {
 tasks.named('test') {
     useJUnitPlatform()
 }
+ 
