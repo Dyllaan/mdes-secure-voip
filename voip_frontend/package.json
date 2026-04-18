@@ -11,6 +11,7 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "build:web": "tsc -b && vite build",
     "build": "npm run build:electron && tsc -b && vite build",
     "package": "npm run build && electron-builder",
     "knip": "knip"

@@ -35,6 +35,8 @@ jobs:
             frontend:
               - 'voip_frontend/**'
               - 'Dockerfile.frontend'
+              - '.dockerignore'
+              - 'docker/frontend/**'
               - 'nginx.conf'
               - '.github/workflows/deploy.yml'
             hub:
@@ -201,24 +203,6 @@ jobs:
             -t ${{ env.REGISTRY }}/p2p-auth-service:latest \
             ./services/auth-service
           docker push ${{ env.REGISTRY }}/p2p-auth-service:latest
-
-      - name: Set up Node.js
-        if: needs.detect-changes.outputs.frontend == 'true'
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Build Frontend
-        if: needs.detect-changes.outputs.frontend == 'true'
-        working-directory: ./voip_frontend
-        run: |
-          npm ci
-          rm -rf dist .vite
-          npm run build -- --mode production
-
-      - name: Copy frontend build
-        if: needs.detect-changes.outputs.frontend == 'true'
-        run: cp -r voip_frontend/dist ./
 
       - name: Build and Push Frontend
         if: needs.detect-changes.outputs.frontend == 'true'

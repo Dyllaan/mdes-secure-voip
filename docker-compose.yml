@@ -1,3 +1,4 @@
+#dev
 services:
   p2p-voip-gateway:
     build:
@@ -26,8 +27,6 @@ services:
       p2p-voip-realtime-service:
         condition: service_started
       p2p-hub-service:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - voip-network
