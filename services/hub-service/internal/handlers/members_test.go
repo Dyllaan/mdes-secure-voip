@@ -21,7 +21,7 @@ func TestInviteMember_Happy201(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
 		WillReturnRows(emptyRows(mock, memberCols))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
-		WithArgs(sqlmock.AnyArg(), testUser2ID, testHubID, string(structs.RoleMember), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "", testUser2ID, testHubID, string(structs.RoleMember), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/members",
@@ -33,6 +33,7 @@ func TestInviteMember_Happy201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rr.Code)
 	var m structs.Member
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&m))
+	assert.Equal(t, "", m.Username)
 	assert.Equal(t, testUser2ID, m.UserID)
 	assert.Equal(t, structs.RoleMember, m.Role)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -142,7 +143,7 @@ func TestKickMember_Happy204WithRotation(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
 	mock.ExpectExec(`INSERT INTO "channel_key_rotation_flags"`).
-		WithArgs(testChanID, testHubID, true, sqlmock.AnyArg()).
+		WithArgs(testChanID, true, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete,
@@ -151,6 +152,7 @@ func TestKickMember_Happy204WithRotation(t *testing.T) {
 	rr := httptest.NewRecorder()
 	KickMember(rr, req)
 	assert.Equal(t, http.StatusNoContent, rr.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestKickMember_HubNotFound404(t *testing.T) {
@@ -289,7 +291,7 @@ func TestLeaveHub_Happy204WithRotation(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
 	mock.ExpectExec(`INSERT INTO "channel_key_rotation_flags"`).
-		WithArgs(testChanID, testHubID, true, sqlmock.AnyArg()).
+		WithArgs(testChanID, true, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodDelete, "/api/hubs/"+testHubID+"/leave", nil,
@@ -297,6 +299,7 @@ func TestLeaveHub_Happy204WithRotation(t *testing.T) {
 	rr := httptest.NewRecorder()
 	LeaveHub(rr, req)
 	assert.Equal(t, http.StatusNoContent, rr.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestLeaveHub_NotAMember404(t *testing.T) {

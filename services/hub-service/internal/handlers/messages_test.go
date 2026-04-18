@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"hub-service/internal/config"
 	"hub-service/internal/structs"
 )
 
@@ -23,12 +25,12 @@ func TestSendMessage_Happy201(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
 		WillReturnRows(chanRow(mock, testTextChannel))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "messages"`)).
-		WithArgs(sqlmock.AnyArg(), testChanID, testUserID, "enc-data", "iv-data", "v1", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testChanID, testUserID, testMessageCiphertext, testMessageIV, "v1", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	body := map[string]string{
-		"ciphertext": "enc-data",
-		"iv":         "iv-data",
+		"ciphertext": testMessageCiphertext,
+		"iv":         testMessageIV,
 		"keyVersion": "v1",
 	}
 	req := buildRequest(t, http.MethodPost,
@@ -42,7 +44,7 @@ func TestSendMessage_Happy201(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rr.Code)
 	var msg structs.Message
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&msg))
-	assert.Equal(t, "enc-data", msg.Ciphertext)
+	assert.Equal(t, testMessageCiphertext, msg.Ciphertext)
 	assert.Equal(t, testUserID, msg.SenderID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -165,6 +167,64 @@ func TestSendMessage_AllFieldsEmptyString(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestSendMessage_CiphertextTooLong(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
+		WillReturnRows(chanRow(mock, testTextChannel))
+
+	req := buildRequest(t, http.MethodPost,
+		"/api/hubs/"+testHubID+"/channels/"+testChanID+"/messages",
+		map[string]string{
+			"ciphertext": strings.Repeat("a", config.C.MaxCiphertextLen+1),
+			"iv":         testMessageIV,
+			"keyVersion": "v1",
+		},
+		map[string]string{"hubID": testHubID, "channelID": testChanID},
+		testUserID)
+	rr := httptest.NewRecorder()
+	SendMessage(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Ciphertext too long")
+}
+
+func TestSendMessage_InvalidCiphertextBase64400(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
+		WillReturnRows(chanRow(mock, testTextChannel))
+
+	req := buildRequest(t, http.MethodPost,
+		"/api/hubs/"+testHubID+"/channels/"+testChanID+"/messages",
+		map[string]string{"ciphertext": "enc-data", "iv": testMessageIV, "keyVersion": "v1"},
+		map[string]string{"hubID": testHubID, "channelID": testChanID},
+		testUserID)
+	rr := httptest.NewRecorder()
+	SendMessage(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Ciphertext must be valid base64")
+}
+
+func TestSendMessage_InvalidIVBase64400(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+	mock.ExpectQuery(`SELECT .+ FROM "channels"`).
+		WillReturnRows(chanRow(mock, testTextChannel))
+
+	req := buildRequest(t, http.MethodPost,
+		"/api/hubs/"+testHubID+"/channels/"+testChanID+"/messages",
+		map[string]string{"ciphertext": testMessageCiphertext, "iv": "iv-data", "keyVersion": "v1"},
+		map[string]string{"hubID": testHubID, "channelID": testChanID},
+		testUserID)
+	rr := httptest.NewRecorder()
+	SendMessage(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "IV must be valid base64")
+}
+
 func TestSendMessage_DBError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
@@ -175,7 +235,7 @@ func TestSendMessage_DBError(t *testing.T) {
 
 	req := buildRequest(t, http.MethodPost,
 		"/api/hubs/"+testHubID+"/channels/"+testChanID+"/messages",
-		map[string]string{"ciphertext": "x", "iv": "y", "keyVersion": "v1"},
+		map[string]string{"ciphertext": testMessageCiphertext, "iv": testMessageIV, "keyVersion": "v1"},
 		map[string]string{"hubID": testHubID, "channelID": testChanID},
 		testUserID)
 	rr := httptest.NewRecorder()

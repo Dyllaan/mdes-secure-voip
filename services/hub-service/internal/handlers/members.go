@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"gorm.io/gorm/clause"
 
 	"hub-service/internal/db"
 	"hub-service/internal/middleware"
@@ -15,7 +16,6 @@ import (
 
 func InviteMember(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r)
-	username := middleware.GetUsername(r)
 	hubID := chi.URLParam(r, "hubID")
 
 	var hub structs.Hub
@@ -48,7 +48,6 @@ func InviteMember(w http.ResponseWriter, r *http.Request) {
 
 	member := structs.Member{
 		ID:       uuid.New().String(),
-		Username: username,
 		UserID:   req.UserID,
 		HubID:    hubID,
 		Role:     structs.RoleMember,
@@ -95,18 +94,9 @@ func KickMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Key rotation upon member kick
-	var channels []structs.Channel
-	if err := db.DB.Where("hub_id = ?", hubID).Find(&channels).Error; err == nil {
-		now := time.Now()
-		for _, ch := range channels {
-			flag := structs.ChannelKeyRotationFlag{
-				ChannelID:           ch.ID,
-				RotationNeeded:      true,
-				RotationNeededSince: now,
-			}
-			db.DB.Save(&flag)
-		}
+	if err := markHubChannelsForRotation(hubID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to mark channel rotation")
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -174,19 +164,34 @@ func LeaveHub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Key rotation upon leaving hub
-	var channels []structs.Channel
-	if err := db.DB.Where("hub_id = ?", hubID).Find(&channels).Error; err == nil {
-		now := time.Now()
-		for _, ch := range channels {
-			flag := structs.ChannelKeyRotationFlag{
-				ChannelID:           ch.ID,
-				RotationNeeded:      true,
-				RotationNeededSince: now,
-			}
-			db.DB.Save(&flag)
-		}
+	if err := markHubChannelsForRotation(hubID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to mark channel rotation")
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func markHubChannelsForRotation(hubID string) error {
+	var channels []structs.Channel
+	if err := db.DB.Where("hub_id = ?", hubID).Find(&channels).Error; err != nil {
+		return err
+	}
+
+	now := time.Now()
+	for _, ch := range channels {
+		flag := structs.ChannelKeyRotationFlag{
+			ChannelID:           ch.ID,
+			RotationNeeded:      true,
+			RotationNeededSince: now,
+		}
+		if err := db.DB.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "channel_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"rotation_needed", "rotation_needed_since"}),
+		}).Create(&flag).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"hub-service/internal/config"
 	"hub-service/internal/structs"
 )
 
@@ -20,10 +22,11 @@ func TestCreateHub_Happy201(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "My Hub", testUserID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
-		WithArgs(sqlmock.AnyArg(), testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUsername, testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "My Hub"}, nil, testUserID)
+	req := buildRequestWithUsername(t, http.MethodPost, "/api/hubs",
+		map[string]string{"name": "My Hub"}, nil, testUserID, testUsername)
 	rr := httptest.NewRecorder()
 	CreateHub(rr, req)
 
@@ -53,11 +56,22 @@ func TestCreateHub_EmptyName(t *testing.T) {
 	assertErrorBody(t, rr, "Hub name is required")
 }
 
+func TestCreateHub_NameTooLong(t *testing.T) {
+	_ = newMockDB(t)
+	req := buildRequest(t, http.MethodPost, "/api/hubs",
+		map[string]string{"name": strings.Repeat("h", config.C.MaxHubNameLen+1)}, nil, testUserID)
+	rr := httptest.NewRecorder()
+	CreateHub(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Hub name too long")
+}
+
 func TestCreateHub_DBErrorOnHubInsert(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "hubs"`)).WillReturnError(errDB)
 
-	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "Fail Hub"}, nil, testUserID)
+	req := buildRequestWithUsername(t, http.MethodPost, "/api/hubs",
+		map[string]string{"name": "Fail Hub"}, nil, testUserID, testUsername)
 	rr := httptest.NewRecorder()
 	CreateHub(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
@@ -70,10 +84,11 @@ func TestCreateHub_DBErrorOnMemberInsert(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "Fail Hub", testUserID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
-		WithArgs(sqlmock.AnyArg(), testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUsername, testUserID, sqlmock.AnyArg(), string(structs.RoleOwner), sqlmock.AnyArg()).
 		WillReturnError(errDB)
 
-	req := buildRequest(t, http.MethodPost, "/api/hubs", map[string]string{"name": "Fail Hub"}, nil, testUserID)
+	req := buildRequestWithUsername(t, http.MethodPost, "/api/hubs",
+		map[string]string{"name": "Fail Hub"}, nil, testUserID, testUsername)
 	rr := httptest.NewRecorder()
 	CreateHub(rr, req)
 	assert.Equal(t, http.StatusInternalServerError, rr.Code)
@@ -248,11 +263,11 @@ func TestBotJoinHub_Happy201Creates(t *testing.T) {
 		WithArgs(testUserID, testHubID, 1). // GORM appends LIMIT as an arg
 		WillReturnRows(emptyRows(mock, memberCols))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).
-		WithArgs(sqlmock.AnyArg(), testUserID, testHubID, string(structs.RoleBot), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUsername, testUserID, testHubID, string(structs.RoleBot), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
-		map[string]string{"hubID": testHubID}, testUserID)
+	req := buildRequestWithUsername(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
+		map[string]string{"hubID": testHubID}, testUserID, testUsername)
 	req.Header.Set("X-Bot-Secret", "supersecret")
 	rr := httptest.NewRecorder()
 	BotJoinHub(rr, req)
@@ -314,8 +329,8 @@ func TestBotJoinHub_DBCreateError(t *testing.T) {
 		WillReturnRows(emptyRows(mock, memberCols))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "members"`)).WillReturnError(errDB)
 
-	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
-		map[string]string{"hubID": testHubID}, testUserID)
+	req := buildRequestWithUsername(t, http.MethodPost, "/api/hubs/"+testHubID+"/bot-join", nil,
+		map[string]string{"hubID": testHubID}, testUserID, testUsername)
 	req.Header.Set("X-Bot-Secret", "supersecret")
 	rr := httptest.NewRecorder()
 	BotJoinHub(rr, req)

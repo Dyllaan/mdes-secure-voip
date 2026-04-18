@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"hub-service/internal/config"
 	"hub-service/internal/db"
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
@@ -39,6 +40,18 @@ const (
 	testChanID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 	testMemID  = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	testMem2ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+)
+
+const (
+	testUsername                = "owner"
+	testValidPublicKeyBase64    = "bmV3a2V5PT0="
+	testUpdatedPublicKeyBase64  = "dXBkYXRlZGtleT09"
+	testExistingPublicKeyBase64 = "YmFzZTY0cHVia2V5PT0="
+	testEphemeralPubBase64      = "ZWhwdWI9PQ=="
+	testCiphertextBase64        = "Y2lwaGVydGV4dD09"
+	testIVBase64                = "aXY9PQ=="
+	testMessageCiphertext       = "ZW5jLWRhdGE="
+	testMessageIV               = "aXYtZGF0YQ=="
 )
 
 var (
@@ -112,6 +125,7 @@ var (
 func init() {
 	os.Setenv("JWT_SECRET", testJWTSecret)
 	middleware.InitAuth()
+	config.InitLimits()
 }
 
 // newMockDB sets up a GORM DB backed by go-sqlmock and installs it as the global db.DB.
@@ -150,6 +164,11 @@ func makeToken(t *testing.T, userID string, ttl time.Duration) string {
 // buildRequest creates an http.Request with chi URL params and userID injected into context.
 func buildRequest(t *testing.T, method, path string, body interface{}, params map[string]string, userID string) *http.Request {
 	t.Helper()
+	return buildRequestWithUsername(t, method, path, body, params, userID, "")
+}
+
+func buildRequestWithUsername(t *testing.T, method, path string, body interface{}, params map[string]string, userID, username string) *http.Request {
+	t.Helper()
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -168,6 +187,9 @@ func buildRequest(t *testing.T, method, path string, body interface{}, params ma
 	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
 	if userID != "" {
 		ctx = context.WithValue(ctx, middleware.UserIDKey, userID)
+	}
+	if username != "" {
+		ctx = context.WithValue(ctx, middleware.UsernameKey, username)
 	}
 	return req.WithContext(ctx)
 }

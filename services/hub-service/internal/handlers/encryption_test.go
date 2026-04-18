@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"hub-service/internal/config"
 	"hub-service/internal/structs"
 )
 
@@ -24,7 +26,7 @@ var testDeviceKey = structs.MemberDeviceKey{
 	UserID:    testUserID,
 	DeviceID:  testDeviceID,
 	HubID:     testHubID,
-	PublicKey: "base64pubkey==",
+	PublicKey: testExistingPublicKeyBase64,
 	UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 }
 
@@ -35,11 +37,11 @@ func TestRegisterDeviceKey_Happy201Create(t *testing.T) {
 	mock.ExpectQuery(`SELECT .+ FROM "member_device_keys"`).
 		WillReturnRows(emptyRows(mock, devKeyCols))
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO "member_device_keys"`)).
-		WithArgs(sqlmock.AnyArg(), testUserID, testDeviceID, testHubID, "newkey==", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUserID, testDeviceID, testHubID, testValidPublicKeyBase64, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
-		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: "newkey=="},
+		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: testValidPublicKeyBase64},
 		map[string]string{"hubID": testHubID}, testUserID)
 	rr := httptest.NewRecorder()
 	RegisterDeviceKey(rr, req)
@@ -63,7 +65,7 @@ func TestRegisterDeviceKey_Happy200Update(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
-		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: "updatedkey=="},
+		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: testUpdatedPublicKeyBase64},
 		map[string]string{"hubID": testHubID}, testUserID)
 	rr := httptest.NewRecorder()
 	RegisterDeviceKey(rr, req)
@@ -75,7 +77,7 @@ func TestRegisterDeviceKey_Happy200Update(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	var dk structs.MemberDeviceKey
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&dk))
-	assert.Equal(t, "updatedkey==", dk.PublicKey)
+	assert.Equal(t, testUpdatedPublicKeyBase64, dk.PublicKey)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -141,6 +143,37 @@ func TestRegisterDeviceKey_MissingPublicKey400(t *testing.T) {
 	assertErrorBody(t, rr, "publicKey is required")
 }
 
+func TestRegisterDeviceKey_DeviceIDTooLong400(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+
+	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
+		structs.RegisterDeviceKeyRequest{
+			DeviceID:  strings.Repeat("d", config.C.MaxDeviceIDLen+1),
+			PublicKey: testValidPublicKeyBase64,
+		},
+		map[string]string{"hubID": testHubID}, testUserID)
+	rr := httptest.NewRecorder()
+	RegisterDeviceKey(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "deviceId too long")
+}
+
+func TestRegisterDeviceKey_InvalidPublicKeyBase64400(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+
+	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
+		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: "not-base64"},
+		map[string]string{"hubID": testHubID}, testUserID)
+	rr := httptest.NewRecorder()
+	RegisterDeviceKey(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "publicKey must be valid base64")
+}
+
 func TestRegisterDeviceKey_DBSaveError(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
@@ -152,7 +185,7 @@ func TestRegisterDeviceKey_DBSaveError(t *testing.T) {
 	mock.ExpectExec(`"member_device_keys"`).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
-		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: "key"},
+		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: testValidPublicKeyBase64},
 		map[string]string{"hubID": testHubID}, testUserID)
 	rr := httptest.NewRecorder()
 	RegisterDeviceKey(rr, req)
@@ -168,7 +201,7 @@ func TestRegisterDeviceKey_DBCreateError(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO "member_device_keys"`).WillReturnError(errDB)
 
 	req := buildRequest(t, http.MethodPut, "/api/hubs/"+testHubID+"/device-key",
-		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: "key"},
+		structs.RegisterDeviceKeyRequest{DeviceID: testDeviceID, PublicKey: testValidPublicKeyBase64},
 		map[string]string{"hubID": testHubID}, testUserID)
 	rr := httptest.NewRecorder()
 	RegisterDeviceKey(rr, req)
@@ -248,9 +281,9 @@ func validBundlePayload() structs.ChannelKeyBundlePayload {
 	return structs.ChannelKeyBundlePayload{
 		RecipientUserID:    testUserID,
 		RecipientDeviceID:  testDeviceID,
-		SenderEphemeralPub: "ephpub==",
-		Ciphertext:         "ciphertext==",
-		IV:                 "iv==",
+		SenderEphemeralPub: testEphemeralPubBase64,
+		Ciphertext:         testCiphertextBase64,
+		IV:                 testIVBase64,
 	}
 }
 
@@ -384,6 +417,27 @@ func TestPostKeyBundles_EmptyBundles400(t *testing.T) {
 	assertErrorBody(t, rr, "must not be empty")
 }
 
+func TestPostKeyBundles_TooManyBundles400(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testRegularMember))
+
+	bundles := make([]structs.ChannelKeyBundlePayload, config.C.MaxBundlesPerRequest+1)
+	for i := range bundles {
+		bundles[i] = validBundlePayload()
+	}
+
+	req := makePostKeyBundlesReq(t, structs.PostKeyBundlesRequest{
+		ChannelID:  testChanID,
+		KeyVersion: 1,
+		Bundles:    bundles,
+	})
+	rr := httptest.NewRecorder()
+	PostKeyBundles(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Too many bundles")
+}
+
 func TestPostKeyBundles_ChannelNotInHub404(t *testing.T) {
 	mock := newMockDB(t)
 	mock.ExpectQuery(`SELECT .+ FROM "members"`).
@@ -459,6 +513,24 @@ func TestPostKeyBundles_BundleMissingField400(t *testing.T) {
 	rr := httptest.NewRecorder()
 	PostKeyBundles(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestPostKeyBundles_InvalidBundleBase64400(t *testing.T) {
+	mock := newMockDB(t)
+	expectBundleHappyPath(mock)
+
+	badBundle := validBundlePayload()
+	badBundle.Ciphertext = "not-base64"
+
+	req := makePostKeyBundlesReq(t, structs.PostKeyBundlesRequest{
+		ChannelID:  testChanID,
+		KeyVersion: 1,
+		Bundles:    []structs.ChannelKeyBundlePayload{badBundle},
+	})
+	rr := httptest.NewRecorder()
+	PostKeyBundles(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Bundle ciphertext must be valid base64")
 }
 
 func testBundle() structs.ChannelKeyBundle {

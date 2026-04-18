@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"hub-service/internal/config"
 	"hub-service/internal/structs"
 )
 
@@ -140,6 +142,20 @@ func TestCreateChannel_EmptyName(t *testing.T) {
 	CreateChannel(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	assertErrorBody(t, rr, "Channel name is required")
+}
+
+func TestCreateChannel_NameTooLong(t *testing.T) {
+	mock := newMockDB(t)
+	mock.ExpectQuery(`SELECT .+ FROM "members"`).
+		WillReturnRows(memberRow(mock, testOwnerMember))
+
+	req := buildRequest(t, http.MethodPost, "/api/hubs/"+testHubID+"/channels",
+		map[string]string{"name": strings.Repeat("c", config.C.MaxChannelNameLen+1)},
+		map[string]string{"hubID": testHubID}, testUserID)
+	rr := httptest.NewRecorder()
+	CreateChannel(rr, req)
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assertErrorBody(t, rr, "Channel name too long")
 }
 
 func TestCreateChannel_InvalidType(t *testing.T) {
