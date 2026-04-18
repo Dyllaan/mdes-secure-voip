@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from "sonner";
 import { useNavigate } from 'react-router-dom';
 import useLocalStorage from '@/hooks/useLocalStorage';
@@ -16,11 +16,15 @@ interface AuthProviderProps {
 
 type PersistedUser = Omit<User, 'accessToken'>;
 const DEMO_LIMITED_ERROR = 'DEMO_LIMITED';
+type SessionBootstrapState = 'anonymous' | 'valid' | 'invalid';
 
 export default function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
   const [accessToken, _setAccessToken] = useState<string | null>(null);
+  // Session recovery uses localStorage for the refresh token and memory for the access token.
+  const refreshTokenRef = useRef<string | null>(persistedUser?.refreshToken ?? null);
+  const isLoggingOutRef = useRef(false);
 
   const user: User | null = persistedUser && accessToken
     ? { ...persistedUser, accessToken }
@@ -35,6 +39,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     if (userData === null) {
       setPersistedUser(null);
       setAccessToken(null);
+      refreshTokenRef.current = null;
       setModuleRefreshToken(null);
     } else {
       const { accessToken: at, ...rest } = userData;
@@ -47,9 +52,14 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       setPersistedUser({ ...rest, sub });
       setAccessToken(at);
+      refreshTokenRef.current = userData.refreshToken ?? null;
       setModuleRefreshToken(userData.refreshToken ?? null);
     }
   };
+
+  useEffect(() => {
+    refreshTokenRef.current = persistedUser?.refreshToken ?? null;
+  }, [persistedUser]);
 
   const [signedIn, setSignedIn] = useState(!!persistedUser);
   const [mfaRequired, setMfaRequired] = useState(false);
@@ -65,6 +75,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const clearAuthState = () => {
     setPersistedUser(null);
     setAccessToken(null);
+    refreshTokenRef.current = null;
     setModuleRefreshToken(null);
     setSignedIn(false);
     setMfaRequired(false);
@@ -105,7 +116,16 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   }, [accessToken]);
 
   useEffect(() => {
-    const handleUnload = () => navigator.sendBeacon('/auth/logout');
+    const handleUnload = () => {
+      const refreshToken = refreshTokenRef.current;
+      if (!refreshToken) return;
+
+      navigator.sendBeacon(
+        '/auth/user/logout',
+        new Blob([JSON.stringify({ refreshToken })], { type: 'application/json' }),
+      );
+    };
+
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
@@ -125,12 +145,38 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   async function logout() {
-    const refreshToken = persistedUser?.refreshToken;
-    clearAuthState();
+    const refreshToken = refreshTokenRef.current;
+    const currentAccessToken = accessToken;
+
+    if (isLoggingOutRef.current) {
+      return;
+    }
+
+    if (!refreshToken) {
+      clearAuthState();
+      return;
+    }
+
+    isLoggingOutRef.current = true;
+
     try {
-      await authApi.post('/user/logout', { refreshToken: refreshToken ?? '' });
+      await authApi.post(
+        '/user/logout',
+        { refreshToken },
+        currentAccessToken
+          ? {
+              headers: {
+                Authorization: `Bearer ${currentAccessToken}`,
+              },
+            }
+          : undefined,
+      );
     } catch {
       // ignore
+    } finally {
+      isLoggingOutRef.current = false;
+      clearAuthState();
+      navigate('/login');
     }
   }
 
@@ -200,12 +246,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const checkToken = async () => {
+  const checkToken = async (): Promise<SessionBootstrapState> => {
     const storedRefreshToken = persistedUser?.refreshToken;
 
     if (!accessToken && !storedRefreshToken) {
+      clearAuthState();
       setSignedIn(false);
-      return false;
+      return 'anonymous';
     }
 
     if (storedRefreshToken) setModuleRefreshToken(storedRefreshToken);
@@ -216,19 +263,24 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         const responseData = response.data as MeResponse;
         changeUserIsMfaEnabled(responseData.mfaEnabled ?? false);
         setSignedIn(true);
-        return true;
+        return 'valid';
       }
     } catch {
       // ignore
     }
 
+    if (!refreshTokenRef.current) {
+      setSignedIn(false);
+      return 'anonymous';
+    }
+
     setSignedIn(false);
-    return false;
+    return 'invalid';
   };
 
   useEffect(() => {
-    checkToken().then((isValid) => {
-      if (!isValid) logout();
+    checkToken().then((sessionState) => {
+      if (sessionState === 'invalid') logout();
     }).finally(() => {
       setIsLoading(false);
     });

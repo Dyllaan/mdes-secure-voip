@@ -55,6 +55,45 @@ test.describe('Auth - Login page', () => {
     await expect(page.getByTestId('login-submit')).toBeVisible();
   });
 
+  test('visiting login without stored session does not call logout during bootstrap', async ({ page }) => {
+    let logoutRequests = 0;
+
+    await mockAuthRoutes(page);
+    await page.route('**/auth/user/logout', async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Logged out successfully' }),
+      });
+    });
+
+    await page.goto('/#/login');
+
+    await expect(page.getByTestId('login-form')).toBeVisible();
+    await expect.poll(() => logoutRequests).toBe(0);
+  });
+
+  test('anonymous login page reload does not emit a logout beacon', async ({ page }) => {
+    let logoutRequests = 0;
+
+    await mockAuthRoutes(page);
+    await page.route('**/auth/user/logout', async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Logged out successfully' }),
+      });
+    });
+
+    await page.goto('/#/login');
+    await page.reload();
+
+    await expect(page.getByTestId('login-form')).toBeVisible();
+    await expect.poll(() => logoutRequests).toBe(0);
+  });
+
   test('toggle to register mode shows register form', async ({ page }) => {
     await mockAuthRoutes(page);
     await page.goto('/#/login');
@@ -344,6 +383,8 @@ test.describe('Auth - Login page', () => {
   });
 
   test('invalid refresh on app load logs the user out without showing the demo dialog', async ({ page }) => {
+    let logoutRequests = 0;
+
     await setAuthState(page, MOCK_USER);
     await mockAuthRoutes(page, MOCK_USER, {
       meStatus: 401,
@@ -351,11 +392,20 @@ test.describe('Auth - Login page', () => {
       refreshBody: { cause: 'Refresh failed' },
       includeTurnCredentials: false,
     });
+    await page.route('**/auth/user/logout', async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Logged out successfully' }),
+      });
+    });
 
     await page.goto('/#/login');
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByTestId('login-form')).toBeVisible();
+    await expect.poll(() => logoutRequests).toBe(1);
   });
 
   test('protected hub request retries after refresh success', async ({ page }) => {

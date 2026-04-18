@@ -129,11 +129,22 @@ test.describe('Profile page', () => {
   });
 
   test('logout from profile returns the user to login and blocks protected routes', async ({ page }) => {
+    let logoutRequests = 0;
+
     await mockProfileRoutes(page);
     await setupProfilePage(page);
+    await page.route('**/auth/user/logout', async (route) => {
+      logoutRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Logged out successfully' }),
+      });
+    });
 
     await page.getByRole('button', { name: 'Logout' }).click();
     await expect(page).toHaveURL(/#\/login$/, { timeout: 5000 });
+    await expect.poll(() => logoutRequests).toBe(1);
 
     await page.goto('/#/profile');
     await page.reload();
