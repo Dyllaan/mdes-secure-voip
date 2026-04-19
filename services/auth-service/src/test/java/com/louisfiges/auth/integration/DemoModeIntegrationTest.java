@@ -30,6 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +60,7 @@ class DemoModeIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.PostgreSQLDialect");
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        registry.add("spring.jpa.hibernate.ddl-auto", () -> "create");
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
     }
@@ -147,7 +148,8 @@ class DemoModeIntegrationTest {
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
         UUID userId = user.getId();
 
-        redisTemplate.opsForValue().set("demo:first_login:" + userId, String.valueOf(System.currentTimeMillis() - 60_000));
+        long expiredDemoStart = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(4);
+        redisTemplate.opsForValue().set("demo:first_login:" + userId, String.valueOf(expiredDemoStart));
         redisTemplate.opsForValue().set("demo:consumed_login:" + userId, "1");
 
         ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
