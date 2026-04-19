@@ -74,6 +74,27 @@ class DemoSessionServiceTest {
     }
 
     @Test
+    @DisplayName("Should respect configured demo duration when checking expiry")
+    void shouldRespectConfiguredDemoDurationWhenCheckingExpiry() {
+        demoSessionService = new DemoSessionService(redisTemplate, 1L);
+        when(redisTemplate.opsForValue().get("demo:first_login:" + USER_ID))
+                .thenReturn(String.valueOf(System.currentTimeMillis() - 10));
+
+        boolean expired = demoSessionService.isDemoExpired(USER_ID);
+
+        assertThat(expired).isTrue();
+    }
+
+    @Test
+    @DisplayName("Should record a provided demo start time")
+    void shouldRecordProvidedDemoStartTime() {
+        demoSessionService.recordFirstLoginAt(USER_ID, 1234L);
+
+        verify(valueOperations).setIfAbsent("demo:first_login:" + USER_ID, "1234");
+        verify(valueOperations).setIfAbsent("demo:consumed_login:" + USER_ID, "1");
+    }
+
+    @Test
     @DisplayName("Should report banned when IP or username has been banned")
     void shouldReportBannedWhenIpOrUsernameHasBeenBanned() {
         when(redisTemplate.hasKey("demo:banned:ip:127.0.0.1")).thenReturn(true);

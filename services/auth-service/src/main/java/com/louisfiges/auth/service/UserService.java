@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -168,6 +169,7 @@ public class UserService {
         ));
 
         if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(username)) {
+            demoSessionService.recordFirstLoginAt(user.getId(), getDemoSessionStartMillis(user));
             demoSessionService.banIpAndUsername(clientIp, username);
         }
 
@@ -187,7 +189,13 @@ public class UserService {
                 .flatMap(userRepository::findById)
                 .map(user -> {
                     if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(user.getUsername())) {
-                        return (LoginResult) new LoginResult.DemoRateLimited(demoTokenProvider.generateToken(user.getId()));
+                        if (!demoSessionService.hasConsumedDemoLogin(user.getId())) {
+                            demoSessionService.recordFirstLoginAt(user.getId(), getDemoSessionStartMillis(user));
+                        }
+
+                        if (demoSessionService.isDemoExpired(user.getId())) {
+                            return (LoginResult) new LoginResult.DemoRateLimited(demoTokenProvider.generateToken(user.getId()));
+                        }
                     }
                     return ResponseFactory.loginResponse(
                             user.getUsername(),
@@ -197,6 +205,14 @@ public class UserService {
                             null
                     );
                 });
+    }
+
+    private long getDemoSessionStartMillis(UserDAO user) {
+        LocalDateTime createdAt = user.getCreatedAt();
+        if (createdAt == null) {
+            return System.currentTimeMillis();
+        }
+        return createdAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
     }
 
     @Transactional

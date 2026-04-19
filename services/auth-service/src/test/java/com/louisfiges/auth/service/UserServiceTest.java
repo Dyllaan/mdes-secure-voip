@@ -522,6 +522,23 @@ class UserServiceTest {
         }
 
         @Test
+        @DisplayName("Should start demo timing when registering in demo mode")
+        void shouldStartDemoTimingWhenRegisteringInDemoMode() {
+            when(demoLimiter.isDemoMode()).thenReturn(true);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+            when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
+            when(userRepository.save(any(UserDAO.class))).thenReturn(testUser);
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+
+            RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
+
+            assertThat(result).isInstanceOf(RegisterResult.Success.class);
+            verify(demoSessionService).recordFirstLoginAt(eq(USER_ID), anyLong());
+            verify(demoSessionService).banIpAndUsername("127.0.0.1", USERNAME);
+        }
+
+        @Test
         @DisplayName("Should fail to register existing user")
         void shouldFailToRegisterExistingUser() {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
@@ -554,12 +571,33 @@ class UserServiceTest {
         }
 
         @Test
-        @DisplayName("Should reject valid refresh token in demo mode")
-        void shouldRejectValidRefreshTokenInDemoMode() {
+        @DisplayName("Should allow valid refresh token in demo mode before expiry")
+        void shouldAllowValidRefreshTokenInDemoModeBeforeExpiry() {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
             when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
+            when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(false);
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+
+            Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
+
+            assertThat(result).isPresent();
+            assertThat(result.get()).isInstanceOf(LoginResult.Success.class);
+            verify(demoTokenProvider, never()).generateToken(any());
+        }
+
+        @Test
+        @DisplayName("Should reject valid refresh token in demo mode after expiry")
+        void shouldRejectValidRefreshTokenInDemoModeAfterExpiry() {
+            when(demoLimiter.isDemoMode()).thenReturn(true);
+            when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
+            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
+            when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(true);
             when(demoTokenProvider.generateToken(USER_ID)).thenReturn("demo_token");
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
@@ -569,6 +607,25 @@ class UserServiceTest {
             assertThat(((LoginResult.DemoRateLimited) result.get()).demoToken()).isEqualTo("demo_token");
             verify(userTokenProvider, never()).generateAccessToken(any(), any());
             verify(userTokenProvider, never()).generateRefreshToken(any(), any());
+        }
+
+        @Test
+        @DisplayName("Should backfill demo timing from user creation when refresh state is missing")
+        void shouldBackfillDemoTimingFromUserCreationWhenRefreshStateIsMissing() {
+            when(demoLimiter.isDemoMode()).thenReturn(true);
+            when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
+            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
+            when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(false);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(false);
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+
+            Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
+
+            assertThat(result).isPresent();
+            assertThat(result.get()).isInstanceOf(LoginResult.Success.class);
+            verify(demoSessionService).recordFirstLoginAt(eq(USER_ID), anyLong());
         }
 
         @Test
