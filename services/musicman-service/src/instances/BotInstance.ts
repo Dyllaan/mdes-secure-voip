@@ -340,7 +340,7 @@ export class BotInstance {
       const { PEER_HOST, PEER_PORT, PEER_PATH, PEER_SECURE } = config;
       const proto = PEER_SECURE ? 'wss' : 'ws';
       const path  = PEER_PATH.endsWith('/') ? PEER_PATH : `${PEER_PATH}/`;
-      const wsUrl = `${proto}://${PEER_HOST}:${PEER_PORT}${path}peerjs?key=peerjs&id=${encodeURIComponent(peerId)}&token=${uuid()}`;
+      const wsUrl = `${proto}://${PEER_HOST}:${PEER_PORT}${path}peerjs?key=peerjs&id=${encodeURIComponent(peerId)}&token=${encodeURIComponent(this.token)}`;
 
       console.log(`[PeerWS ${this.roomId}] Connecting -> ${wsUrl}`);
       this.peerWs = new WebSocket(wsUrl);
