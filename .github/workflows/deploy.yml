@@ -51,14 +51,19 @@ jobs:
               - 'services/auth-service/**'
               - 'Dockerfile.auth-service'
               - '.github/workflows/deploy.yml'
-
   test:
     needs: detect-changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+        
+      - name: Generate test JWT key fixtures
+        run: |
+          mkdir -p test-fixtures/jwt
+          openssl genrsa -out test-fixtures/jwt/private.pem 2048
+          openssl rsa -in test-fixtures/jwt/private.pem -pubout -out test-fixtures/jwt/public.pem
+          
       - name: Set up Node.js
         if: >
           needs.detect-changes.outputs.gateway == 'true' ||
