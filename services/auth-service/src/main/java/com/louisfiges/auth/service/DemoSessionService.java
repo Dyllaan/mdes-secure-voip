@@ -19,12 +19,8 @@ public class DemoSessionService {
     private final long demoDurationMs;
 
     public DemoSessionService(RedisTemplate<String, String> redisTemplate) {
-        this(redisTemplate, loadDemoDurationMs());
-    }
-
-    DemoSessionService(RedisTemplate<String, String> redisTemplate, long demoDurationMs) {
         this.redisTemplate = redisTemplate;
-        this.demoDurationMs = demoDurationMs;
+        this.demoDurationMs = loadDemoDurationMs();
     }
 
     public void recordFirstLogin(UUID userId) {
@@ -78,5 +74,14 @@ public class DemoSessionService {
         } catch (NumberFormatException ignored) {
             return DEFAULT_DEMO_DURATION_MS;
         }
+    }
+
+    static DemoSessionService forDuration(RedisTemplate<String, String> redisTemplate, long demoDurationMs) {
+        return new DemoSessionService(redisTemplate, demoDurationMs);
+    }
+
+    private DemoSessionService(RedisTemplate<String, String> redisTemplate, long demoDurationMs) {
+        this.redisTemplate = redisTemplate;
+        this.demoDurationMs = demoDurationMs;
     }
 }

@@ -76,7 +76,7 @@ class DemoSessionServiceTest {
     @Test
     @DisplayName("Should respect configured demo duration when checking expiry")
     void shouldRespectConfiguredDemoDurationWhenCheckingExpiry() {
-        demoSessionService = new DemoSessionService(redisTemplate, 1L);
+        demoSessionService = DemoSessionService.forDuration(redisTemplate, 1L);
         when(redisTemplate.opsForValue().get("demo:first_login:" + USER_ID))
                 .thenReturn(String.valueOf(System.currentTimeMillis() - 10));
 
