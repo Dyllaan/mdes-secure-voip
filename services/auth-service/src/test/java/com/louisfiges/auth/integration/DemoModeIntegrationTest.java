@@ -118,8 +118,12 @@ class DemoModeIntegrationTest {
                 .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "mfa:"));
     }
 
+    // -------------------------------------------------------------------------
+    // Full lifecycle test (existing)
+    // -------------------------------------------------------------------------
+
     @Test
-    @DisplayName("Demo mode should allow registration and login, then expire on refresh and delete by demo token")
+    @DisplayName("Full demo lifecycle: register → login → expire → refresh blocked → delete via demo token")
     void demoLifecycleShouldExpireAndAllowDeletionViaDemoToken() {
         String username = "demo_it_user";
         String password = "DemoPass123!";
@@ -141,40 +145,379 @@ class DemoModeIntegrationTest {
                 HttpMethod.POST,
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
-
         assertThat(loginResponse.getStatusCode().value()).isEqualTo(200);
         assertThat(loginResponse.getBody()).containsKeys("accessToken", "refreshToken", "username");
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
-        UUID userId = user.getId();
-
-        long expiredDemoStart = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(4);
-        redisTemplate.opsForValue().set("demo:first_login:" + userId, String.valueOf(expiredDemoStart));
-        redisTemplate.opsForValue().set("demo:consumed_login:" + userId, "1");
+        expireDemoSession(user.getId());
 
         ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
                 "/user/refresh",
                 HttpMethod.POST,
                 new HttpEntity<>(Map.of("refreshToken", refreshToken))
         );
-
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(refreshResponse.getBody()).containsKeys("demoToken", "message");
 
         String demoToken = (String) refreshResponse.getBody().get("demoToken");
+        assertThat(demoToken).isEqualTo("demo:" + user.getId());
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(demoToken);
-
+        HttpHeaders deleteHeaders = new HttpHeaders();
+        deleteHeaders.setBearerAuth(demoToken);
         ResponseEntity<Map<String, Object>> deleteResponse = exchangeJson(
                 "/user/delete",
                 HttpMethod.DELETE,
+                new HttpEntity<>(null, deleteHeaders)
+        );
+        assertThat(deleteResponse.getStatusCode().value()).isEqualTo(200);
+        assertThat(deleteResponse.getBody()).containsEntry("message", "User deleted successfully");
+        assertThat(userRepository.findByUsername(username)).isEmpty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Filter-level enforcement (new — this is the core fix)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Filter must return 403 with demoToken when an active session's demo has expired")
+    void filterShouldBlock_expiredDemoUser_onAuthenticatedApiCall() {
+        String username = "demo_filter_user";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> meResponse = exchangeJson(
+                "/user/me",
+                HttpMethod.GET,
+                new HttpEntity<>(null, headers)
+        );
+
+        assertThat(meResponse.getStatusCode().value()).isEqualTo(403);
+        assertThat(meResponse.getBody()).containsKeys("demoToken", "message");
+        assertThat(meResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
+        assertThat((String) meResponse.getBody().get("message")).contains("expired");
+    }
+
+    @Test
+    @DisplayName("Filter must not block an active, non-expired demo session")
+    void filterShouldAllow_activeNonExpiredDemoUser() {
+        String username = "demo_active_user";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+
+        // 1 hour old, default limit is 3 hours — not expired
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        long recentStart = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1);
+        redisTemplate.opsForValue().set("demo:first_login:" + user.getId(), String.valueOf(recentStart));
+        redisTemplate.opsForValue().set("demo:consumed_login:" + user.getId(), "1");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> meResponse = exchangeJson(
+                "/user/me",
+                HttpMethod.GET,
+                new HttpEntity<>(null, headers)
+        );
+
+        assertThat(meResponse.getStatusCode().value()).isEqualTo(200);
+        assertThat(meResponse.getBody()).containsEntry("username", username);
+    }
+
+    @Test
+    @DisplayName("Filter must not check demo expiry when DEMO_MODE is disabled")
+    void filterShouldNotCheckDemo_whenDemoModeIsOff() {
+        when(demoLimiter.isDemoMode()).thenReturn(false);
+
+        String username = "non_demo_user";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+
+        // Set Redis as expired — should have zero effect because DEMO_MODE is off
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> meResponse = exchangeJson(
+                "/user/me",
+                HttpMethod.GET,
+                new HttpEntity<>(null, headers)
+        );
+
+        assertThat(meResponse.getStatusCode().value()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("Allowed users must pass the filter even when their demo has expired")
+    void filterShouldNotBlock_allowedUser_evenWhenDemoExpired() {
+        String username = "allowed_admin";
+        String password = "DemoPass123!";
+
+        when(demoLimiter.isAllowedUser(username)).thenReturn(true);
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> meResponse = exchangeJson(
+                "/user/me",
+                HttpMethod.GET,
+                new HttpEntity<>(null, headers)
+        );
+
+        assertThat(meResponse.getStatusCode().value()).isEqualTo(200);
+        assertThat(meResponse.getBody()).containsEntry("username", username);
+    }
+
+    // -------------------------------------------------------------------------
+    // Logout must work even with an expired demo (tokens should be revocable)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Logout must succeed even when the demo session has expired")
+    void logoutShouldSucceed_whenDemoExpired() {
+        String username = "demo_logout_user";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+        String refreshToken = (String) registerResponse.getBody().get("refreshToken");
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> logoutResponse = exchangeJson(
+                "/user/logout",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("refreshToken", refreshToken), headers)
+        );
+
+        assertThat(logoutResponse.getStatusCode().value()).isEqualTo(200);
+        assertThat(logoutResponse.getBody()).containsEntry("message", "Logged out successfully");
+    }
+
+    // -------------------------------------------------------------------------
+    // Login and refresh blocking
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Login must return 403 with demoToken when demo is expired")
+    void loginShouldReturn403_whenDemoExpired() {
+        String username = "demo_login_blocked";
+        String password = "DemoPass123!";
+
+        exchangeJson("/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password)));
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        ResponseEntity<Map<String, Object>> loginResponse = exchangeJson(
+                "/user/login",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+
+        assertThat(loginResponse.getStatusCode().value()).isEqualTo(403);
+        assertThat(loginResponse.getBody()).containsKeys("demoToken", "message");
+        assertThat(loginResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
+    }
+
+    @Test
+    @DisplayName("Refresh must return 403 with demoToken when demo is expired")
+    void refreshShouldReturn403_whenDemoExpired() {
+        String username = "demo_refresh_blocked";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        String refreshToken = (String) registerResponse.getBody().get("refreshToken");
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
+                "/user/refresh", HttpMethod.POST,
+                new HttpEntity<>(Map.of("refreshToken", refreshToken))
+        );
+
+        assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
+        assertThat(refreshResponse.getBody()).containsKeys("demoToken", "message");
+        assertThat(refreshResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
+    }
+
+    // -------------------------------------------------------------------------
+    // Demo timer starts at registration, not first login
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Demo timer must start at registration, not at first login")
+    void demoTimerShouldStartAtRegistration() {
+        String username = "demo_timer_user";
+        String password = "DemoPass123!";
+
+        exchangeJson("/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password)));
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+
+        // The registration should have written the first_login key
+        String firstLoginValue = redisTemplate.opsForValue().get("demo:first_login:" + user.getId());
+        String consumedValue = redisTemplate.opsForValue().get("demo:consumed_login:" + user.getId());
+
+        assertThat(firstLoginValue).isNotNull();
+        assertThat(consumedValue).isEqualTo("1");
+
+        // The recorded timestamp should be close to now (within 5 seconds)
+        long recordedMs = Long.parseLong(firstLoginValue);
+        assertThat(System.currentTimeMillis() - recordedMs).isLessThan(5_000L);
+    }
+
+    @Test
+    @DisplayName("Redis timer must not be reset on repeated logins")
+    void demoTimerMustNotReset_onRepeatedLogins() {
+        String username = "demo_no_reset_user";
+        String password = "DemoPass123!";
+
+        exchangeJson("/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password)));
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        String firstLoginValue = redisTemplate.opsForValue().get("demo:first_login:" + user.getId());
+        assertThat(firstLoginValue).isNotNull();
+
+        // Log in several more times
+        for (int i = 0; i < 3; i++) {
+            ResponseEntity<Map<String, Object>> loginResponse = exchangeJson(
+                    "/user/login", HttpMethod.POST,
+                    new HttpEntity<>(Map.of("username", username, "password", password))
+            );
+            assertThat(loginResponse.getStatusCode().value()).isEqualTo(200);
+        }
+
+        // Timer value must be unchanged
+        String afterLoginsValue = redisTemplate.opsForValue().get("demo:first_login:" + user.getId());
+        assertThat(afterLoginsValue).isEqualTo(firstLoginValue);
+    }
+
+    // -------------------------------------------------------------------------
+    // Demo token allows account deletion, normal tokens do not
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Demo token must allow account deletion without MFA")
+    void demoTokenShouldAllowAccountDeletion() {
+        String username = "demo_delete_user";
+        String password = "DemoPass123!";
+
+        exchangeJson("/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password)));
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        // Get a demo token via the refresh endpoint
+        String refreshToken = "refresh:" + user.getId();
+        ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
+                "/user/refresh", HttpMethod.POST,
+                new HttpEntity<>(Map.of("refreshToken", refreshToken))
+        );
+        assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
+        String demoToken = (String) refreshResponse.getBody().get("demoToken");
+
+        // Delete with demo token — must succeed
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(demoToken);
+        ResponseEntity<Map<String, Object>> deleteResponse = exchangeJson(
+                "/user/delete", HttpMethod.DELETE,
                 new HttpEntity<>(null, headers)
         );
 
         assertThat(deleteResponse.getStatusCode().value()).isEqualTo(200);
-        assertThat(deleteResponse.getBody()).containsEntry("message", "User deleted successfully");
         assertThat(userRepository.findByUsername(username)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Normal access token must not be usable to delete an expired demo account")
+    void normalTokenMustNotDeleteExpiredDemoAccount() {
+        String username = "demo_no_normal_delete";
+        String password = "DemoPass123!";
+
+        ResponseEntity<Map<String, Object>> registerResponse = exchangeJson(
+                "/user/register", HttpMethod.POST,
+                new HttpEntity<>(Map.of("username", username, "password", password))
+        );
+        String accessToken = (String) registerResponse.getBody().get("accessToken");
+
+        UserDAO user = userRepository.findByUsername(username).orElseThrow();
+        expireDemoSession(user.getId());
+
+        // Try to delete with the regular access token — filter must intercept with 403
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(accessToken);
+        ResponseEntity<Map<String, Object>> deleteResponse = exchangeJson(
+                "/user/delete", HttpMethod.DELETE,
+                new HttpEntity<>(null, headers)
+        );
+
+        // Filter returns 403 (demo expired) before the controller can process the delete
+        assertThat(deleteResponse.getStatusCode().value()).isEqualTo(403);
+        assertThat(deleteResponse.getBody()).containsKey("demoToken");
+        // User must still exist — delete did not go through
+        assertThat(userRepository.findByUsername(username)).isPresent();
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private void expireDemoSession(UUID userId) {
+        long expiredStart = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(4);
+        redisTemplate.opsForValue().set("demo:first_login:" + userId, String.valueOf(expiredStart));
+        redisTemplate.opsForValue().set("demo:consumed_login:" + userId, "1");
     }
 
     private ResponseEntity<Map<String, Object>> exchangeJson(String path, HttpMethod method, HttpEntity<?> request) {
@@ -182,8 +525,7 @@ class DemoModeIntegrationTest {
                 path,
                 method,
                 request,
-                new ParameterizedTypeReference<>() {
-                }
+                new ParameterizedTypeReference<>() {}
         );
     }
 

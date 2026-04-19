@@ -2,6 +2,7 @@ package com.louisfiges.auth.util;
 
 import com.louisfiges.auth.config.DemoLimiter;
 import com.louisfiges.auth.constants.PublicPaths;
+import com.louisfiges.auth.service.DemoSessionService;
 import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
@@ -17,11 +18,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.lang.NonNull;
 
+import com.louisfiges.auth.dao.UserDAO;
 import com.louisfiges.auth.service.UserService;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,16 +32,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final UserTokenProvider userTokenProvider;
     private final DemoLimiter demoLimiter;
     private final TokenDenyList tokenDenyList;
+    private final DemoSessionService demoSessionService;
+    private final DemoTokenProvider demoTokenProvider;
     private final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     public JwtAuthenticationFilter(UserService userService, UserTokenProvider userTokenProvider,
-                                   DemoLimiter demoLimiter,
-                                   TokenDenyList tokenDenyList) {
+                                   DemoLimiter demoLimiter, TokenDenyList tokenDenyList,
+                                   DemoSessionService demoSessionService, DemoTokenProvider demoTokenProvider) {
         this.userService = userService;
         this.userTokenProvider = userTokenProvider;
         this.demoLimiter = demoLimiter;
         this.tokenDenyList = tokenDenyList;
+        this.demoSessionService = demoSessionService;
+        this.demoTokenProvider = demoTokenProvider;
     }
+
+    // Logout must always succeed even for expired demo users — the frontend clears state and revokes tokens.
+    private static final String LOGOUT_PATH = "/user/logout";
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain) throws ServletException, IOException {
@@ -67,12 +74,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Optional<UUID> userId = userTokenProvider.validateAndGetUserId(jwt);
 
             if (userId.isPresent()) {
-                if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                    userService.getUserFromToken(jwt).ifPresent(userDAO -> {
+                Optional<UserDAO> userOpt = userService.getUserById(userId.get());
+                if (userOpt.isPresent()) {
+                    UserDAO userDAO = userOpt.get();
+
+                    if (!LOGOUT_PATH.equals(path) && isDemoExpiredForUser(userDAO)) {
+                        logger.warn("Demo session expired for user {} on path: {}", userDAO.getUsername(), path);
+                        writeDemoExpiredResponse(response, demoTokenProvider.generateToken(userDAO.getId()));
+                        return;
+                    }
+
+                    if (SecurityContextHolder.getContext().getAuthentication() == null) {
                         UsernamePasswordAuthenticationToken auth =
                                 new UsernamePasswordAuthenticationToken(userDAO, null, null);
                         SecurityContextHolder.getContext().setAuthentication(auth);
-                    });
+                    }
                 }
             } else if (demoLimiter.isDemoMode()) {
                 userService.getUserFromDemoToken(jwt).ifPresentOrElse(
@@ -89,5 +105,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isDemoExpiredForUser(UserDAO userDAO) {
+        if (!demoLimiter.isDemoMode() || demoLimiter.isAllowedUser(userDAO.getUsername())) {
+            return false;
+        }
+        try {
+            return demoSessionService.isDemoExpired(userDAO.getId());
+        } catch (Exception e) {
+            logger.error("Demo expiry check failed for user {} — failing open: {}", userDAO.getUsername(), e.getMessage());
+            return false;
+        }
+    }
+
+    private void writeDemoExpiredResponse(HttpServletResponse response, String demoToken) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.getWriter().write(
+            "{\"demoToken\":\"" + demoToken + "\",\"message\":\"Your demo session has expired. Use the demo token to delete your account.\"}"
+        );
     }
 }

@@ -369,6 +369,10 @@ public class UserService {
                 .ifPresent(ms -> tokenDenyList.revoke(refreshToken, ms));
     }
 
+    public Optional<UserDAO> getUserById(UUID id) {
+        return userRepository.findById(id);
+    }
+
     public Optional<UserDAO> getUserFromDemoToken(String token) {
         return demoTokenProvider.validateAndGetUserId(token)
                 .flatMap(userRepository::findById);
