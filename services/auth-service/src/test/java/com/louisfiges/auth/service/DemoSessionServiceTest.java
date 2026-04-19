@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
@@ -14,6 +15,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -111,5 +113,17 @@ class DemoSessionServiceTest {
 
         verify(valueOperations).set("demo:banned:ip:127.0.0.1", "1");
         verify(valueOperations).set("demo:banned:username:testuser", "1");
+    }
+
+    @Test
+    @DisplayName("Should be constructible by Spring with a RedisTemplate bean")
+    void shouldBeConstructibleBySpringWithRedisTemplateBean() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(RedisTemplate.class, () -> mock(RedisTemplate.class));
+            context.register(DemoSessionService.class);
+            context.refresh();
+
+            assertThat(context.getBean(DemoSessionService.class)).isNotNull();
+        }
     }
 }

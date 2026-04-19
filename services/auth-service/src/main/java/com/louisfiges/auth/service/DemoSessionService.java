@@ -1,5 +1,6 @@
 package com.louisfiges.auth.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ public class DemoSessionService {
     private final RedisTemplate<String, String> redisTemplate;
     private final long demoDurationMs;
 
+    @Autowired
     public DemoSessionService(RedisTemplate<String, String> redisTemplate) {
         this.redisTemplate = redisTemplate;
         this.demoDurationMs = loadDemoDurationMs();
