@@ -108,10 +108,11 @@ public class UserService {
 
     private LoginResult createAuthenticatedResponse(UserDAO user, String deviceToken) {
         if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(user.getUsername())) {
-            if (demoSessionService.hasConsumedDemoLogin(user.getId())) {
+            if (!demoSessionService.hasConsumedDemoLogin(user.getId())) {
+                demoSessionService.recordFirstLogin(user.getId());
+            } else if (demoSessionService.isDemoExpired(user.getId())) {
                 return new LoginResult.DemoRateLimited(demoTokenProvider.generateToken(user.getId()));
             }
-            demoSessionService.recordFirstLogin(user.getId());
         }
 
         AuthSuccessResponse response = new AuthSuccessResponse(
@@ -153,10 +154,6 @@ public class UserService {
     }
 
     public RegisterResult register(String username, String password, String clientIp) {
-        if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(username) && demoSessionService.isBanned(clientIp, username)) {
-            return new RegisterResult.Banned();
-        }
-
         if (userRepository.findByUsername(username).isPresent()) {
             return new RegisterResult.UsernameTaken();
         }
@@ -170,7 +167,6 @@ public class UserService {
 
         if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(username)) {
             demoSessionService.recordFirstLoginAt(user.getId(), getDemoSessionStartMillis(user));
-            demoSessionService.banIpAndUsername(clientIp, username);
         }
 
         AuthSuccessResponse response = new AuthSuccessResponse(

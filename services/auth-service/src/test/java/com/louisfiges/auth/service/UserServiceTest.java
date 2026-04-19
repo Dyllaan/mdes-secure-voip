@@ -291,30 +291,31 @@ class UserServiceTest {
         }
 
         @Test
-        @DisplayName("Should reject repeat login in demo mode")
-        void shouldRejectRepeatLoginInDemoMode() {
+        @DisplayName("Should allow repeat login in demo mode before expiry")
+        void shouldAllowRepeatLoginInDemoModeBeforeExpiry() {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(false);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
-            when(demoTokenProvider.generateToken(USER_ID)).thenReturn("demo_token");
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
-            assertThat(result).isInstanceOf(LoginResult.DemoRateLimited.class);
-            assertThat(((LoginResult.DemoRateLimited) result).demoToken()).isEqualTo("demo_token");
+            assertThat(result).isInstanceOf(LoginResult.Success.class);
             verify(demoSessionService, never()).recordFirstLogin(USER_ID);
-            verify(userTokenProvider, never()).generateAccessToken(any(), any());
-            verify(userTokenProvider, never()).generateRefreshToken(any(), any());
+            verify(demoTokenProvider, never()).generateToken(any());
         }
 
         @Test
-        @DisplayName("Should reject trusted-device login when demo login already consumed")
-        void shouldRejectTrustedDeviceLoginWhenDemoConsumed() {
+        @DisplayName("Should reject trusted-device login when demo has expired")
+        void shouldRejectTrustedDeviceLoginWhenDemoExpired() {
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(true);
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(trustedDeviceService.isDeviceTrusted(DEVICE_TOKEN, DEVICE_FINGERPRINT)).thenReturn(true);
@@ -472,12 +473,13 @@ class UserServiceTest {
         }
 
         @Test
-        @DisplayName("Should reject MFA verification when demo login already consumed")
-        void shouldRejectMfaVerificationWhenDemoConsumed() {
+        @DisplayName("Should reject MFA verification when demo has expired")
+        void shouldRejectMfaVerificationWhenDemoExpired() {
             testUser.setMfaEnabled(true);
             testUser.setMfaSecret(MFA_SECRET);
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
+            when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(true);
             when(mfaTokenProvider.validateAndGetUserId(MFA_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
@@ -535,7 +537,6 @@ class UserServiceTest {
 
             assertThat(result).isInstanceOf(RegisterResult.Success.class);
             verify(demoSessionService).recordFirstLoginAt(eq(USER_ID), anyLong());
-            verify(demoSessionService).banIpAndUsername("127.0.0.1", USERNAME);
         }
 
         @Test
@@ -1089,6 +1090,23 @@ class UserServiceTest {
 
             assertThat(result).isInstanceOf(DeleteResult.Failure.class);
             assertThat(((DeleteResult.Failure) result).reason()).isEqualTo("Invalid token");
+        }
+
+        @Test
+        @DisplayName("Should delete expired demo user with demo token without MFA")
+        void shouldDeleteExpiredDemoUserWithDemoTokenWithoutMfa() {
+            testUser.setMfaEnabled(true);
+            when(demoLimiter.isDemoMode()).thenReturn(true);
+            when(userTokenProvider.validateAndGetUserId("demo_token")).thenReturn(Optional.empty());
+            when(demoTokenProvider.validateAndGetUserId("demo_token")).thenReturn(Optional.of(USER_ID));
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
+
+            DeleteResult result = userService.deleteUser("demo_token", null);
+
+            assertThat(result).isInstanceOf(DeleteResult.Success.class);
+            verify(userRepository).delete(testUser);
+            verify(totpService, never()).verifyCode(anyString(), anyString());
+            verify(backupCodeService, never()).verifyAndUseBackupCode(any(), anyString());
         }
     }
 }

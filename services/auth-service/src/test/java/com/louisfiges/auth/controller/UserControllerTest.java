@@ -1,6 +1,7 @@
 package com.louisfiges.auth.controller;
 
 import com.louisfiges.auth.dto.mfa.request.LoginRequest;
+import com.louisfiges.auth.dto.mfa.request.MfaVerifyRequest;
 import com.louisfiges.auth.dto.request.RefreshRequest;
 import com.louisfiges.auth.dto.response.AuthSuccessResponse;
 import com.louisfiges.auth.dto.response.LoginResult;
@@ -84,6 +85,22 @@ class UserControllerTest {
         mockMvc.perform(post("/user/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new RefreshRequest("refresh_token"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.demoToken").value("demo_token"))
+                .andExpect(jsonPath("$.message").value("Your demo session has expired. Use the demo token to delete your account."));
+    }
+
+    @Test
+    @DisplayName("Should return forbidden MFA verify response with existing demo message")
+    void shouldReturnForbiddenMfaVerifyResponseWithExistingDemoMessage() throws Exception {
+        when(userService.verifyMfa("mfa_token", "123456", "device-fingerprint", true))
+                .thenReturn(new LoginResult.DemoRateLimited("demo_token"));
+
+        mockMvc.perform(post("/user/verify-mfa")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new MfaVerifyRequest("mfa_token", "123456", "device-fingerprint", true)
+                        )))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.demoToken").value("demo_token"))
                 .andExpect(jsonPath("$.message").value("Your demo session has expired. Use the demo token to delete your account."));

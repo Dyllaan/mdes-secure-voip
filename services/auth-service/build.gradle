@@ -42,6 +42,9 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql:42.7.6'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
+    testImplementation 'org.testcontainers:postgresql:1.20.4'
+    testImplementation 'org.junit-pioneer:junit-pioneer:2.3.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

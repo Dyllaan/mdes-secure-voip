@@ -673,7 +673,7 @@ test.describe('Auth - Register page', () => {
     await expect(page.getByText('Password must be at least 8 characters')).toBeVisible();
   });
 
-  test('successful registration leaves the register screen and returns to the root page', async ({ page }) => {
+  test('successful registration logs the user in and sends them to key setup when keys are missing', async ({ page }) => {
     await page.route('**/auth/user/register', (route) =>
       route.fulfill({
         status: 201,
@@ -689,8 +689,7 @@ test.describe('Auth - Register page', () => {
     await page.getByTestId('confirm-password-input').fill('ValidPass1');
     await page.getByTestId('register-submit').click();
 
-    await expect(page).toHaveURL(/#\/$/, { timeout: 5000 });
-    await expect(page.getByRole('link', { name: 'Create account' })).toBeVisible();
+    await expect(page).toHaveURL(/#\/keys$/, { timeout: 5000 });
   });
 
   test('server error during registration shows error toast', async ({ page }) => {

@@ -151,6 +151,22 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  const establishAuthenticatedSession = (userData: User, successToast?: string) => {
+    setUser(userData);
+    setSignedIn(true);
+    setMfaRequired(false);
+    setPendingMfaToken(null);
+
+    if (userData.deviceToken) {
+      localStorage.setItem('deviceToken', userData.deviceToken);
+      toast.success('Device trusted for 30 days');
+    }
+
+    if (successToast) {
+      toast.success(successToast);
+    }
+  };
+
   async function logout() {
     const refreshToken = refreshTokenRef.current;
     const currentAccessToken = accessToken;
@@ -296,8 +312,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       const response = await authApi.post('/user/register', { username, password }, { validateStatus: () => true });
       if (response.status === 201) {
         const userData = response.data as User;
-        setUser(userData);
-        toast.success('Account created successfully!');
+        establishAuthenticatedSession(userData, 'Account created successfully!');
         return { success: true };
       }
       const errorData = response.data as { cause?: string };
@@ -334,16 +349,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       if (response.status === 200) {
         const userData = response.data as User;
-        setUser(userData);
-        setSignedIn(true);
-        setMfaRequired(false);
-        setPendingMfaToken(null);
-
-        if (userData.deviceToken) {
-          localStorage.setItem('deviceToken', userData.deviceToken);
-          toast.success('Device trusted for 30 days');
-        }
-
+        establishAuthenticatedSession(userData);
         return { success: true };
       }
 
@@ -386,17 +392,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         const userData = response.data as User;
         const payload = decodeJwt(userData.accessToken);
         userData.sub = payload?.sub as string;
-        setUser(userData);
-        setSignedIn(true);
-        setMfaRequired(false);
-        setPendingMfaToken(null);
-
-        if (userData.deviceToken) {
-          localStorage.setItem('deviceToken', userData.deviceToken);
-          toast.success('Device trusted for 30 days');
-        }
-
-        toast.success('Authentication successful!');
+        establishAuthenticatedSession(userData, 'Authentication successful!');
         return { success: true };
       }
 
