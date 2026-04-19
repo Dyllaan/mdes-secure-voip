@@ -1,22 +1,25 @@
 package com.louisfiges.auth.integration;
 
+import com.louisfiges.auth.config.DemoLimiter;
 import com.louisfiges.auth.dao.UserDAO;
 import com.louisfiges.auth.repo.UserRepository;
+import com.louisfiges.auth.token.DemoTokenProvider;
+import com.louisfiges.auth.token.MfaTokenProvider;
+import com.louisfiges.auth.token.UserTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junitpioneer.jupiter.SetEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
-import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -26,17 +29,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers(disabledWithoutDocker = true)
-@SetEnvironmentVariable(key = "DEMO_MODE", value = "true")
-@SetEnvironmentVariable(key = "DEMO_ALLOWED_USERS", value = "")
-@SetEnvironmentVariable(key = "SECRET_KEY", value = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
-@SetEnvironmentVariable(key = "TEMP_MFA_SECRET_KEY", value = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
-@SetEnvironmentVariable(key = "DEMO_TOKEN_SECRET", value = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVm")
+@SuppressWarnings("removal")
 class DemoModeIntegrationTest {
 
     @Container
@@ -70,6 +73,18 @@ class DemoModeIntegrationTest {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
+    @MockBean
+    private DemoLimiter demoLimiter;
+
+    @MockBean
+    private UserTokenProvider userTokenProvider;
+
+    @MockBean
+    private MfaTokenProvider mfaTokenProvider;
+
+    @MockBean
+    private DemoTokenProvider demoTokenProvider;
+
     @BeforeEach
     void resetState() {
         userRepository.deleteAll();
@@ -80,6 +95,26 @@ class DemoModeIntegrationTest {
         } finally {
             connection.close();
         }
+
+        when(demoLimiter.isDemoMode()).thenReturn(true);
+        when(demoLimiter.isAllowedUser(anyString())).thenReturn(false);
+
+        when(userTokenProvider.generateAccessToken(any(UUID.class), anyString()))
+                .thenAnswer(invocation -> "access:" + invocation.getArgument(0, UUID.class));
+        when(userTokenProvider.generateRefreshToken(any(UUID.class), anyString()))
+                .thenAnswer(invocation -> "refresh:" + invocation.getArgument(0, UUID.class));
+        when(userTokenProvider.validateAndGetUserId(anyString()))
+                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "access:", "refresh:"));
+
+        when(demoTokenProvider.generateToken(any(UUID.class)))
+                .thenAnswer(invocation -> "demo:" + invocation.getArgument(0, UUID.class));
+        when(demoTokenProvider.validateAndGetUserId(anyString()))
+                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "demo:"));
+
+        when(mfaTokenProvider.generateToken(any(UUID.class)))
+                .thenAnswer(invocation -> "mfa:" + invocation.getArgument(0, UUID.class));
+        when(mfaTokenProvider.validateAndGetUserId(anyString()))
+                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "mfa:"));
     }
 
     @Test
@@ -148,5 +183,14 @@ class DemoModeIntegrationTest {
                 new ParameterizedTypeReference<>() {
                 }
         );
+    }
+
+    private Optional<UUID> parseToken(String token, String... prefixes) {
+        for (String prefix : prefixes) {
+            if (token != null && token.startsWith(prefix)) {
+                return Optional.of(UUID.fromString(token.substring(prefix.length())));
+            }
+        }
+        return Optional.empty();
     }
 }
