@@ -9,6 +9,7 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import { appendStderrLines, summarizeStderrLines, truncateForLog } from '../logging';
 
 export const OPUS_FRAME_MS = 20;
 export const SAMPLE_RATE = 48_000;
@@ -81,13 +82,40 @@ export class AudioPipeline extends EventEmitter {
     private _frameCount = 0;
     private _seekOffsetMs = 0;
     private _drainCheck: NodeJS.Timeout | null = null;
+    private ytdlpStderrLines: string[] = [];
+    private ffmpegStderrLines: string[] = [];
+    private failureEmitted = false;
 
     get running() { return this._running; }
     get isPaused() { return this._paused; }
     get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
-    constructor(private readonly url: string) {
+    constructor(
+        private readonly url: string,
+        private readonly logContext = 'audio-pipeline',
+    ) {
         super();
+    }
+
+    private get logPrefix(): string {
+        return `[AudioPipeline ${this.logContext}]`;
+    }
+
+    private recordStderr(target: string[], chunk: Buffer): void {
+        appendStderrLines(target, chunk);
+    }
+
+    private emitProcessFailure(
+        processName: 'yt-dlp' | 'ffmpeg',
+        details: { code?: number | null; signal?: NodeJS.Signals | null; stderrSummary: string | null },
+    ): void {
+        if (this.failureEmitted) return;
+        this.failureEmitted = true;
+        const summary = details.stderrSummary ?? 'no stderr captured';
+        this.emit('error', new Error(
+            `${this.logPrefix} ${processName} failed for ${truncateForLog(this.url) ?? 'unknown url'} `
+            + `(code=${details.code ?? 'null'}, signal=${details.signal ?? 'null'}): ${summary}`,
+        ));
     }
 
     start(seekMs = 0): void {
@@ -96,6 +124,9 @@ export class AudioPipeline extends EventEmitter {
         this._paused = false;
         this._frameCount = 0;
         this._seekOffsetMs = seekMs;
+        this.ytdlpStderrLines = [];
+        this.ffmpegStderrLines = [];
+        this.failureEmitted = false;
 
         const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
@@ -131,6 +162,15 @@ export class AudioPipeline extends EventEmitter {
             'pipe:1',
         ];
 
+        console.log(`${this.logPrefix} Starting`, {
+            url: truncateForLog(this.url),
+            seekMs,
+            commands: {
+                ytdlp: ['yt-dlp', ...ytdlpArgs],
+                ffmpeg: ['ffmpeg', ...ffmpegArgs],
+            },
+        });
+
         this.ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
         this.ytdlp.stdout!.on('error', () => {});
@@ -143,19 +183,73 @@ export class AudioPipeline extends EventEmitter {
             this.buf = extractOggPackets(this.buf, (pkt) => this.queue.push(pkt));
         });
 
-        this.ytdlp.stderr!.on('data', (d: Buffer) => process.stderr.write(`[yt-dlp] ${d}`));
+        this.ytdlp.stderr!.on('data', (d: Buffer) => {
+            this.recordStderr(this.ytdlpStderrLines, d);
+            process.stderr.write(`[yt-dlp] ${d}`);
+        });
 
         this.ffmpeg.stderr!.on('data', (d: Buffer) => {
+            this.recordStderr(this.ffmpegStderrLines, d);
             const msg = d.toString();
             if (!msg.includes('Error parsing Opus packet header')) {
                 process.stderr.write(`[ffmpeg] ${msg}`);
             }
         });
 
-        this.ytdlp.on('error', (e) => this.emit('error', e));
-        this.ffmpeg.on('error', (e) => this.emit('error', e));
+        this.ytdlp.on('error', (e) => {
+            console.error(`${this.logPrefix} yt-dlp process error`, {
+                url: truncateForLog(this.url),
+                error: e.message,
+            });
+            this.emitProcessFailure('yt-dlp', {
+                stderrSummary: summarizeStderrLines(this.ytdlpStderrLines),
+            });
+        });
+        this.ffmpeg.on('error', (e) => {
+            console.error(`${this.logPrefix} ffmpeg process error`, {
+                url: truncateForLog(this.url),
+                error: e.message,
+            });
+            this.emitProcessFailure('ffmpeg', {
+                stderrSummary: summarizeStderrLines(this.ffmpegStderrLines),
+            });
+        });
+
+        this.ytdlp.on('exit', (code, signal) => {
+            const stderrSummary = summarizeStderrLines(this.ytdlpStderrLines);
+            const summary = {
+                code,
+                signal,
+                framesProduced: this._frameCount > 0,
+                frameCount: this._frameCount,
+                stderrSummary,
+            };
+            if (code !== 0 && code !== null) {
+                console.error(`${this.logPrefix} yt-dlp exited unexpectedly`, summary);
+                if (this._frameCount === 0) {
+                    this.emitProcessFailure('yt-dlp', { code, signal, stderrSummary });
+                }
+            } else {
+                console.log(`${this.logPrefix} yt-dlp exited`, summary);
+            }
+        });
 
         this.ffmpeg.on('close', (code) => {
+            const stderrSummary = summarizeStderrLines(this.ffmpegStderrLines);
+            const summary = {
+                code,
+                framesProduced: this._frameCount > 0,
+                frameCount: this._frameCount,
+                stderrSummary,
+            };
+            if (code !== 0 && code !== null) {
+                console.error(`${this.logPrefix} ffmpeg closed unexpectedly`, summary);
+                if (this._frameCount === 0) {
+                    this.emitProcessFailure('ffmpeg', { code, stderrSummary });
+                }
+            } else {
+                console.log(`${this.logPrefix} ffmpeg closed`, summary);
+            }
             this._running = false;
             this._drainCheck = setInterval(() => {
                 if (this.queue.length === 0) {
@@ -186,6 +280,7 @@ export class AudioPipeline extends EventEmitter {
         this._paused = false;
         this._frameCount = 0;
         this._seekOffsetMs = 0;
+        this.failureEmitted = false;
 
         try { this.ffmpeg?.stdin?.end(); } catch { /* already closed */ }
         this.ytdlp?.kill('SIGTERM');

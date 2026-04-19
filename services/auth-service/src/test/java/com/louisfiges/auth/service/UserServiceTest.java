@@ -12,6 +12,7 @@ import com.louisfiges.auth.repo.UserRepository;
 import com.louisfiges.auth.config.DemoLimiter;
 import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
+import com.louisfiges.auth.token.RefreshTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,7 @@ class UserServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private UserTokenProvider userTokenProvider;
+    @Mock private RefreshTokenProvider refreshTokenProvider;
     @Mock private MfaTokenProvider mfaTokenProvider;
     @Mock private DemoTokenProvider demoTokenProvider;
     @Mock private TotpService totpService;
@@ -74,6 +76,7 @@ class UserServiceTest {
         testUser = new UserDAO(USERNAME, ENCODED_PASSWORD, LocalDateTime.now(), false);
         testUser.setId(USER_ID);
         lenient().when(demoLimiter.isDemoMode()).thenReturn(false);
+        lenient().when(userTokenProvider.getRefreshTokenExpMs()).thenReturn(2_419_200_000L);
     }
 
     @Nested
@@ -86,7 +89,7 @@ class UserServiceTest {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
@@ -156,7 +159,7 @@ class UserServiceTest {
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(trustedDeviceService.isDeviceTrusted(DEVICE_TOKEN, DEVICE_FINGERPRINT)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, null, DEVICE_TOKEN, DEVICE_FINGERPRINT, false);
 
@@ -174,7 +177,7 @@ class UserServiceTest {
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, false);
 
@@ -192,7 +195,7 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, false);
 
@@ -226,7 +229,7 @@ class UserServiceTest {
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
             when(trustedDeviceService.createTrustedDevice(testUser, DEVICE_FINGERPRINT, "Browser"))
                     .thenReturn(DEVICE_TOKEN);
 
@@ -263,7 +266,7 @@ class UserServiceTest {
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, MFA_CODE, null, null, true);
 
@@ -281,7 +284,7 @@ class UserServiceTest {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
@@ -299,7 +302,7 @@ class UserServiceTest {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.login(USERNAME, PASSWORD, null, null, null, false);
 
@@ -335,7 +338,7 @@ class UserServiceTest {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult firstResult = userService.login(USERNAME, PASSWORD, null, null, null, false);
             LoginResult secondResult = userService.login(USERNAME, PASSWORD, null, null, null, false);
@@ -354,7 +357,7 @@ class UserServiceTest {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
             when(passwordEncoder.matches(PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult firstResult = userService.login(USERNAME, PASSWORD, null, null, null, false);
             LoginResult secondResult = userService.login(USERNAME, PASSWORD, null, null, null, false);
@@ -382,7 +385,7 @@ class UserServiceTest {
             when(trustedDeviceService.createTrustedDevice(testUser, DEVICE_FINGERPRINT, "Browser"))
                     .thenReturn(DEVICE_TOKEN);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, DEVICE_FINGERPRINT, true);
 
@@ -429,7 +432,7 @@ class UserServiceTest {
             when(trustedDeviceService.createTrustedDevice(testUser, DEVICE_FINGERPRINT, "Browser"))
                     .thenReturn(DEVICE_TOKEN);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, DEVICE_FINGERPRINT, true);
 
@@ -463,7 +466,7 @@ class UserServiceTest {
             when(totpService.verifyCode(MFA_SECRET, MFA_CODE)).thenReturn(false);
             when(backupCodeService.verifyAndUseBackupCode(testUser, MFA_CODE)).thenReturn(true);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             LoginResult result = userService.verifyMfa(MFA_TOKEN, MFA_CODE, null, false);
 
@@ -490,7 +493,7 @@ class UserServiceTest {
             assertThat(result).isInstanceOf(LoginResult.DemoRateLimited.class);
             verify(demoTokenProvider).generateToken(USER_ID);
             verify(userTokenProvider, never()).generateAccessToken(any(), any());
-            verify(userTokenProvider, never()).generateRefreshToken(any(), any());
+            verify(refreshTokenProvider, never()).generateToken(any(), any(), anyLong());
         }
     }
 
@@ -505,7 +508,7 @@ class UserServiceTest {
             when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
             when(userRepository.save(any(UserDAO.class))).thenReturn(testUser);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
 
@@ -531,7 +534,7 @@ class UserServiceTest {
             when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
             when(userRepository.save(any(UserDAO.class))).thenReturn(testUser);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
 
@@ -559,16 +562,16 @@ class UserServiceTest {
         @DisplayName("Should refresh token successfully")
         void shouldRefreshTokenSuccessfully() {
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(LoginResult.Success.class);
-            verify(userTokenProvider).validateAndGetUserId(REFRESH_TOKEN);
+            verify(refreshTokenProvider).validateAndGetUserId(REFRESH_TOKEN);
         }
 
         @Test
@@ -576,12 +579,12 @@ class UserServiceTest {
         void shouldAllowValidRefreshTokenInDemoModeBeforeExpiry() {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
             when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(false);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
@@ -595,7 +598,7 @@ class UserServiceTest {
         void shouldRejectValidRefreshTokenInDemoModeAfterExpiry() {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(true);
             when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(true);
@@ -607,7 +610,7 @@ class UserServiceTest {
             assertThat(result.get()).isInstanceOf(LoginResult.DemoRateLimited.class);
             assertThat(((LoginResult.DemoRateLimited) result.get()).demoToken()).isEqualTo("demo_token");
             verify(userTokenProvider, never()).generateAccessToken(any(), any());
-            verify(userTokenProvider, never()).generateRefreshToken(any(), any());
+            verify(refreshTokenProvider, never()).generateToken(any(), any(), anyLong());
         }
 
         @Test
@@ -615,12 +618,12 @@ class UserServiceTest {
         void shouldBackfillDemoTimingFromUserCreationWhenRefreshStateIsMissing() {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(demoSessionService.hasConsumedDemoLogin(USER_ID)).thenReturn(false);
             when(demoSessionService.isDemoExpired(USER_ID)).thenReturn(false);
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
@@ -635,10 +638,10 @@ class UserServiceTest {
             when(demoLimiter.isDemoMode()).thenReturn(true);
             when(demoLimiter.isAllowedUser(USERNAME)).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.of(USER_ID));
             when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
-            when(userTokenProvider.generateRefreshToken(USER_ID, USERNAME)).thenReturn(REFRESH_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
@@ -651,7 +654,7 @@ class UserServiceTest {
         @DisplayName("Should fail with invalid refresh token")
         void shouldFailWithInvalidRefreshToken() {
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.empty());
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.empty());
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
@@ -663,7 +666,7 @@ class UserServiceTest {
         void shouldFailWithInvalidRefreshTokenInDemoMode() {
             lenient().when(demoLimiter.isDemoMode()).thenReturn(true);
             when(tokenDenyList.isRevoked(REFRESH_TOKEN)).thenReturn(false);
-            when(userTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.empty());
+            when(refreshTokenProvider.validateAndGetUserId(REFRESH_TOKEN)).thenReturn(Optional.empty());
 
             Optional<LoginResult> result = userService.refreshToken(REFRESH_TOKEN);
 
@@ -681,7 +684,7 @@ class UserServiceTest {
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result.get()).reason()).isEqualTo("Token has expired, please re-login.");
-            verify(userTokenProvider, never()).validateAndGetUserId(any());
+            verify(refreshTokenProvider, never()).validateAndGetUserId(any());
         }
 
         @Test
@@ -695,7 +698,7 @@ class UserServiceTest {
             assertThat(result).isPresent();
             assertThat(result.get()).isInstanceOf(LoginResult.Failure.class);
             assertThat(((LoginResult.Failure) result.get()).reason()).isEqualTo("Token has expired, please re-login.");
-            verify(userTokenProvider, never()).validateAndGetUserId(any());
+            verify(refreshTokenProvider, never()).validateAndGetUserId(any());
             verify(demoTokenProvider, never()).generateToken(any());
         }
     }

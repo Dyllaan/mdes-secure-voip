@@ -6,8 +6,14 @@ const REQUIRED_VARS = [
   'HUB_SERVICE_URL',
   'MUSICMAN_URL',
   'TURN_SECRET',
-  'JWT_SECRET',
+  'JWT_PUBLIC_KEY_B64',
 ];
+
+const TEST_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MFwwDQYJKoZIhvcNAQEBBQADSwAwSAJBALhhsn6g9oK7U0GeN7mXa+ljh8p2dD5k
+6ojgI3GC4cd0XUMDKM5YvK5n+0sIVxWEqYg+YxvL2ZqL9Dhv8ZKJQw8CAwEAAQ==
+-----END PUBLIC KEY-----
+`;
 
 const VALID_ENV: Record<string, string> = {
   CORS_ORIGIN:                'http://localhost:3000',
@@ -17,7 +23,7 @@ const VALID_ENV: Record<string, string> = {
   HUB_SERVICE_URL:            'http://hub:5000',
   MUSICMAN_URL:               'http://musicman:8080',
   TURN_SECRET:                'test-turn-secret',
-  JWT_SECRET:                 Buffer.from('test-jwt-secret').toString('base64'),
+  JWT_PUBLIC_KEY_B64:         Buffer.from(TEST_PUBLIC_KEY).toString('base64'),
 };
 
 function restoreEnv() {
@@ -49,7 +55,7 @@ describe('config - required variable validation', () => {
   it('throws and includes all missing var names when multiple are absent', () => {
     delete process.env.CORS_ORIGIN;
     delete process.env.TURN_SECRET;
-    delete process.env.JWT_SECRET;
+    delete process.env.JWT_PUBLIC_KEY_B64;
     let message = '';
     try {
       require('../config/config');
@@ -58,11 +64,16 @@ describe('config - required variable validation', () => {
     }
     expect(message).toContain('CORS_ORIGIN');
     expect(message).toContain('TURN_SECRET');
-    expect(message).toContain('JWT_SECRET');
+    expect(message).toContain('JWT_PUBLIC_KEY_B64');
   });
 
   it('does not throw when all required vars are present', () => {
     expect(() => require('../config/config')).not.toThrow();
+  });
+
+  it('throws when JWT_PUBLIC_KEY_B64 is malformed', () => {
+    process.env.JWT_PUBLIC_KEY_B64 = Buffer.from('not-a-public-key').toString('base64');
+    expect(() => require('../config/config')).toThrow('Invalid JWT_PUBLIC_KEY_B64');
   });
 });
 

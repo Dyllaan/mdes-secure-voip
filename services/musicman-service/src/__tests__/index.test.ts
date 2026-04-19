@@ -49,27 +49,30 @@ jest.mock('express', () => {
 });
 
 import request from 'supertest';
-import { createHmac } from 'crypto';
+import { createTestJwt } from './helpers/createJwt';
 
 global.fetch = jest.fn().mockResolvedValue({ ok: true }) as typeof fetch;
 
 const { app } = require('../index') as typeof import('../index');
 
 function makeJwt(sub: string, opts: { expired?: boolean } = {}): string {
-    const secretBuf = Buffer.from(Buffer.from('test-secret').toString('base64'), 'base64');
-    const header    = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const exp       = opts.expired
-        ? Math.floor(Date.now() / 1000) - 3600
-        : Math.floor(Date.now() / 1000) + 3600;
-    const body = Buffer.from(
-        JSON.stringify({ sub, exp, iat: Math.floor(Date.now() / 1000) })
-    ).toString('base64url');
-    const sig = createHmac('sha256', secretBuf).update(`${header}.${body}`).digest('base64url');
-    return `${header}.${body}.${sig}`;
+    return createTestJwt({
+        sub,
+        exp: opts.expired
+            ? Math.floor(Date.now() / 1000) - 3600
+            : Math.floor(Date.now() / 1000) + 3600,
+    });
 }
 
 function authHeader(sub = `user-${Math.random()}`) {
     return { Authorization: `Bearer ${makeJwt(sub)}` };
+}
+
+function allowRoomAccess(roomIds: string[] = []) {
+    return jest.fn().mockImplementation(async (input: string | URL | Request) => {
+        const url = String(input);
+        return { ok: roomIds.some((roomId) => url.includes(`/channels/${roomId}/access`)) };
+    });
 }
 
 const ALLOWED_URL    = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -126,7 +129,8 @@ describe('Express routes (index.ts)', () => {
         });
 
         it('should return 403 when room access is denied', async () => {
-            mockFetch.mockResolvedValue({ ok: false, status: 403 });
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
             const res = await request(app).post('/join').set(authHeader()).send({ roomId: 'room1', url: ALLOWED_URL });
             expect(res.status).toBe(403);
         });
@@ -163,7 +167,8 @@ describe('Express routes (index.ts)', () => {
         });
 
         it('should return 403 when room access denied', async () => {
-            mockFetch.mockResolvedValue({ ok: false });
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
             const res = await request(app).post('/play').set(authHeader()).send({ roomId: 'room-play', url: ALLOWED_URL });
             expect(res.status).toBe(403);
         });
@@ -202,11 +207,18 @@ describe('Express routes (index.ts)', () => {
 
         it('should return 200 and call bot.destroy() when bot exists', async () => {
             const sub    = `user-leave-${Math.random()}`;
-            const roomId = `room-to-leave-${Math.random()}`;
+            const roomId = 'room-to-leave';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/leave').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
             expect(res.body.ok).toBe(true);
+        });
+
+        it('should return 403 when caller is not a room member', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
+            const res = await request(app).post('/leave').set(authHeader()).send({ roomId: 'room-to-leave' });
+            expect(res.status).toBe(403);
         });
     });
 
@@ -223,10 +235,17 @@ describe('Express routes (index.ts)', () => {
 
         it('should return 200 and call bot.pause() when bot exists', async () => {
             const sub    = `user-pause-${Math.random()}`;
-            const roomId = `room-pause-${Math.random()}`;
+            const roomId = 'room-pause';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/pause').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
+        });
+
+        it('should return 403 when caller is not a room member', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
+            const res = await request(app).post('/pause').set(authHeader()).send({ roomId: 'room-pause' });
+            expect(res.status).toBe(403);
         });
     });
 
@@ -243,10 +262,17 @@ describe('Express routes (index.ts)', () => {
 
         it('should return 200 and call bot.resume() when bot exists', async () => {
             const sub    = `user-resume-${Math.random()}`;
-            const roomId = `room-resume-${Math.random()}`;
+            const roomId = 'room-resume';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/resume').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
+        });
+
+        it('should return 403 when caller is not a room member', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
+            const res = await request(app).post('/resume').set(authHeader()).send({ roomId: 'room-resume' });
+            expect(res.status).toBe(403);
         });
     });
 
@@ -283,7 +309,7 @@ describe('Express routes (index.ts)', () => {
 
         it('should return 200 and call bot.seek(seconds * 1000) when bot exists', async () => {
             const sub    = `user-seek-${Math.random()}`;
-            const roomId = `room-seek-${Math.random()}`;
+            const roomId = 'room-seek';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/seek').set(authHeader(sub)).send({ roomId, seconds: 45 });
             expect(res.status).toBe(200);
@@ -292,7 +318,7 @@ describe('Express routes (index.ts)', () => {
 
         it('should clamp negative seconds to 0', async () => {
             const sub    = `user-seek-neg-${Math.random()}`;
-            const roomId = `room-seek-neg-${Math.random()}`;
+            const roomId = 'room-seek-neg';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const { BotInstance } = require('../instances/BotInstance');
             const mockBot = (BotInstance as jest.Mock).mock.results.at(-1)?.value;
@@ -300,6 +326,13 @@ describe('Express routes (index.ts)', () => {
             if (mockBot) mockBot.seek = seekMock;
             await request(app).post('/seek').set(authHeader(sub)).send({ roomId, seconds: -10 });
             expect(seekMock).toHaveBeenCalledWith(0);
+        });
+
+        it('should return 403 when caller is not a room member', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
+            const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'room-seek', seconds: 45 });
+            expect(res.status).toBe(403);
         });
     });
 
@@ -310,9 +343,11 @@ describe('Express routes (index.ts)', () => {
         });
 
         it('should return { rooms: [...] } with current room IDs', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
             const res = await request(app).get('/rooms').set(authHeader());
             expect(res.status).toBe(200);
-            expect(Array.isArray(res.body.rooms)).toBe(true);
+            expect(res.body.rooms).toEqual([]);
         });
     });
 
@@ -329,11 +364,18 @@ describe('Express routes (index.ts)', () => {
 
         it('should return bot.getStatus() JSON on success', async () => {
             const sub    = `user-status-${Math.random()}`;
-            const roomId = `room-status-${Math.random()}`;
+            const roomId = 'room-status';
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).get(`/status/${roomId}`).set(authHeader(sub));
             expect(res.status).toBe(200);
             expect(res.body).toMatchObject({ playing: expect.any(Boolean), url: ALLOWED_URL });
+        });
+
+        it('should return 403 when caller is not a room member', async () => {
+            mockFetch = allowRoomAccess([]);
+            global.fetch = mockFetch as typeof fetch;
+            const res = await request(app).get('/status/room-status').set(authHeader());
+            expect(res.status).toBe(403);
         });
     });
 
@@ -358,9 +400,17 @@ describe('Express routes (index.ts)', () => {
         });
 
         it('should reject malformed URLs', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
             const res = await request(app).post('/join').set(authHeader())
                 .send({ roomId: 'room-bad', url: 'not-a-url' });
             expect(res.status).toBe(400);
+            expect(warnSpy).toHaveBeenCalledWith('[MusicmanRoute] Request rejected', expect.objectContaining({
+                route: '/join',
+                reason: 'malformed_url',
+                roomId: 'room-bad',
+                url: 'not-a-url',
+            }));
+            warnSpy.mockRestore();
         });
     });
 

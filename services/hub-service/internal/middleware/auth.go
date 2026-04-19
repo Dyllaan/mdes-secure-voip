@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"log"
 	"net/http"
 	"os"
@@ -17,19 +20,54 @@ type contextKey string
 const UserIDKey contextKey = "userID"
 const UsernameKey contextKey = "username"
 
-var jwtSecret []byte
+var jwtPublicKey *rsa.PublicKey
+var jwtIssuer string
+var jwtAccessAudience string
 
-// InitAuth must be called once at startup to load the JWT secret.
+// InitAuth must be called once at startup to load the JWT verification key.
 func InitAuth() {
-	raw := os.Getenv("JWT_SECRET")
-	decoded, err := base64.URLEncoding.DecodeString(raw)
+	jwtIssuer = strings.TrimSpace(os.Getenv("JWT_ISSUER"))
+	if jwtIssuer == "" {
+		jwtIssuer = "mdes-secure-voip-auth"
+	}
+	jwtAccessAudience = strings.TrimSpace(os.Getenv("JWT_ACCESS_AUDIENCE"))
+	if jwtAccessAudience == "" {
+		jwtAccessAudience = "voip-services"
+	}
+
+	raw := strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY_B64"))
+	if raw == "" {
+		jwtPublicKey = nil
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		decoded, err = base64.RawURLEncoding.DecodeString(raw)
+		decoded, err = base64.RawStdEncoding.DecodeString(raw)
 		if err != nil {
 			decoded = []byte(raw)
 		}
 	}
-	jwtSecret = decoded
+
+	block, _ := pem.Decode(decoded)
+	if block == nil {
+		jwtPublicKey = nil
+		return
+	}
+
+	parsedKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		jwtPublicKey = nil
+		return
+	}
+
+	rsaKey, ok := parsedKey.(*rsa.PublicKey)
+	if !ok {
+		jwtPublicKey = nil
+		return
+	}
+
+	jwtPublicKey = rsaKey
 }
 
 // Auth verifies the JWT and adds the user ID to the request context.
@@ -47,12 +85,17 @@ func Auth(next http.Handler) http.Handler {
 			return
 		}
 
+		if jwtPublicKey == nil {
+			writeError(w, http.StatusUnauthorized, "Invalid token")
+			return
+		}
+
 		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 				return nil, jwt.ErrSignatureInvalid
 			}
-			return jwtSecret, nil
-		})
+			return jwtPublicKey, nil
+		}, jwt.WithAudience(jwtAccessAudience), jwt.WithIssuer(jwtIssuer))
 
 		if err != nil || !token.Valid {
 			log.Printf("token verification failed: %v", err)
@@ -69,6 +112,12 @@ func Auth(next http.Handler) http.Handler {
 		userID, ok := claims["sub"].(string)
 		if !ok || userID == "" {
 			writeError(w, http.StatusUnauthorized, "Missing user ID in token")
+			return
+		}
+
+		tokenUse, ok := claims["token_use"].(string)
+		if !ok || tokenUse != "access" {
+			writeError(w, http.StatusUnauthorized, "Invalid token")
 			return
 		}
 

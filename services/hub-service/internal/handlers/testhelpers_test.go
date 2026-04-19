@@ -5,7 +5,12 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,7 +34,7 @@ import (
 	"hub-service/internal/structs"
 )
 
-const testJWTSecret = "test-secret-for-unit-tests-32bytes"
+var testJWTPrivateKey *rsa.PrivateKey
 
 // testUserID / testHubID / testChanID are fixed IDs used across tests.
 const (
@@ -123,7 +128,17 @@ var (
 )
 
 func init() {
-	os.Setenv("JWT_SECRET", testJWTSecret)
+	var err error
+	testJWTPrivateKey, err = rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&testJWTPrivateKey.PublicKey)
+	if err != nil {
+		panic(err)
+	}
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	os.Setenv("JWT_PUBLIC_KEY_B64", base64.StdEncoding.EncodeToString(publicPEM))
 	middleware.InitAuth()
 	config.InitLimits()
 }
@@ -153,10 +168,13 @@ func newMockDB(t *testing.T) sqlmock.Sqlmock {
 func makeToken(t *testing.T, userID string, ttl time.Duration) string {
 	t.Helper()
 	claims := jwt.MapClaims{
-		"sub": userID,
-		"exp": time.Now().Add(ttl).Unix(),
+		"sub":       userID,
+		"exp":       time.Now().Add(ttl).Unix(),
+		"iss":       "mdes-secure-voip-auth",
+		"aud":       "voip-services",
+		"token_use": "access",
 	}
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testJWTSecret))
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(testJWTPrivateKey)
 	require.NoError(t, err)
 	return tok
 }

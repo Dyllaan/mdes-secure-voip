@@ -60,8 +60,13 @@ public class TrustedDeviceService {
     }
 
     @Transactional
-    public void revokeTrustedDevice(UUID deviceId) {
-        trustedDeviceRepository.deleteById(deviceId);
+    public boolean revokeTrustedDevice(UserDAO user, UUID deviceId) {
+        return trustedDeviceRepository.findByIdAndUser(deviceId, user)
+                .map(device -> {
+                    trustedDeviceRepository.delete(device);
+                    return true;
+                })
+                .orElse(false);
     }
 
     @Transactional

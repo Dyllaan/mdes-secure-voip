@@ -6,6 +6,7 @@ import WebRTCHandler from './WebRTCHandler';
 import UserHandler from './UserHandler';
 import { RealtimeConfig } from '../config';
 import { AuthenticatedSocket, RateLimitEntry, Service } from '../types';
+import { verifyAccessToken } from '../auth/verifyAccessToken';
 
 class SocketEventHandlers {
     private service: Service;
@@ -44,8 +45,7 @@ class SocketEventHandlers {
             }
 
             try {
-                const secret = Buffer.from(this.config.jwt.secret, 'base64');
-                const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
+                const decoded = verifyAccessToken(token, this.config);
                 const s = socket as unknown as AuthenticatedSocket;
                 s.userId = decoded.sub!;
                 s.username = username;
@@ -337,10 +337,9 @@ class SocketEventHandlers {
 
             // Re-verify JWT every 15 min, disconnect if expired
             const REAUTH_MS = 15 * 60 * 1000;
-            const jwtSecret = Buffer.from(this.config.jwt.secret, 'base64');
             const reauthTimer = setInterval(() => {
                 try {
-                    jwt.verify(socket.token, jwtSecret, { algorithms: ['HS256'] });
+                    verifyAccessToken(socket.token, this.config);
                 } catch {
                     socket.emit('session-expired', { message: 'Session expired, please log in again' });
                     socket.disconnect(true);

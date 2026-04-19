@@ -3,6 +3,7 @@ import express from 'express';
 import { createRouter } from '../http/Routes';
 import { BotInstance } from '../instances/BotInstance';
 import { AVBotInstance } from '../instances/AVBotInstance';
+import { createRefreshJwt, createTestJwt } from './helpers/createJwt';
 
 jest.mock('../instances/BotInstance');
 jest.mock('../instances/AVBotInstance');
@@ -15,21 +16,17 @@ jest.mock('../Auth', () => ({
 }));
 
 import { HubHandler } from '../HubHandler';
-import { createHmac } from 'crypto';
 
-function makeJwt(sub: string, expiresInSecs = 3600): string {
-    const header  = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
-    const payload = Buffer.from(JSON.stringify({
-        sub,
-        exp: Math.floor(Date.now() / 1000) + expiresInSecs,
-    })).toString('base64url');
-    const secret = Buffer.from(Buffer.from('test-secret').toString('base64'), 'base64');
-    const sig    = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
-    return `${header}.${payload}.${sig}`;
+function authHeader(payload: Record<string, unknown> = {}): string {
+    return `Bearer ${createTestJwt({ sub: `user-${Math.random()}`, ...payload })}`;
 }
 
-function authHeader(): string {
-    return `Bearer ${makeJwt(`user-${Math.random()}`)}`;
+function mockRoomAccess(allowedRooms: string[] = []) {
+    return jest.spyOn(global, 'fetch').mockImplementation(async (input: string | URL | Request) => {
+        const url = String(input);
+        const isAllowed = allowedRooms.some((roomId) => url.includes(`/channels/${roomId}/access`));
+        return { ok: isAllowed } as Response;
+    });
 }
 
 function mockBot(overrides: Partial<BotInstance> = {}): BotInstance & AVBotInstance {
@@ -56,6 +53,7 @@ beforeEach(() => {
     app.use(express.json());
     app.use(createRouter(bots));
     jest.clearAllMocks();
+    mockRoomAccess(['r1', 'r2']);
 
     (BotInstance as jest.MockedClass<typeof BotInstance>).mockImplementation(() => mockBot());
     (AVBotInstance as jest.MockedClass<typeof AVBotInstance>).mockImplementation(() => mockBot());
@@ -66,6 +64,13 @@ beforeEach(() => {
 describe('POST /hub/join', () => {
     it('returns 401 without auth', async () => {
         await request(app).post('/hub/join').send({ hubId: 'h1' }).expect(401);
+    });
+
+    it('returns 401 for refresh tokens', async () => {
+        await request(app).post('/hub/join')
+            .set('Authorization', `Bearer ${createRefreshJwt()}`)
+            .send({ hubId: 'h1' })
+            .expect(401);
     });
 
     it('returns 400 when hubId missing', async () => {
@@ -103,7 +108,7 @@ describe('POST /hub/join', () => {
 
 describe('POST /join', () => {
     beforeEach(() => {
-        jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+        mockRoomAccess(['r1']);
     });
 
     it('returns 401 without auth', async () => {
@@ -134,7 +139,7 @@ describe('POST /join', () => {
     });
 
     it('returns 403 when hub access denied', async () => {
-        jest.spyOn(global, 'fetch').mockResolvedValue({ ok: false } as Response);
+        mockRoomAccess([]);
         await request(app).post('/join')
             .set('Authorization', authHeader())
             .send({ roomId: 'r1', url: 'https://youtube.com/watch?v=abc' })
@@ -211,7 +216,7 @@ describe('POST /join', () => {
 
 describe('POST /play', () => {
     beforeEach(() => {
-        jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+        mockRoomAccess(['r1']);
     });
 
     it('calls changeTrack when bot already in room', async () => {
@@ -269,6 +274,10 @@ describe('POST /play', () => {
 // ── /leave ─────────────────────────────────────────────────────────────────────
 
 describe('POST /leave', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).post('/leave').send({ roomId: 'r1' }).expect(401);
     });
@@ -287,6 +296,17 @@ describe('POST /leave', () => {
             .expect(404);
     });
 
+    it('returns 403 when caller is not a room member', async () => {
+        mockRoomAccess([]);
+        const bot = mockBot();
+        bots.set('r1', bot);
+        await request(app).post('/leave')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1' })
+            .expect(403);
+        expect(bot.destroy).not.toHaveBeenCalled();
+    });
+
     it('destroys bot and removes from map', async () => {
         const bot = mockBot();
         bots.set('r1', bot);
@@ -302,6 +322,10 @@ describe('POST /leave', () => {
 // ── /pause ─────────────────────────────────────────────────────────────────────
 
 describe('POST /pause', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).post('/pause').send({ roomId: 'r1' }).expect(401);
     });
@@ -320,6 +344,17 @@ describe('POST /pause', () => {
             .expect(404);
     });
 
+    it('returns 403 when caller is not a room member', async () => {
+        mockRoomAccess([]);
+        const bot = mockBot();
+        bots.set('r1', bot);
+        await request(app).post('/pause')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1' })
+            .expect(403);
+        expect(bot.pause).not.toHaveBeenCalled();
+    });
+
     it('calls pause on bot', async () => {
         const bot = mockBot();
         bots.set('r1', bot);
@@ -334,6 +369,10 @@ describe('POST /pause', () => {
 // ── /resume ────────────────────────────────────────────────────────────────────
 
 describe('POST /resume', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).post('/resume').send({ roomId: 'r1' }).expect(401);
     });
@@ -352,6 +391,17 @@ describe('POST /resume', () => {
             .expect(404);
     });
 
+    it('returns 403 when caller is not a room member', async () => {
+        mockRoomAccess([]);
+        const bot = mockBot();
+        bots.set('r1', bot);
+        await request(app).post('/resume')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1' })
+            .expect(403);
+        expect(bot.resume).not.toHaveBeenCalled();
+    });
+
     it('calls resume on bot', async () => {
         const bot = mockBot();
         bots.set('r1', bot);
@@ -366,6 +416,10 @@ describe('POST /resume', () => {
 // ── /seek ──────────────────────────────────────────────────────────────────────
 
 describe('POST /seek', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).post('/seek').send({ roomId: 'r1', seconds: 10 }).expect(401);
     });
@@ -391,6 +445,17 @@ describe('POST /seek', () => {
             .set('Authorization', authHeader())
             .send({ roomId: 'r1', seconds: 10 })
             .expect(404);
+    });
+
+    it('returns 403 when caller is not a room member', async () => {
+        mockRoomAccess([]);
+        const bot = mockBot();
+        bots.set('r1', bot);
+        await request(app).post('/seek')
+            .set('Authorization', authHeader())
+            .send({ roomId: 'r1', seconds: 10 })
+            .expect(403);
+        expect(bot.seek).not.toHaveBeenCalled();
     });
 
     it('calls seek with ms conversion', async () => {
@@ -462,17 +527,21 @@ describe('POST /resolve', () => {
 // ── /rooms ─────────────────────────────────────────────────────────────────────
 
 describe('GET /rooms', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).get('/rooms').expect(401);
     });
 
-    it('returns list of active room ids', async () => {
+    it('returns only rooms accessible to the caller', async () => {
         bots.set('r1', mockBot());
         bots.set('r2', mockBot());
         const res = await request(app).get('/rooms')
             .set('Authorization', authHeader())
             .expect(200);
-        expect(res.body.rooms).toEqual(expect.arrayContaining(['r1', 'r2']));
+        expect(res.body.rooms).toEqual(['r1']);
     });
 
     it('returns empty list when no bots active', async () => {
@@ -486,8 +555,20 @@ describe('GET /rooms', () => {
 // ── /status/:roomId ────────────────────────────────────────────────────────────
 
 describe('GET /status/:roomId', () => {
+    beforeEach(() => {
+        mockRoomAccess(['r1']);
+    });
+
     it('returns 401 without auth', async () => {
         await request(app).get('/status/r1').expect(401);
+    });
+
+    it('returns 403 when caller is not a room member', async () => {
+        mockRoomAccess([]);
+        bots.set('r1', mockBot());
+        await request(app).get('/status/r1')
+            .set('Authorization', authHeader())
+            .expect(403);
     });
 
     it('returns 404 when no bot in room', async () => {

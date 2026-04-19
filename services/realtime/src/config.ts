@@ -1,20 +1,31 @@
 import 'dotenv/config';
 import type { CorsOptions } from 'cors';
+import { createPublicKey } from 'crypto';
 
-const REQUIRED = ['JWT_SECRET', 'ALLOWED_ORIGINS', 'HUB_SERVICE_URL'] as const;
+const REQUIRED = ['JWT_PUBLIC_KEY_B64', 'ALLOWED_ORIGINS', 'HUB_SERVICE_URL'] as const;
 const missing = REQUIRED.filter(k => !process.env[k]);
 if (missing.length) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
 }
 
 const env = process.env as typeof process.env & {
-    JWT_SECRET: string;
+    JWT_PUBLIC_KEY_B64: string;
     ALLOWED_ORIGINS: string;
     HUB_SERVICE_URL: string;
 };
 
 const int = (val: string | undefined, fallback: number) =>
     val ? parseInt(val, 10) : fallback;
+
+function decodeAndValidatePublicKey(raw: string): string {
+    const pem = Buffer.from(raw, 'base64').toString('utf8');
+    try {
+        createPublicKey(pem);
+        return pem;
+    } catch {
+        throw new Error('Invalid JWT_PUBLIC_KEY_B64');
+    }
+}
 
 const config = {
     services: {
@@ -32,7 +43,9 @@ const config = {
                 credentials: true,
             } satisfies CorsOptions,
             jwt: {
-                secret: env.JWT_SECRET,
+                publicKey: decodeAndValidatePublicKey(env.JWT_PUBLIC_KEY_B64),
+                issuer: env.JWT_ISSUER ?? 'mdes-secure-voip-auth',
+                accessAudience: env.JWT_ACCESS_AUDIENCE ?? 'voip-services',
                 expiresIn: env.JWT_EXPIRES_IN ?? '24h',
             },
             security: {

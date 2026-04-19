@@ -1,6 +1,7 @@
 import http from 'http';
 import { app, socketIoProxy, peerJsProxy } from './routes';
 import { config, logger } from './config/config';
+import { isAuthorisedPeerUpgrade } from './middleware/peerAuth';
 
 const server = http.createServer(app);
 
@@ -10,6 +11,11 @@ server.on('upgrade', (req, socket, head) => {
   if (req.url?.startsWith('/socket.io')) {
     (socketIoProxy as any).upgrade(req as any, socket, head);
   } else if (req.url?.startsWith('/peerjs')) {
+    if (!isAuthorisedPeerUpgrade(req)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     (peerJsProxy as any).upgrade(req as any, socket, head);
   } else {
     logger.warn({ url: req.url }, 'Unknown upgrade path, destroying socket');

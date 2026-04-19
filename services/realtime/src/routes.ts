@@ -4,6 +4,7 @@ import { isValidRoomId } from './utils/validate';
 import { generateRoomId } from './utils/roomId';
 import { RealtimeConfig } from './config';
 import { SocketHandlers, Room } from './types';
+import { verifyAccessToken } from './auth/verifyAccessToken';
 
 interface AuthenticatedRequest extends Request {
     userId?: string;
@@ -79,8 +80,7 @@ function authenticateRequest(config: RealtimeConfig): RequestHandler {
         const token = authHeader.substring(7);
 
         try {
-            const secret = Buffer.from(config.jwt.secret, 'base64');
-            const decoded = jwt.verify(token, secret) as jwt.JwtPayload;
+            const decoded = verifyAccessToken(token, config);
             req.userId = decoded.sub;
             next();
         } catch (err) {

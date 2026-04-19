@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { toast } from "sonner";
 import { useNavigate } from 'react-router-dom';
 import useLocalStorage from '@/hooks/useLocalStorage';
-import { authApi, gateway, parseDemoLimitResponse, setAccessToken as setModuleAccessToken, setRefreshToken as setModuleRefreshToken, setupInterceptors } from '@/axios/api';
+import { authApi, gateway, parseDemoLimitResponse, setAccessToken as setModuleAccessToken, setSessionRecoveryEnabled, setupInterceptors } from '@/axios/api';
 import { decodeJwt } from '@/utils/auth/jwt';
 import { getDeviceFingerprint } from '@/utils/auth/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse, DemoLimitResponse } from '@/types/User';
@@ -22,8 +22,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
   const [persistedUser, setPersistedUser] = useLocalStorage<PersistedUser | null>('user', null);
   const [accessToken, _setAccessToken] = useState<string | null>(null);
-  // Session recovery uses localStorage for the refresh token and memory for the access token.
-  const refreshTokenRef = useRef<string | null>(persistedUser?.refreshToken ?? null);
   const isLoggingOutRef = useRef(false);
   const logoutRef = useRef<() => void | Promise<void>>(() => {});
 
@@ -40,8 +38,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     if (userData === null) {
       setPersistedUser(null);
       setAccessToken(null);
-      refreshTokenRef.current = null;
-      setModuleRefreshToken(null);
+      setSessionRecoveryEnabled(false);
     } else {
       const { accessToken: at, ...rest } = userData;
 
@@ -53,13 +50,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
       setPersistedUser({ ...rest, sub });
       setAccessToken(at);
-      refreshTokenRef.current = userData.refreshToken ?? null;
-      setModuleRefreshToken(userData.refreshToken ?? null);
+      setSessionRecoveryEnabled(true);
     }
   };
 
   useEffect(() => {
-    refreshTokenRef.current = persistedUser?.refreshToken ?? null;
+    setSessionRecoveryEnabled(!!persistedUser);
   }, [persistedUser]);
 
   const [signedIn, setSignedIn] = useState(!!persistedUser);
@@ -76,8 +72,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const clearAuthState = () => {
     setPersistedUser(null);
     setAccessToken(null);
-    refreshTokenRef.current = null;
-    setModuleRefreshToken(null);
+    setSessionRecoveryEnabled(false);
     setSignedIn(false);
     setMfaRequired(false);
     setPendingMfaToken(null);
@@ -105,10 +100,8 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     setupInterceptors(
       () => logoutRef.current(),
-      (nextAccessToken, nextRefreshToken) => {
+      (nextAccessToken) => {
         setAccessToken(nextAccessToken);
-        setModuleRefreshToken(nextRefreshToken);
-        setPersistedUser((prev) => prev ? { ...prev, refreshToken: nextRefreshToken } : prev);
       },
       (payload) => {
         presentDemoLimitDialog(payload);
@@ -119,23 +112,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     if (accessToken) fetchMfaStatus();
   }, [accessToken]);
-
-  useEffect(() => {
-    const handleUnload = () => {
-      const refreshToken = refreshTokenRef.current;
-      if (!refreshToken) {
-        return;
-      }
-
-      navigator.sendBeacon(
-        '/auth/user/logout',
-        new Blob([JSON.stringify({ refreshToken })], { type: 'application/json' }),
-      );
-    };
-
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
-  }, []);
 
   useEffect(() => {
     if (accessToken && signedIn && !isLoading) {
@@ -158,7 +134,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setPendingMfaToken(null);
 
     if (userData.deviceToken) {
-      localStorage.setItem('deviceToken', userData.deviceToken);
       toast.success('Device trusted for 30 days');
     }
 
@@ -168,14 +143,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   async function logout() {
-    const refreshToken = refreshTokenRef.current;
     const currentAccessToken = accessToken;
 
     if (isLoggingOutRef.current) {
       return;
     }
 
-    if (!refreshToken) {
+    if (!currentAccessToken) {
       clearAuthState();
       return;
     }
@@ -183,17 +157,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     isLoggingOutRef.current = true;
 
     try {
-      await authApi.post(
-        '/user/logout',
-        { refreshToken },
-        currentAccessToken
-          ? {
-              headers: {
-                Authorization: `Bearer ${currentAccessToken}`,
-              },
-            }
-          : undefined,
-      );
+      await authApi.post('/user/logout', undefined, {
+        headers: {
+          Authorization: `Bearer ${currentAccessToken}`,
+        },
+      });
     } catch {
     } finally {
       isLoggingOutRef.current = false;
@@ -269,14 +237,11 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const checkToken = async (): Promise<SessionBootstrapState> => {
-    const storedRefreshToken = persistedUser?.refreshToken;
-    if (!accessToken && !storedRefreshToken) {
+    if (!accessToken && !persistedUser) {
       clearAuthState();
       setSignedIn(false);
       return 'anonymous';
     }
-
-    if (storedRefreshToken) setModuleRefreshToken(storedRefreshToken);
 
     try {
       const response = await authApi.get('/user/me');
@@ -288,11 +253,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       }
     } catch {
       toast.error('Session recovery failed. Please retry.');
-    }
-
-    if (!refreshTokenRef.current) {
-      setSignedIn(false);
-      return 'anonymous';
     }
 
     setSignedIn(false);
@@ -311,7 +271,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     try {
       const response = await authApi.post('/user/register', { username, password }, { validateStatus: () => true });
       if (response.status === 201) {
-        const userData = response.data as User;
+        const userData = (response.data.response ?? response.data) as User;
         establishAuthenticatedSession(userData, 'Account created successfully!');
         return { success: true };
       }
@@ -328,14 +288,12 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const login = async (username: string, password: string, mfaCode?: string, trustDevice?: boolean): Promise<LoginResult> => {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
-      const storedDeviceToken = localStorage.getItem('deviceToken');
 
       const response = await authApi.post('/user/login', {
         username,
         password,
         deviceFingerprint,
         ...(mfaCode && { mfaCode }),
-        ...(storedDeviceToken && { deviceToken: storedDeviceToken }),
         ...(trustDevice && { trustDevice })
       }, { validateStatus: () => true });
 

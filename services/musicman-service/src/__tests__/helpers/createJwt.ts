@@ -1,19 +1,38 @@
-import { createHmac } from 'crypto';
+import { createSign, generateKeyPairSync } from 'crypto';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 
-/** Build a real HS256 JWT signed with the test secret ('test-secret' base64-encoded). */
-export function createTestJwt(payload: Record<string, unknown> = {}, secretOverride?: string): string {
-  const secret = secretOverride ?? 'test-secret';
-  const secretBuf = Buffer.from(Buffer.from(secret).toString('base64'), 'base64');
+const PRIVATE_KEY = readFileSync(resolve(__dirname, '../../../../../test-fixtures/jwt/private.pem'), 'utf8');
 
-  const header  = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+type JwtOptions = {
+  privateKey?: string;
+};
+
+/** Build a real RS256 JWT signed with the shared test private key. */
+export function createTestJwt(payload: Record<string, unknown> = {}, options: JwtOptions = {}): string {
+  const header  = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
   const body    = Buffer.from(JSON.stringify({
     sub: 'user-123',
     exp: Math.floor(Date.now() / 1000) + 3600,
     iat: Math.floor(Date.now() / 1000),
+    iss: 'mdes-secure-voip-auth',
+    aud: 'voip-services',
+    token_use: 'access',
     ...payload,
   })).toString('base64url');
 
   const signingInput = `${header}.${body}`;
-  const sig = createHmac('sha256', secretBuf).update(signingInput).digest('base64url');
+  const sig = createSign('RSA-SHA256').update(signingInput).end().sign(options.privateKey ?? PRIVATE_KEY).toString('base64url');
   return `${signingInput}.${sig}`;
+}
+
+export function createRefreshJwt(payload: Record<string, unknown> = {}): string {
+  return createTestJwt({ token_use: 'refresh', aud: 'auth-service', ...payload });
+}
+
+export function createWrongKeyJwt(payload: Record<string, unknown> = {}): string {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  return createTestJwt(payload, {
+    privateKey: privateKey.export({ type: 'pkcs1', format: 'pem' }).toString(),
+  });
 }

@@ -14,6 +14,7 @@ import com.louisfiges.auth.http.exceptions.MfaValidationException;
 import com.louisfiges.auth.repo.UserRepository;
 import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
+import com.louisfiges.auth.token.RefreshTokenProvider;
 import com.louisfiges.auth.token.TokenDenyList;
 import com.louisfiges.auth.token.UserTokenProvider;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -32,6 +33,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserTokenProvider userTokenProvider;
+    private final RefreshTokenProvider refreshTokenProvider;
     private final MfaTokenProvider mfaTokenProvider;
     private final DemoTokenProvider demoTokenProvider;
     private final TotpService totpService;
@@ -42,7 +44,7 @@ public class UserService {
     private final DemoSessionService demoSessionService;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                       UserTokenProvider userTokenProvider, MfaTokenProvider mfaTokenProvider,
+                       UserTokenProvider userTokenProvider, RefreshTokenProvider refreshTokenProvider, MfaTokenProvider mfaTokenProvider,
                        DemoTokenProvider demoTokenProvider, TotpService totpService,
                        BackupCodeService backupCodeService, TrustedDeviceService trustedDeviceService,
                        TokenDenyList tokenDenyList, DemoLimiter demoLimiter,
@@ -50,6 +52,7 @@ public class UserService {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.userTokenProvider = userTokenProvider;
+        this.refreshTokenProvider = refreshTokenProvider;
         this.mfaTokenProvider = mfaTokenProvider;
         this.demoTokenProvider = demoTokenProvider;
         this.totpService = totpService;
@@ -118,7 +121,7 @@ public class UserService {
         AuthSuccessResponse response = new AuthSuccessResponse(
                 user.getUsername(),
                 userTokenProvider.generateAccessToken(user.getId(), user.getUsername()),
-                userTokenProvider.generateRefreshToken(user.getId(), user.getUsername()),
+                refreshTokenProvider.generateToken(user.getId(), user.getUsername(), userTokenProvider.getRefreshTokenExpMs()),
                 user.isMfaEnabled(),
                 deviceToken
         );
@@ -172,7 +175,7 @@ public class UserService {
         AuthSuccessResponse response = new AuthSuccessResponse(
                 user.getUsername(),
                 userTokenProvider.generateAccessToken(user.getId(), user.getUsername()),
-                userTokenProvider.generateRefreshToken(user.getId(), user.getUsername()),
+                refreshTokenProvider.generateToken(user.getId(), user.getUsername(), userTokenProvider.getRefreshTokenExpMs()),
                 user.isMfaEnabled(),
                 null
         );
@@ -181,7 +184,7 @@ public class UserService {
 
     public Optional<LoginResult> refreshToken(String refreshToken) {
         if (tokenDenyList.isRevoked(refreshToken)) return Optional.of(ResponseFactory.expiredTokenResponse());
-        return userTokenProvider.validateAndGetUserId(refreshToken)
+        return refreshTokenProvider.validateAndGetUserId(refreshToken)
                 .flatMap(userRepository::findById)
                 .map(user -> {
                     if (demoLimiter.isDemoMode() && !demoLimiter.isAllowedUser(user.getUsername())) {
@@ -196,7 +199,7 @@ public class UserService {
                     return ResponseFactory.loginResponse(
                             user.getUsername(),
                             userTokenProvider.generateAccessToken(user.getId(), user.getUsername()),
-                            userTokenProvider.generateRefreshToken(user.getId(), user.getUsername()),
+                            refreshTokenProvider.generateToken(user.getId(), user.getUsername(), userTokenProvider.getRefreshTokenExpMs()),
                             user.isMfaEnabled(),
                             null
                     );
@@ -365,8 +368,10 @@ public class UserService {
     public void logout(String accessToken, String refreshToken) {
         userTokenProvider.getRemainingExpiry(accessToken)
                 .ifPresent(ms -> tokenDenyList.revoke(accessToken, ms));
-        userTokenProvider.getRemainingExpiry(refreshToken)
-                .ifPresent(ms -> tokenDenyList.revoke(refreshToken, ms));
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            refreshTokenProvider.getRemainingExpiry(refreshToken)
+                    .ifPresent(ms -> tokenDenyList.revoke(refreshToken, ms));
+        }
     }
 
     public Optional<UserDAO> getUserById(UUID id) {

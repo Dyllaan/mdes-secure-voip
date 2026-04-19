@@ -5,6 +5,7 @@ import { BotInstance } from '../instances/BotInstance';
 import { AVBotInstance } from '../instances/AVBotInstance';
 import { HubHandler } from '../HubHandler';
 import { config } from '../config';
+import { formatErrorForLog, truncateForLog } from '../logging';
 
 const ALLOWED_AUDIO_ORIGINS = (config.ALLOWED_AUDIO_ORIGINS ?? 'youtube.com,youtu.be,soundcloud.com,spotify.com')
     .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -12,14 +13,20 @@ const ALLOWED_AUDIO_ORIGINS = (config.ALLOWED_AUDIO_ORIGINS ?? 'youtube.com,yout
 const ALLOWED_VIDEO_ORIGINS = (config.ALLOWED_VIDEO_ORIGINS ?? 'youtube.com,youtu.be')
     .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 
-function isAllowedUrl(url: string): boolean {
+function getUrlValidationFailure(url: string): 'malformed_url' | 'disallowed_domain' | null {
     try {
         const { hostname } = new URL(url);
         const h = hostname.toLowerCase();
-        return ALLOWED_AUDIO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`)) || ALLOWED_VIDEO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`));
+        const allowed = ALLOWED_AUDIO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`))
+            || ALLOWED_VIDEO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`));
+        return allowed ? null : 'disallowed_domain';
     } catch {
-        return false;
+        return 'malformed_url';
     }
+}
+
+function isAllowedUrl(url: string): boolean {
+    return getUrlValidationFailure(url) === null;
 }
 
 function resolveVideoMode(url: string, requested: boolean): boolean {
@@ -36,15 +43,19 @@ const USER_PLAY_LIMIT     = 5;
 const USER_PLAY_WINDOW_MS = 60_000;
 const userPlayLimits      = new Map<string, { count: number; resetAt: number }>();
 
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createVerify } from 'crypto';
 
-const _jwtSecretRaw = config.JWT_SECRET;
-let _jwtSecret: Buffer;
-try {
-    _jwtSecret = Buffer.from(_jwtSecretRaw, 'base64');
-    if (_jwtSecret.length === 0) throw new Error('empty after base64 decode');
-} catch {
-    _jwtSecret = Buffer.from(_jwtSecretRaw);
+const _jwtPublicKey = Buffer.from(config.JWT_PUBLIC_KEY_B64, 'base64').toString('utf8');
+
+function hasAudience(payload: Record<string, unknown>, audience: string): boolean {
+    const aud = payload.aud;
+    if (typeof aud === 'string') {
+        return aud === audience;
+    }
+    if (Array.isArray(aud)) {
+        return aud.includes(audience);
+    }
+    return false;
 }
 
 function extractUserId(authHeader: string | undefined): string {
@@ -54,14 +65,16 @@ function extractUserId(authHeader: string | undefined): string {
     if (parts.length !== 3) return 'anonymous';
     try {
         const signingInput  = `${parts[0]}.${parts[1]}`;
-        const expectedSig   = createHmac('sha256', _jwtSecret).update(signingInput).digest('base64url');
-        const actualSig     = Buffer.from(parts[2], 'base64url');
-        const expectedSigBuf = Buffer.from(expectedSig, 'base64url');
-        if (actualSig.length !== expectedSigBuf.length || !timingSafeEqual(actualSig, expectedSigBuf)) {
+        const signature = Buffer.from(parts[2], 'base64url');
+        const verified = createVerify('RSA-SHA256').update(signingInput).end().verify(_jwtPublicKey, signature);
+        if (!verified) {
             return 'anonymous';
         }
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>;
         if (typeof payload.exp === 'number' && Date.now() / 1000 > payload.exp) return 'anonymous';
+        if (payload.iss !== config.JWT_ISSUER) return 'anonymous';
+        if (payload.token_use !== 'access') return 'anonymous';
+        if (!hasAudience(payload, config.JWT_ACCESS_AUDIENCE)) return 'anonymous';
         return typeof payload.sub === 'string' && payload.sub ? payload.sub : 'anonymous';
     } catch {
         return 'anonymous';
@@ -78,6 +91,18 @@ async function checkRoomAccess(roomId: string, authHeader: string | undefined): 
     } catch {
         return false;
     }
+}
+
+async function ensureRoomAccess(
+    roomId: string,
+    authHeader: string | undefined,
+    res: Response,
+): Promise<boolean> {
+    if (!await checkRoomAccess(roomId, authHeader)) {
+        res.status(403).json({ error: 'Not a member of this room' });
+        return false;
+    }
+    return true;
 }
 
 function checkUserRateLimit(userId: string): boolean {
@@ -191,6 +216,28 @@ function isValidUrl(url: unknown): url is string {
     return typeof url === 'string' && url.length > 0 && url.length <= MAX_URL_LENGTH;
 }
 
+function logRouteFailure(
+    route: '/join' | '/play' | '/resolve',
+    reason: string,
+    details: {
+        roomId?: unknown;
+        url?: unknown;
+        requestedVideoMode?: unknown;
+        resolvedVideoMode?: boolean;
+        error?: unknown;
+    },
+): void {
+    console.warn('[MusicmanRoute] Request rejected', {
+        route,
+        reason,
+        roomId: typeof details.roomId === 'string' ? details.roomId : undefined,
+        url: typeof details.url === 'string' ? truncateForLog(details.url) : undefined,
+        requestedVideoMode: details.requestedVideoMode === true,
+        resolvedVideoMode: details.resolvedVideoMode,
+        ...(details.error !== undefined ? { error: formatErrorForLog(details.error) } : {}),
+    });
+}
+
 export function createRouter(bots: Map<string, BotInstance>): Router {
     const router = express.Router();
 
@@ -222,15 +269,23 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
 
         if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
-        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidUrl(url)) {
+            logRouteFailure('/join', 'missing_url', { roomId, url, requestedVideoMode: videoMode });
+            return res.status(400).json({ error: 'url is required' });
+        }
+        const joinUrlFailure = getUrlValidationFailure(url);
+        if (joinUrlFailure) {
+            logRouteFailure('/join', joinUrlFailure, { roomId, url, requestedVideoMode: videoMode });
+            return res.status(400).json({ error: 'URL domain not permitted' });
+        }
 
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
         if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
-        if (!await checkRoomAccess(roomId, req.headers.authorization)) {
-            return res.status(403).json({ error: 'Not a member of this room' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) {
+            logRouteFailure('/join', 'room_access_denied', { roomId, url, requestedVideoMode: videoMode });
+            return;
         }
 
         if (bots.has(roomId)) {
@@ -240,7 +295,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
 
         const bot = makeBotInstance(roomId, url, resolvedVideoMode);
-        bot.setAutoLeaveCallback(() => { bot.destroy(); bots.delete(roomId); });
+        bot.setAutoLeaveCallback(() => { bot.destroy('auto_leave'); bots.delete(roomId); });
         bots.set(roomId, bot);
 
         try {
@@ -248,7 +303,14 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
             return res.json({ ok: true, roomId, videoMode: resolvedVideoMode });
         } catch (err: unknown) {
             bots.delete(roomId);
-            bot.destroy();
+            logRouteFailure('/join', 'bot_start_failed', {
+                roomId,
+                url,
+                requestedVideoMode: videoMode,
+                resolvedVideoMode,
+                error: err,
+            });
+            bot.destroy('bot_start_failed');
             const msg = err instanceof Error ? err.message : String(err);
             return res.status(500).json({ error: msg });
         }
@@ -258,15 +320,23 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
 
         if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
-        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidUrl(url)) {
+            logRouteFailure('/play', 'missing_url', { roomId, url, requestedVideoMode: videoMode });
+            return res.status(400).json({ error: 'url is required' });
+        }
+        const playUrlFailure = getUrlValidationFailure(url);
+        if (playUrlFailure) {
+            logRouteFailure('/play', playUrlFailure, { roomId, url, requestedVideoMode: videoMode });
+            return res.status(400).json({ error: 'URL domain not permitted' });
+        }
 
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
         if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
 
-        if (!await checkRoomAccess(roomId, req.headers.authorization)) {
-            return res.status(403).json({ error: 'Not a member of this room' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) {
+            logRouteFailure('/play', 'room_access_denied', { roomId, url, requestedVideoMode: videoMode });
+            return;
         }
 
         const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
@@ -275,7 +345,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         if (existing) {
 
             if (existing.videoMode !== resolvedVideoMode) {
-                existing.destroy();
+                existing.destroy('video_mode_switch');
                 bots.delete(roomId);
                 // falls through to spawn the correct type below
             } else {
@@ -285,7 +355,7 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         }
 
         const bot = makeBotInstance(roomId, url, resolvedVideoMode);
-        bot.setAutoLeaveCallback(() => { bot.destroy(); bots.delete(roomId); });
+        bot.setAutoLeaveCallback(() => { bot.destroy('auto_leave'); bots.delete(roomId); });
         bots.set(roomId, bot);
 
         try {
@@ -293,31 +363,40 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
             return res.json({ ok: true, roomId, action: 'join', videoMode: resolvedVideoMode });
         } catch (err: unknown) {
             bots.delete(roomId);
-            bot.destroy();
+            logRouteFailure('/play', 'bot_start_failed', {
+                roomId,
+                url,
+                requestedVideoMode: videoMode,
+                resolvedVideoMode,
+                error: err,
+            });
+            bot.destroy('bot_start_failed');
             const msg = err instanceof Error ? err.message : String(err);
             return res.status(500).json({ error: msg });
         }
     });
 
-    router.post('/leave', (req: Request, res: Response) => {
+    router.post('/leave', async (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
         if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
 
-        bot.destroy();
+        bot.destroy('manual');
         bots.delete(roomId);
         return res.json({ ok: true, roomId });
     });
 
-    router.post('/pause', (req: Request, res: Response) => {
+    router.post('/pause', async (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
         if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -326,11 +405,12 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         return res.json({ ok: true, roomId });
     });
 
-    router.post('/resume', (req: Request, res: Response) => {
+    router.post('/resume', async (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.body as { roomId?: string };
         if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -339,12 +419,13 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
         return res.json({ ok: true, roomId });
     });
 
-    router.post('/seek', (req: Request, res: Response) => {
+    router.post('/seek', async (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId, seconds } = req.body as { roomId?: string; seconds?: unknown };
         if (!isValidId(roomId))                                     return res.status(400).json({ error: 'roomId is required' });
         if (typeof seconds !== 'number' || !isFinite(seconds))      return res.status(400).json({ error: 'seconds must be a finite number' });
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
 
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
@@ -355,8 +436,15 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
 
     router.post('/resolve', async (req: Request, res: Response) => {
         const { url } = req.body as { url?: string };
-        if (!isValidUrl(url))    return res.status(400).json({ error: 'url is required' });
-        if (!isAllowedUrl(url))  return res.status(400).json({ error: 'URL domain not permitted' });
+        if (!isValidUrl(url)) {
+            logRouteFailure('/resolve', 'missing_url', { url });
+            return res.status(400).json({ error: 'url is required' });
+        }
+        const resolveUrlFailure = getUrlValidationFailure(url);
+        if (resolveUrlFailure) {
+            logRouteFailure('/resolve', resolveUrlFailure, { url });
+            return res.status(400).json({ error: 'URL domain not permitted' });
+        }
 
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
@@ -366,21 +454,29 @@ export function createRouter(bots: Map<string, BotInstance>): Router {
             const items = await resolveUrl(url);
             return res.json({ items });
         } catch (err: unknown) {
+            logRouteFailure('/resolve', 'resolve_failed', { url, error: err });
             const msg = err instanceof Error ? err.message : String(err);
             return res.status(500).json({ error: msg });
         }
     });
 
-    router.get('/rooms', (req: Request, res: Response) => {
+    router.get('/rooms', async (req: Request, res: Response) => {
         if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-        return res.json({ rooms: [...bots.keys()] });
+
+        const roomIds = [...bots.keys()];
+        const accessibleRooms = await Promise.all(roomIds.map(async (roomId) => (
+            await checkRoomAccess(roomId, req.headers.authorization) ? roomId : null
+        )));
+
+        return res.json({ rooms: accessibleRooms.filter((roomId): roomId is string => roomId !== null) });
     });
 
-    router.get('/status/:roomId', (req: Request, res: Response) => {
+    router.get('/status/:roomId', async (req: Request, res: Response) => {
         const userId = extractUserId(req.headers.authorization);
         if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
 
         const { roomId } = req.params;
+        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
         const bot = bots.get(roomId);
         if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
         return res.json(bot.getStatus());

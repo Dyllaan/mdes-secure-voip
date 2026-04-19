@@ -8,6 +8,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { type Readable } from 'stream';
 import { OPUS_FRAME_MS, type OpusFrame } from './AudioPipeline';
+import { appendStderrLines, summarizeStderrLines, truncateForLog } from '../logging';
 
 export const VP8_PAYLOAD_TYPE = 96;
 export const VP8_CLOCK_RATE = 90_000;
@@ -240,13 +241,36 @@ export class AVPipeline extends EventEmitter {
   private _ytdlpPrimeBuffer: Buffer = Buffer.alloc(0);
   private _ytdlpPrimed = false;
   private _ytdlpBytesTotal = 0;
+  private ytdlpStderrLines: string[] = [];
+  private ffmpegStderrLines: string[] = [];
+  private failureEmitted = false;
 
   get running() { return this._running; }
   get isPaused() { return this._paused; }
   get positionMs() { return this._seekOffsetMs + this._frameCount * OPUS_FRAME_MS; }
 
-  constructor(private readonly url: string) {
+  constructor(
+    private readonly url: string,
+    private readonly logContext = 'av-pipeline',
+  ) {
     super();
+  }
+
+  private get logPrefix(): string {
+    return `[AVPipeline ${this.logContext}]`;
+  }
+
+  private emitProcessFailure(
+    processName: 'yt-dlp' | 'ffmpeg',
+    details: { code?: number | null; signal?: NodeJS.Signals | null; stderrSummary: string | null },
+  ): void {
+    if (this.failureEmitted) return;
+    this.failureEmitted = true;
+    const summary = details.stderrSummary ?? 'no stderr captured';
+    this.emit('error', new Error(
+      `${this.logPrefix} ${processName} failed for ${truncateForLog(this.url) ?? 'unknown url'} `
+      + `(code=${details.code ?? 'null'}, signal=${details.signal ?? 'null'}): ${summary}`,
+    ));
   }
 
   start(seekMs = 0): void {
@@ -265,6 +289,9 @@ export class AVPipeline extends EventEmitter {
     this._ytdlpPrimed = false;
     this._ytdlpBytesTotal = 0;
     this._timerStopped = false;
+    this.ytdlpStderrLines = [];
+    this.ffmpegStderrLines = [];
+    this.failureEmitted = false;
 
     const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
@@ -292,18 +319,54 @@ export class AVPipeline extends EventEmitter {
 
     ytdlpArgs.push(this.url);
 
+    console.log(`${this.logPrefix} Starting`, {
+      url: truncateForLog(this.url),
+      seekMs,
+      commands: {
+        ytdlp: ['yt-dlp', ...ytdlpArgs],
+      },
+    });
+
     avLog('ytdlp: spawning', { url: this.url, seekMs, formatSelector });
 
     this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     this.ytdlp.on('spawn', () => avLog('ytdlp: spawned'));
-    this.ytdlp.on('error', (e) => { avWarn('ytdlp: spawn error', e); this.emit('error', e); });
+    this.ytdlp.on('error', (e) => {
+      appendStderrLines(this.ytdlpStderrLines, e.message);
+      console.error(`${this.logPrefix} yt-dlp process error`, {
+        url: truncateForLog(this.url),
+        error: e.message,
+      });
+      avWarn('ytdlp: spawn error', e);
+      this.emitProcessFailure('yt-dlp', {
+        stderrSummary: summarizeStderrLines(this.ytdlpStderrLines),
+      });
+    });
     this.ytdlp.on('exit', (code, signal) => {
+      const stderrSummary = summarizeStderrLines(this.ytdlpStderrLines);
+      const summary = {
+        code,
+        signal,
+        framesProduced: this._frameCount > 0,
+        audioFrames: this._frameCount,
+        videoFrames: this.ivfState.framesTotal,
+        stderrSummary,
+      };
       avLog('ytdlp: exit', { code, signal, bytesTotal: this._ytdlpBytesTotal });
-      if (code !== 0 && code !== null) avWarn('ytdlp: non-zero exit', { code, signal });
+      if (code !== 0 && code !== null) {
+        avWarn('ytdlp: non-zero exit', { code, signal });
+        console.error(`${this.logPrefix} yt-dlp exited unexpectedly`, summary);
+        if (this._frameCount === 0 && this.ivfState.framesTotal === 0) {
+          this.emitProcessFailure('yt-dlp', { code, signal, stderrSummary });
+        }
+      } else {
+        console.log(`${this.logPrefix} yt-dlp exited`, summary);
+      }
     });
 
     this.ytdlp.stderr!.on('data', (d: Buffer) => {
+      appendStderrLines(this.ytdlpStderrLines, d);
       const msg = d.toString();
       process.stderr.write(`[yt-dlp/av] ${msg}`);
       if (DEBUG_AV) avLog('ytdlp: stderr', msg.trimEnd());
@@ -372,6 +435,13 @@ export class AVPipeline extends EventEmitter {
       'pipe:3',
     ];
 
+    console.log(`${this.logPrefix} Spawning ffmpeg`, {
+      url: truncateForLog(this.url),
+      commands: {
+        ffmpeg: ['ffmpeg', ...ffmpegArgs],
+      },
+    });
+
     avLog('ffmpeg: spawning', { ffmpegArgs });
 
     this.ffmpeg = spawn('ffmpeg', ffmpegArgs, {
@@ -406,6 +476,7 @@ export class AVPipeline extends EventEmitter {
     });
 
     this.ffmpeg.stderr!.on('data', (d: Buffer) => {
+      appendStderrLines(this.ffmpegStderrLines, d);
       const msg = d.toString();
       process.stderr.write(`[ffmpeg/av] ${msg}`);
       if (DEBUG_AV) avLog('ffmpeg: stderr', msg.trimEnd());
@@ -445,14 +516,55 @@ export class AVPipeline extends EventEmitter {
       );
     });
 
-    this.ffmpeg.on('error', (e) => { avWarn('ffmpeg: process error', e); this.emit('error', e); });
+    this.ffmpeg.on('error', (e) => {
+      appendStderrLines(this.ffmpegStderrLines, e.message);
+      console.error(`${this.logPrefix} ffmpeg process error`, {
+        url: truncateForLog(this.url),
+        error: e.message,
+      });
+      avWarn('ffmpeg: process error', e);
+      this.emitProcessFailure('ffmpeg', {
+        stderrSummary: summarizeStderrLines(this.ffmpegStderrLines),
+      });
+    });
 
     this.ffmpeg.on('exit', (code, signal) => {
+      const stderrSummary = summarizeStderrLines(this.ffmpegStderrLines);
+      const summary = {
+        code,
+        signal,
+        framesProduced: this._frameCount > 0,
+        audioFrames: this._frameCount,
+        videoFrames: this.ivfState.framesTotal,
+        stderrSummary,
+      };
       avLog('ffmpeg: exit', { code, signal });
-      if (code !== 0 && code !== null && signal === null) avWarn('ffmpeg: non-zero exit', { code });
+      if (code !== 0 && code !== null && signal === null) {
+        avWarn('ffmpeg: non-zero exit', { code });
+        console.error(`${this.logPrefix} ffmpeg exited unexpectedly`, summary);
+        if (this._frameCount === 0 && this.ivfState.framesTotal === 0) {
+          this.emitProcessFailure('ffmpeg', { code, signal, stderrSummary });
+        }
+      } else {
+        console.log(`${this.logPrefix} ffmpeg exited`, summary);
+      }
     });
 
     this.ffmpeg.on('close', (code, signal) => {
+      const stderrSummary = summarizeStderrLines(this.ffmpegStderrLines);
+      const summary = {
+        code,
+        signal,
+        framesProduced: this._frameCount > 0,
+        audioFrames: this._frameCount,
+        videoFrames: this.ivfState.framesTotal,
+        stderrSummary,
+      };
+      if (code !== 0 && code !== null) {
+        console.error(`${this.logPrefix} ffmpeg closed unexpectedly`, summary);
+      } else {
+        console.log(`${this.logPrefix} ffmpeg closed`, summary);
+      }
       avLog('ffmpeg: close', {
         code, signal,
         audioQueueAtClose: this.audioQueue.length,
@@ -555,6 +667,7 @@ export class AVPipeline extends EventEmitter {
     this._ytdlpPrimeBuffer = Buffer.alloc(0);
     this._ytdlpPrimed = false;
     this._ytdlpBytesTotal = 0;
+    this.failureEmitted = false;
   }
 
   pause(): void {

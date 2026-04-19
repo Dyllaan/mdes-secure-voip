@@ -4,6 +4,7 @@ import { register, login, startTokenRefresh, fetchTurnCredentials } from './Auth
 import { BotInstance } from './instances/BotInstance';
 import { config } from './config';
 import { createRouter } from './http/Routes';
+import { formatErrorForLog } from './logging';
 
 export const app = express();
 const bots = new Map<string, BotInstance>();
@@ -31,10 +32,31 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     }
 })();
 
-const shutdown = () => {
-    for (const [, bot] of bots) bot.destroy();
-    process.exit(0);
+let shuttingDown = false;
+
+const shutdown = (reason: string, exitCode = 0) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    const activeRoomIds = [...bots.keys()];
+    console.log('[Shutdown] Starting', { reason, exitCode, activeRoomIds });
+    for (const [, bot] of bots) bot.destroy(reason);
+    process.exit(exitCode);
 };
 
-process.on('SIGINT',  shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT',  () => shutdown('sigint', 0));
+process.on('SIGTERM', () => shutdown('sigterm', 0));
+process.on('uncaughtException', (error) => {
+    console.error('[Process] uncaughtException', {
+        error: formatErrorForLog(error),
+        activeRoomIds: [...bots.keys()],
+    });
+    shutdown('uncaught_exception', 1);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[Process] unhandledRejection', {
+        error: formatErrorForLog(reason),
+        activeRoomIds: [...bots.keys()],
+    });
+    shutdown('unhandled_rejection', 1);
+});

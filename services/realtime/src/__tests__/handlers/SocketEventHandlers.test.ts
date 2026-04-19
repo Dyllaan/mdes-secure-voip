@@ -98,7 +98,7 @@ describe('SocketEventHandlers', () => {
     beforeEach(() => {
         jest.useFakeTimers();
         errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-        mockedJwt.verify.mockReturnValue({ sub: 'user-001' } as any);
+        mockedJwt.verify.mockReturnValue({ sub: 'user-001', token_use: 'access' } as any);
     });
 
     afterEach(() => {
@@ -120,6 +120,16 @@ describe('SocketEventHandlers', () => {
         it('rejects connection with an invalid token', () => {
             const { io } = makeHandler();
             mockedJwt.verify.mockImplementation(() => { throw new Error('bad'); });
+            const next = jest.fn();
+            io._middlewares[0]({ handshake: { auth: { token: 'bad', username: 'alice' } } }, next);
+            expect(next).toHaveBeenCalledWith(
+                expect.objectContaining({ message: 'Invalid or expired token' })
+            );
+        });
+
+        it('rejects connection when a refresh token is presented', () => {
+            const { io } = makeHandler();
+            mockedJwt.verify.mockReturnValue({ sub: 'user-001', token_use: 'refresh' } as any);
             const next = jest.fn();
             io._middlewares[0]({ handshake: { auth: { token: 'bad', username: 'alice' } } }, next);
             expect(next).toHaveBeenCalledWith(

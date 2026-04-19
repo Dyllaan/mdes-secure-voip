@@ -20,7 +20,7 @@ export class ApiError extends Error {
 }
 
 let _accessToken: string | null = null;
-let _refreshToken: string | null = null;
+let _sessionRecoveryEnabled = false;
 let _isRefreshing = false;
 let _refreshQueue: Array<(token: string | null) => void> = [];
 const PUBLIC_AUTH_PATHS = new Set([
@@ -31,10 +31,10 @@ const PUBLIC_AUTH_PATHS = new Set([
 ]);
 
 export const setAccessToken = (token: string | null) => { _accessToken = token; };
-export const setRefreshToken = (token: string | null) => { _refreshToken = token; };
+export const setSessionRecoveryEnabled = (enabled: boolean) => { _sessionRecoveryEnabled = enabled; };
 
 type LogoutCallback = () => void | Promise<void>;
-type TokenUpdateCallback = (accessToken: string, refreshToken: string) => void;
+type TokenUpdateCallback = (accessToken: string) => void;
 type DemoLimitedCallback = (payload: DemoLimitResponse) => void;
 type AuthRecoveryOutcome = 'recovered' | 'logged_out' | 'demo_limited';
 
@@ -60,6 +60,7 @@ export const setupInterceptors = (
 export const authApi = axios.create({
   baseURL: AUTH_URL,
   validateStatus: () => true,
+  withCredentials: true,
 });
 
 export const gateway = axios.create({
@@ -132,20 +133,19 @@ signalingApi.interceptors.request.use(attachAuthHeader);
 
 
 async function attemptRefresh(): Promise<string | DemoLimitResponse | null> {
-  if (!_refreshToken) {
-    authDebug('attemptRefresh.skipped', { reason: 'missing_refresh_token' });
+  if (!_sessionRecoveryEnabled) {
+    authDebug('attemptRefresh.skipped', { reason: 'session_recovery_disabled' });
     return null;
   }
 
-  authDebug('attemptRefresh.start', { hasRefreshToken: true });
+  authDebug('attemptRefresh.start', { sessionRecoveryEnabled: true });
   try {
-    const res = await authApi.post('/user/refresh', { refreshToken: _refreshToken });
+    const res = await authApi.post('/user/refresh');
     authDebug('attemptRefresh.response', { status: res.status });
     if (res.status === 200) {
-      const data = res.data as { accessToken: string; refreshToken: string };
+      const data = res.data as { accessToken: string };
       setAccessToken(data.accessToken);
-      setRefreshToken(data.refreshToken);
-      onTokenUpdate?.(data.accessToken, data.refreshToken);
+      onTokenUpdate?.(data.accessToken);
       authDebug('attemptRefresh.success');
       return data.accessToken;
     }
@@ -164,14 +164,14 @@ async function attemptRefresh(): Promise<string | DemoLimitResponse | null> {
 export async function recoverFromAuthFailure(): Promise<AuthRecoveryOutcome> {
   authDebug('recoverFromAuthFailure.enter', {
     hasAccessToken: !!_accessToken,
-    hasRefreshToken: !!_refreshToken,
+    sessionRecoveryEnabled: _sessionRecoveryEnabled,
     isRefreshing: _isRefreshing,
     queuedRequests: _refreshQueue.length,
   });
-  if (!_refreshToken) {
+  if (!_sessionRecoveryEnabled) {
     _refreshQueue.forEach((cb) => cb(null));
     _refreshQueue = [];
-    authDebug('recoverFromAuthFailure.no_refresh_token');
+    authDebug('recoverFromAuthFailure.unavailable');
     return 'logged_out';
   }
 
@@ -229,7 +229,7 @@ function attachRefreshInterceptor(instance: typeof gateway) {
         url: requestUrl,
         hasAuthorizationHeader: !!authorizationHeader,
         isSessionBootstrapRequest,
-        hasRefreshToken: !!_refreshToken,
+        sessionRecoveryEnabled: _sessionRecoveryEnabled,
       });
 
       if (
@@ -245,7 +245,7 @@ function attachRefreshInterceptor(instance: typeof gateway) {
         return response;
       }
 
-      if (isSessionBootstrapRequest && !authorizationHeader && !_refreshToken) {
+      if (isSessionBootstrapRequest && !authorizationHeader && !_sessionRecoveryEnabled) {
         authDebug('interceptor.401.ignored', { reason: 'anonymous_bootstrap', url: requestUrl });
         return response;
       }

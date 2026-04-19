@@ -339,4 +339,52 @@ describe('AudioPipeline', () => {
             expect(endedSpy).toHaveBeenCalledWith(0);
         });
     });
+
+    describe('diagnostic logging', () => {
+        it('logs summarized yt-dlp failures with stderr context', async () => {
+            const mockProcs = [createMockProcess(), createMockProcess()];
+            let procIdx = 0;
+            (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
+            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test', 'test-room');
+            pipeline.on('error', () => {});
+            pipeline.start();
+
+            mockProcs[0].stderr.push('unsupported url\n');
+            await tick();
+            mockProcs[0].emit('exit', 1, null);
+
+            expect(errorSpy).toHaveBeenCalledWith('[AudioPipeline test-room] yt-dlp exited unexpectedly', expect.objectContaining({
+                code: 1,
+                stderrSummary: expect.stringContaining('unsupported url'),
+            }));
+
+            errorSpy.mockRestore();
+            pipeline.stop();
+        });
+
+        it('logs summarized ffmpeg failures with stderr context', async () => {
+            const mockProcs = [createMockProcess(), createMockProcess()];
+            let procIdx = 0;
+            (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
+            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test', 'test-room');
+            pipeline.on('error', () => {});
+            pipeline.start();
+
+            mockProcs[1].stderr.push('Invalid data found when processing input\n');
+            await tick();
+            mockProcs[1].emit('close', 1);
+
+            expect(errorSpy).toHaveBeenCalledWith('[AudioPipeline test-room] ffmpeg closed unexpectedly', expect.objectContaining({
+                code: 1,
+                stderrSummary: expect.stringContaining('Invalid data found when processing input'),
+            }));
+
+            errorSpy.mockRestore();
+            pipeline.stop();
+        });
+    });
 });

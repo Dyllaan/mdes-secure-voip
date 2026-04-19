@@ -16,3 +16,18 @@ export function extractUpgradeToken(req: http.IncomingMessage): string | null {
   } catch { /* ignore malformed URLs */ }
   return null;
 }
+
+export function extractRequestToken(url: string | undefined, authorization: string | undefined): string | null {
+  if (authorization?.startsWith('Bearer ')) {
+    const token = authorization.slice(7);
+    return token || null;
+  }
+
+  try {
+    const parsed = new URL(url ?? '/', 'http://localhost');
+    const token = parsed.searchParams.get('token');
+    return token || null;
+  } catch {
+    return null;
+  }
+}

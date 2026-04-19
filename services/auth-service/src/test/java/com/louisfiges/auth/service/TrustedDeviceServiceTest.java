@@ -410,30 +410,37 @@ class TrustedDeviceServiceTest {
     class RevokeTrustedDeviceTests {
 
         @Test
-        @DisplayName("Should revoke trusted device by ID")
+        @DisplayName("Should revoke trusted device owned by the user")
         void shouldRevokeTrustedDeviceById() {
+            TrustedDeviceDAO device = mock(TrustedDeviceDAO.class);
+            when(trustedDeviceRepository.findByIdAndUser(DEVICE_ID, testUser)).thenReturn(Optional.of(device));
+
             // When
-            trustedDeviceService.revokeTrustedDevice(DEVICE_ID);
+            boolean revoked = trustedDeviceService.revokeTrustedDevice(testUser, DEVICE_ID);
 
             // Then
-            verify(trustedDeviceRepository).deleteById(DEVICE_ID);
+            assertThat(revoked).isTrue();
+            verify(trustedDeviceRepository).delete(device);
         }
 
         @Test
-        @DisplayName("Should call delete exactly once")
+        @DisplayName("Should return false when device is not owned by the user")
         void shouldCallDeleteExactlyOnce() {
+            when(trustedDeviceRepository.findByIdAndUser(DEVICE_ID, testUser)).thenReturn(Optional.empty());
+
             // When
-            trustedDeviceService.revokeTrustedDevice(DEVICE_ID);
+            boolean revoked = trustedDeviceService.revokeTrustedDevice(testUser, DEVICE_ID);
 
             // Then
-            verify(trustedDeviceRepository, times(1)).deleteById(DEVICE_ID);
+            assertThat(revoked).isFalse();
+            verify(trustedDeviceRepository, never()).delete(any());
         }
 
         @Test
         @DisplayName("Should be transactional")
         void shouldBeTransactional() throws NoSuchMethodException {
             // Given
-            var method = TrustedDeviceService.class.getMethod("revokeTrustedDevice", UUID.class);
+            var method = TrustedDeviceService.class.getMethod("revokeTrustedDevice", UserDAO.class, UUID.class);
 
             // Then
             assertThat(method.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue();
@@ -445,14 +452,18 @@ class TrustedDeviceServiceTest {
             // Given
             UUID deviceId1 = UUID.randomUUID();
             UUID deviceId2 = UUID.randomUUID();
+            TrustedDeviceDAO device1 = mock(TrustedDeviceDAO.class);
+            TrustedDeviceDAO device2 = mock(TrustedDeviceDAO.class);
+            when(trustedDeviceRepository.findByIdAndUser(deviceId1, testUser)).thenReturn(Optional.of(device1));
+            when(trustedDeviceRepository.findByIdAndUser(deviceId2, testUser)).thenReturn(Optional.of(device2));
 
             // When
-            trustedDeviceService.revokeTrustedDevice(deviceId1);
-            trustedDeviceService.revokeTrustedDevice(deviceId2);
+            trustedDeviceService.revokeTrustedDevice(testUser, deviceId1);
+            trustedDeviceService.revokeTrustedDevice(testUser, deviceId2);
 
             // Then
-            verify(trustedDeviceRepository).deleteById(deviceId1);
-            verify(trustedDeviceRepository).deleteById(deviceId2);
+            verify(trustedDeviceRepository).delete(device1);
+            verify(trustedDeviceRepository).delete(device2);
         }
     }
 
@@ -569,8 +580,10 @@ class TrustedDeviceServiceTest {
             assertThat(isTrusted).isTrue();
 
             // Then - Revoke device
-            trustedDeviceService.revokeTrustedDevice(DEVICE_ID);
-            verify(trustedDeviceRepository).deleteById(DEVICE_ID);
+            TrustedDeviceDAO device = mock(TrustedDeviceDAO.class);
+            when(trustedDeviceRepository.findByIdAndUser(DEVICE_ID, testUser)).thenReturn(Optional.of(device));
+            trustedDeviceService.revokeTrustedDevice(testUser, DEVICE_ID);
+            verify(trustedDeviceRepository).delete(device);
         }
 
         @Test

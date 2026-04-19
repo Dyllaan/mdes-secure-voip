@@ -10,6 +10,7 @@ import java.util.UUID;
 
 public interface TrustedDeviceRepository extends JpaRepository<TrustedDeviceDAO, UUID> {
     Optional<TrustedDeviceDAO> findByDeviceTokenAndExpiresAtAfter(String deviceToken, LocalDateTime now);
+    Optional<TrustedDeviceDAO> findByIdAndUser(UUID id, UserDAO user);
     List<TrustedDeviceDAO> findByUser(UserDAO user);
     void deleteByExpiresAtBefore(LocalDateTime now); // Cleanup expired devices
     void deleteByUser(UserDAO user); // When disabling MFA

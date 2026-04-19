@@ -2,9 +2,11 @@ package com.louisfiges.auth.integration;
 
 import com.louisfiges.auth.config.DemoLimiter;
 import com.louisfiges.auth.dao.UserDAO;
+import com.louisfiges.auth.http.RefreshTokenCookieFactory;
 import com.louisfiges.auth.repo.UserRepository;
 import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
+import com.louisfiges.auth.token.RefreshTokenProvider;
 import com.louisfiges.auth.token.UserTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -81,6 +84,9 @@ class DemoModeIntegrationTest {
     private UserTokenProvider userTokenProvider;
 
     @MockBean
+    private RefreshTokenProvider refreshTokenProvider;
+
+    @MockBean
     private MfaTokenProvider mfaTokenProvider;
 
     @MockBean
@@ -102,10 +108,13 @@ class DemoModeIntegrationTest {
 
         when(userTokenProvider.generateAccessToken(any(UUID.class), anyString()))
                 .thenAnswer(invocation -> "access:" + invocation.getArgument(0, UUID.class));
-        when(userTokenProvider.generateRefreshToken(any(UUID.class), anyString()))
+        when(userTokenProvider.getRefreshTokenExpMs()).thenReturn(2_419_200_000L);
+        when(refreshTokenProvider.generateToken(any(UUID.class), anyString(), anyLong()))
                 .thenAnswer(invocation -> "refresh:" + invocation.getArgument(0, UUID.class));
         when(userTokenProvider.validateAndGetUserId(anyString()))
-                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "access:", "refresh:"));
+                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "access:"));
+        when(refreshTokenProvider.validateAndGetUserId(anyString()))
+                .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "refresh:"));
 
         when(demoTokenProvider.generateToken(any(UUID.class)))
                 .thenAnswer(invocation -> "demo:" + invocation.getArgument(0, UUID.class));
@@ -135,10 +144,11 @@ class DemoModeIntegrationTest {
         );
 
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
-        assertThat(registerResponse.getBody()).containsKeys("accessToken", "refreshToken", "username");
+        assertThat(registerResponse.getBody()).containsKeys("accessToken", "username");
+        assertThat(registerResponse.getBody()).doesNotContainKey("refreshToken");
         assertThat(registerResponse.getBody().get("username")).isEqualTo(username);
 
-        String refreshToken = (String) registerResponse.getBody().get("refreshToken");
+        HttpHeaders refreshHeaders = withRefreshCookie(extractRefreshCookie(registerResponse));
 
         ResponseEntity<Map<String, Object>> loginResponse = exchangeJson(
                 "/user/login",
@@ -146,7 +156,8 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(loginResponse.getStatusCode().value()).isEqualTo(200);
-        assertThat(loginResponse.getBody()).containsKeys("accessToken", "refreshToken", "username");
+        assertThat(loginResponse.getBody()).containsKeys("accessToken", "username");
+        assertThat(loginResponse.getBody()).doesNotContainKey("refreshToken");
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
         expireDemoSession(user.getId());
@@ -154,7 +165,7 @@ class DemoModeIntegrationTest {
         ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
                 "/user/refresh",
                 HttpMethod.POST,
-                new HttpEntity<>(Map.of("refreshToken", refreshToken))
+                new HttpEntity<>(refreshHeaders)
         );
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(refreshResponse.getBody()).containsKeys("demoToken", "message");
@@ -320,7 +331,7 @@ class DemoModeIntegrationTest {
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
         String accessToken = (String) registerResponse.getBody().get("accessToken");
-        String refreshToken = (String) registerResponse.getBody().get("refreshToken");
+        String refreshCookie = extractRefreshCookie(registerResponse);
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
         expireDemoSession(user.getId());
@@ -330,7 +341,7 @@ class DemoModeIntegrationTest {
         ResponseEntity<Map<String, Object>> logoutResponse = exchangeJson(
                 "/user/logout",
                 HttpMethod.POST,
-                new HttpEntity<>(Map.of("refreshToken", refreshToken), headers)
+                new HttpEntity<>(mergeHeaders(headers, withRefreshCookie(refreshCookie)))
         );
 
         assertThat(logoutResponse.getStatusCode().value()).isEqualTo(200);
@@ -374,14 +385,14 @@ class DemoModeIntegrationTest {
                 "/user/register", HttpMethod.POST,
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
-        String refreshToken = (String) registerResponse.getBody().get("refreshToken");
+        String refreshCookie = extractRefreshCookie(registerResponse);
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
         expireDemoSession(user.getId());
 
         ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
                 "/user/refresh", HttpMethod.POST,
-                new HttpEntity<>(Map.of("refreshToken", refreshToken))
+                new HttpEntity<>(withRefreshCookie(refreshCookie))
         );
 
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
@@ -463,7 +474,7 @@ class DemoModeIntegrationTest {
         String refreshToken = "refresh:" + user.getId();
         ResponseEntity<Map<String, Object>> refreshResponse = exchangeJson(
                 "/user/refresh", HttpMethod.POST,
-                new HttpEntity<>(Map.of("refreshToken", refreshToken))
+                new HttpEntity<>(withRefreshCookie(refreshToken))
         );
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
         String demoToken = (String) refreshResponse.getBody().get("demoToken");
@@ -527,6 +538,27 @@ class DemoModeIntegrationTest {
                 request,
                 new ParameterizedTypeReference<>() {}
         );
+    }
+
+    private String extractRefreshCookie(ResponseEntity<?> response) {
+        String cookie = response.getHeaders().getFirst(HttpHeaders.SET_COOKIE);
+        assertThat(cookie).isNotNull();
+        assertThat(cookie).contains(RefreshTokenCookieFactory.COOKIE_NAME + "=");
+        return cookie.substring(cookie.indexOf('=') + 1, cookie.indexOf(';'));
+    }
+
+    private HttpHeaders withRefreshCookie(String refreshToken) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.COOKIE, RefreshTokenCookieFactory.COOKIE_NAME + "=" + refreshToken);
+        return headers;
+    }
+
+    private HttpHeaders mergeHeaders(HttpHeaders... headerSets) {
+        HttpHeaders merged = new HttpHeaders();
+        for (HttpHeaders headerSet : headerSets) {
+            merged.putAll(headerSet);
+        }
+        return merged;
     }
 
     private Optional<UUID> parseToken(String token, String... prefixes) {

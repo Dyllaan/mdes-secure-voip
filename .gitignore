@@ -4,3 +4,4 @@
 .env.local
 /voip_frontend/.vite
 /voip_frontend/test-results
+/test-fixtures/jwt

@@ -1,6 +1,5 @@
 import { requireAuth } from '../middleware/authMiddleware';
-import { makeJwt, makeExpiredJwt, makeMalformedToken } from './helpers/makeJwt';
-import { createHmac } from 'crypto';
+import { makeJwt, makeExpiredJwt, makeMalformedToken, makeJwtSignedWithWrongKey } from './helpers/makeJwt';
 
 function mockReq(authorization?: string) {
   return { headers: { authorization } } as any;
@@ -77,12 +76,7 @@ describe('requireAuth - invalid tokens', () => {
   });
 
   it('returns 401 for a token signed with the wrong secret', () => {
-    const wrongSecret = 'completely-different-secret';
-    const header  = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const now     = Math.floor(Date.now() / 1000);
-    const payload = Buffer.from(JSON.stringify({ sub: 'hacker', iat: now, exp: now + 3600 })).toString('base64url');
-    const sig     = createHmac('sha256', wrongSecret).update(`${header}.${payload}`).digest('base64url');
-    const token   = `${header}.${payload}.${sig}`;
+    const token   = makeJwtSignedWithWrongKey('hacker');
     const req     = mockReq(`Bearer ${token}`);
     const res     = mockRes();
     const next    = jest.fn();
@@ -111,6 +105,16 @@ describe('requireAuth - invalid tokens', () => {
     const next     = jest.fn();
     requireAuth(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for a refresh token presented to an access-only route', () => {
+    const req  = mockReq(`Bearer ${makeJwt('user-refresh', { tokenUse: 'refresh', audience: 'auth-service' })}`);
+    const res  = mockRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Invalid token' });
     expect(next).not.toHaveBeenCalled();
   });
 });

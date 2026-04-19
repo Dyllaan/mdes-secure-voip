@@ -72,7 +72,7 @@ describe('BotInstance', () => {
   describe('constructor', () => {
     it('creates an AudioPipeline with the url', () => {
       makeBot();
-      expect(AudioPipeline).toHaveBeenCalledWith(TEST_URL);
+      expect(AudioPipeline).toHaveBeenCalledWith(TEST_URL, 'Bot:room-test');
     });
 
     it('sets roomId correctly', () => {
@@ -122,7 +122,7 @@ describe('BotInstance', () => {
       const newUrl     = 'https://www.youtube.com/watch?v=newtrack';
       bot.changeTrack(newUrl);
       expect(oldPipeline.stop).toHaveBeenCalled();
-      expect(AudioPipeline).toHaveBeenLastCalledWith(newUrl);
+      expect(AudioPipeline).toHaveBeenLastCalledWith(newUrl, 'Bot:room-test');
     });
 
     it('does nothing when bot is destroyed', () => {
@@ -131,6 +131,20 @@ describe('BotInstance', () => {
       const spy = jest.spyOn(bot as any, 'emitToRoom');
       bot.changeTrack('https://www.youtube.com/watch?v=ignored');
       expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('logs the previous and next url', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const bot = makeBot();
+      const newUrl = 'https://www.youtube.com/watch?v=newtrack';
+
+      bot.changeTrack(newUrl);
+
+      expect(logSpy).toHaveBeenCalledWith('[Bot room-test] changeTrack', expect.objectContaining({
+        previousUrl: TEST_URL,
+        nextUrl: newUrl,
+      }));
+      logSpy.mockRestore();
     });
   });
 
@@ -172,6 +186,19 @@ describe('BotInstance', () => {
       (bot as any).peerWs = mockWs;
       bot.destroy();
       expect(mockWs.close).toHaveBeenCalled();
+    });
+
+    it('logs the destroy reason', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const bot = makeBot();
+
+      bot.destroy('room_closed');
+
+      expect(logSpy).toHaveBeenCalledWith('[Bot room-test] Destroying', expect.objectContaining({
+        reason: 'room_closed',
+        mode: 'audio',
+      }));
+      logSpy.mockRestore();
     });
   });
 

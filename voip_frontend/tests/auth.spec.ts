@@ -405,7 +405,7 @@ test.describe('Auth - Login page', () => {
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByTestId('login-form')).toBeVisible();
-    await expect.poll(() => logoutRequests).toBe(1);
+    await expect.poll(() => logoutRequests).toBe(0);
   });
 
   test('protected hub request retries after refresh success', async ({ page }) => {
@@ -690,6 +690,28 @@ test.describe('Auth - Register page', () => {
     await page.getByTestId('register-submit').click();
 
     await expect(page).toHaveURL(/#\/keys$/, { timeout: 5000 });
+  });
+
+  test('trusted-device login does not persist the device token in localStorage', async ({ page }) => {
+    await page.route('**/auth/user/login', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...MOCK_USER,
+          deviceToken: 'trusted-device-token',
+        }),
+      }),
+    );
+    await mockAuthRoutes(page);
+
+    await page.goto('/#/login');
+    await page.getByTestId('username-input').fill('testuser');
+    await page.getByTestId('password-input').fill('password123');
+    await page.getByTestId('login-submit').click();
+
+    await expect(page).toHaveURL(/#\/keys$/, { timeout: 5000 });
+    await expect.poll(async () => page.evaluate(() => localStorage.getItem('deviceToken'))).toBeNull();
   });
 
   test('server error during registration shows error toast', async ({ page }) => {

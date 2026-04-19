@@ -82,7 +82,7 @@ describe('AVBotInstance', () => {
   describe('constructor', () => {
     it('creates an AVPipeline with the url', () => {
       makeBot();
-      expect(AVPipeline).toHaveBeenCalledWith(TEST_URL);
+      expect(AVPipeline).toHaveBeenCalledWith(TEST_URL, 'AVBot:room-test');
     });
 
     it('sets roomId correctly', () => {
@@ -133,7 +133,7 @@ describe('AVBotInstance', () => {
       const newUrl       = 'https://www.youtube.com/watch?v=newvideo';
       bot.changeTrack(newUrl);
       expect(oldAvPipeline.stop).toHaveBeenCalled();
-      expect(AVPipeline).toHaveBeenLastCalledWith(newUrl);
+      expect(AVPipeline).toHaveBeenLastCalledWith(newUrl, 'AVBot:room-test');
     });
 
     it('does nothing when bot is destroyed', () => {
@@ -142,6 +142,20 @@ describe('AVBotInstance', () => {
       const spy = jest.spyOn(bot as any, 'emitToRoom');
       bot.changeTrack('https://www.youtube.com/watch?v=ignored');
       expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('logs the previous and next url', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const bot = makeBot();
+      const newUrl = 'https://www.youtube.com/watch?v=newvideo';
+
+      bot.changeTrack(newUrl);
+
+      expect(logSpy).toHaveBeenCalledWith('[AVBot room-test] changeTrack', expect.objectContaining({
+        previousUrl: TEST_URL,
+        nextUrl: newUrl,
+      }));
+      logSpy.mockRestore();
     });
   });
 
@@ -192,6 +206,19 @@ describe('AVBotInstance', () => {
       (bot as any).peerWs = mockWs;
       bot.destroy();
       expect(mockWs.close).toHaveBeenCalled();
+    });
+
+    it('logs the destroy reason', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const bot = makeBot();
+
+      bot.destroy('room_closed');
+
+      expect(logSpy).toHaveBeenCalledWith('[AVBot room-test] Destroying', expect.objectContaining({
+        reason: 'room_closed',
+        mode: 'video',
+      }));
+      logSpy.mockRestore();
     });
   });
 

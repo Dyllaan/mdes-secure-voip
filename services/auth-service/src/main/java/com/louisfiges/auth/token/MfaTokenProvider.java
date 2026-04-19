@@ -17,7 +17,7 @@ public class MfaTokenProvider extends TokenProvider {
     private final long mfaTokenExpMs;
 
     public MfaTokenProvider() {
-        super("TEMP_MFA_SECRET_KEY");
+        super(TokenUse.MFA);
         this.mfaTokenExpMs = getExpirationMsFromEnv("MFA_TOKEN_EXP_SECONDS", DEFAULT_MFA_TOKEN_EXP_MS);
     }
 

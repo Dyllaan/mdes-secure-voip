@@ -123,7 +123,6 @@ describe('GET /turn-credentials', () => {
 //
 describe.each([
   { route: '/socket.io/test', user: 'ws' },
-  { route: '/peerjs/test',    user: 'peer' },
 ])('$route proxy behaviour', ({ route, user }) => {
   it('passes through without token', async () => {
     const { app } = await loadApp();
@@ -139,6 +138,26 @@ describe.each([
       .set('Authorization', `Bearer ${makeJwt(user)}`);
 
     expect(res.status).toBe(200);
+  });
+});
+
+describe('/peerjs proxy behaviour', () => {
+  it('rejects unauthenticated requests', async () => {
+    const { app } = await loadApp();
+    const res = await request(app).get('/peerjs/test');
+    expect(res.status).toBe(401);
+  });
+
+  it('accepts a valid access token in the query string', async () => {
+    const { app } = await loadApp();
+    const res = await request(app).get(`/peerjs/test?token=${makeJwt('peer')}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects refresh tokens on peer routes', async () => {
+    const { app } = await loadApp();
+    const res = await request(app).get(`/peerjs/test?token=${makeJwt('peer', { tokenUse: 'refresh', audience: 'auth-service' })}`);
+    expect(res.status).toBe(401);
   });
 });
 

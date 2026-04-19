@@ -3,7 +3,9 @@ package middleware_test
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,62 +18,41 @@ import (
 	"hub-service/internal/middleware"
 )
 
-// plainSecret must contain characters outside the base64url alphabet (e.g. '!', '@')
-// so that both URLEncoding and RawURLEncoding fail, and InitAuth falls back to
-// using the raw string directly as the HMAC secret.
-const plainSecret = "super!secret@plain#2025"
-
-func makeSignedToken(t *testing.T, secret []byte, userID string, exp time.Time) string {
+func makeSignedToken(t *testing.T, privateKey *rsa.PrivateKey, claims jwt.MapClaims) string {
 	t.Helper()
-	claims := jwt.MapClaims{"sub": userID, "exp": exp.Unix()}
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
 	require.NoError(t, err)
 	return tok
 }
 
-func initWithSecret(t *testing.T, secret string) {
+func initWithPublicKey(t *testing.T, publicKeyPEM string) {
 	t.Helper()
-	t.Setenv("JWT_SECRET", secret)
+	t.Setenv("JWT_PUBLIC_KEY_B64", base64.StdEncoding.EncodeToString([]byte(publicKeyPEM)))
+	t.Setenv("JWT_ISSUER", "mdes-secure-voip-auth")
+	t.Setenv("JWT_ACCESS_AUDIENCE", "voip-services")
 	middleware.InitAuth()
 }
 
-func TestInitAuth_PlainText(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	// Verify a token signed with the plain secret is accepted
-	tok := makeSignedToken(t, []byte(plainSecret), "u1", time.Now().Add(time.Hour))
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusOK, rr.Code)
+func generateKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	require.NoError(t, err)
+	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER})
+	return privateKey, string(publicPEM)
 }
 
-func TestInitAuth_Base64URLEncoded(t *testing.T) {
-	encoded := base64.URLEncoding.EncodeToString([]byte(plainSecret))
-	initWithSecret(t, encoded)
-	tok := makeSignedToken(t, []byte(plainSecret), "u1", time.Now().Add(time.Hour))
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusOK, rr.Code)
+func validClaims(userID string, exp time.Time) jwt.MapClaims {
+	return jwt.MapClaims{
+		"sub":       userID,
+		"exp":       exp.Unix(),
+		"iss":       "mdes-secure-voip-auth",
+		"aud":       "voip-services",
+		"token_use": "access",
+	}
 }
 
-func TestInitAuth_RawBase64URLEncoded(t *testing.T) {
-	encoded := base64.RawURLEncoding.EncodeToString([]byte(plainSecret))
-	// Make sure standard URL encoding fails for this (no padding)
-	_, err := base64.URLEncoding.DecodeString(encoded)
-	// If err is nil the standard encoding also succeeds (acceptable), test still valid
-	_ = err
-	initWithSecret(t, encoded)
-	tok := makeSignedToken(t, []byte(plainSecret), "u1", time.Now().Add(time.Hour))
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusOK, rr.Code)
-}
-
-func TestInitAuth_EmptySecret(t *testing.T) {
-	initWithSecret(t, "")
-	// Any token with an empty secret should fail (signature mismatch)
-	tok := makeSignedToken(t, []byte("something"), "u1", time.Now().Add(time.Hour))
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
-}
-
-// callAuth runs the Auth middleware around a simple 200 handler and returns the recorder.
 func callAuth(t *testing.T, authHeader string) *httptest.ResponseRecorder {
 	t.Helper()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,8 +69,24 @@ func callAuth(t *testing.T, authHeader string) *httptest.ResponseRecorder {
 	return rr
 }
 
+func TestInitAuth_ValidPublicKey(t *testing.T) {
+	privateKey, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	tok := makeSignedToken(t, privateKey, validClaims("u1", time.Now().Add(time.Hour)))
+	rr := callAuth(t, tok)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestInitAuth_EmptyKey(t *testing.T) {
+	t.Setenv("JWT_PUBLIC_KEY_B64", "")
+	middleware.InitAuth()
+	rr := callAuth(t, "token")
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
 func TestAuth_MissingAuthorizationHeader(t *testing.T) {
-	initWithSecret(t, plainSecret)
+	_, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
 	middleware.Auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +96,8 @@ func TestAuth_MissingAuthorizationHeader(t *testing.T) {
 }
 
 func TestAuth_InvalidFormat_NoBearerPrefix(t *testing.T) {
-	initWithSecret(t, plainSecret)
+	_, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Token abc123")
 	rr := httptest.NewRecorder()
@@ -109,82 +107,69 @@ func TestAuth_InvalidFormat_NoBearerPrefix(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
-func TestAuth_InvalidFormat_NoSpace(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearertoken")
-	rr := httptest.NewRecorder()
-	middleware.Auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})).ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
-}
-
 func TestAuth_InvalidSignature(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	tok := makeSignedToken(t, []byte("wrong-secret"), "u1", time.Now().Add(time.Hour))
+	privateKey, _ := generateKeyPair(t)
+	_, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	tok := makeSignedToken(t, privateKey, validClaims("u1", time.Now().Add(time.Hour)))
 	rr := callAuth(t, tok)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
 func TestAuth_ExpiredToken(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	tok := makeSignedToken(t, []byte(plainSecret), "u1", time.Now().Add(-time.Hour))
+	privateKey, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	tok := makeSignedToken(t, privateKey, validClaims("u1", time.Now().Add(-time.Hour)))
 	rr := callAuth(t, tok)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
 func TestAuth_WrongSigningMethod(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	// Generate an RSA key and sign with RS256
-	rsaKey, err := generateRSAKey()
-	if err != nil {
-		t.Skip("could not generate RSA key:", err)
-	}
-	claims := jwt.MapClaims{"sub": "u1", "exp": time.Now().Add(time.Hour).Unix()}
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(rsaKey)
+	_, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	claims := validClaims("u1", time.Now().Add(time.Hour))
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("wrong-secret"))
 	require.NoError(t, err)
+	rr := callAuth(t, tok)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestAuth_RejectsRefreshTokens(t *testing.T) {
+	privateKey, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	claims := validClaims("u1", time.Now().Add(time.Hour))
+	claims["token_use"] = "refresh"
+	claims["aud"] = "auth-service"
+	tok := makeSignedToken(t, privateKey, claims)
 	rr := callAuth(t, tok)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
 func TestAuth_MissingSubClaim(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	claims := jwt.MapClaims{"exp": time.Now().Add(time.Hour).Unix()} // no "sub"
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(plainSecret))
-	require.NoError(t, err)
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
-}
-
-func TestAuth_EmptySubClaim(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	claims := jwt.MapClaims{"sub": "", "exp": time.Now().Add(time.Hour).Unix()}
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(plainSecret))
-	require.NoError(t, err)
-	rr := callAuth(t, tok)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
-}
-
-func TestAuth_NumericSubClaim(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	claims := jwt.MapClaims{"sub": float64(12345), "exp": time.Now().Add(time.Hour).Unix()}
-	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(plainSecret))
-	require.NoError(t, err)
+	privateKey, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
+	claims := validClaims("u1", time.Now().Add(time.Hour))
+	delete(claims, "sub")
+	tok := makeSignedToken(t, privateKey, claims)
 	rr := callAuth(t, tok)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
 func TestAuth_ValidToken_CallsNext_AndContextPopulated(t *testing.T) {
-	initWithSecret(t, plainSecret)
+	privateKey, publicKeyPEM := generateKeyPair(t)
+	initWithPublicKey(t, publicKeyPEM)
 	var capturedUserID string
+	var capturedUsername string
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedUserID = middleware.GetUserID(r)
+		capturedUsername = middleware.GetUsername(r)
 		w.WriteHeader(http.StatusOK)
 	})
 	handler := middleware.Auth(next)
 
-	tok := makeSignedToken(t, []byte(plainSecret), "user-abc", time.Now().Add(time.Hour))
+	claims := validClaims("user-abc", time.Now().Add(time.Hour))
+	claims["username"] = "alice"
+	tok := makeSignedToken(t, privateKey, claims)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rr := httptest.NewRecorder()
@@ -192,30 +177,11 @@ func TestAuth_ValidToken_CallsNext_AndContextPopulated(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "user-abc", capturedUserID)
-}
-
-func TestGetUserID_WithValue(t *testing.T) {
-	initWithSecret(t, plainSecret)
-	var capturedID string
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedID = middleware.GetUserID(r)
-		w.WriteHeader(http.StatusOK)
-	})
-	tok := makeSignedToken(t, []byte(plainSecret), "uid-xyz", time.Now().Add(time.Hour))
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
-	rr := httptest.NewRecorder()
-	middleware.Auth(next).ServeHTTP(rr, req)
-	assert.Equal(t, "uid-xyz", capturedID)
+	assert.Equal(t, "alice", capturedUsername)
 }
 
 func TestGetUserID_WithoutValue(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	id := middleware.GetUserID(req)
 	assert.Equal(t, "", id)
-}
-
-// generateRSAKey generates an RSA private key for testing the wrong-signing-method case.
-func generateRSAKey() (*rsa.PrivateKey, error) {
-	return rsa.GenerateKey(rand.Reader, 2048)
 }

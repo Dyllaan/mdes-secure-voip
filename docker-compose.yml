@@ -19,7 +19,7 @@ services:
       - HUB_SERVICE_URL=http://hub-service:8080
       - MUSICMAN_URL=http://musicman-service:4000
       - CORS_ORIGIN=${ALLOWED_ORIGINS}
-      - JWT_SECRET=${SECRET_KEY}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
       - TURN_SECRET=${TURN_SECRET}
     depends_on:
       p2p-auth-service:
@@ -55,15 +55,15 @@ services:
       - SPRING_DATASOURCE_USERNAME=nanny
       - SPRING_DATASOURCE_PASSWORD=${AUTH_DB_PASSWORD}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
-      - SECRET_KEY=${SECRET_KEY}
-      - TEMP_MFA_SECRET_KEY=${TEMP_MFA_SECRET_KEY}
+      - JWT_PRIVATE_KEY_B64=${JWT_PRIVATE_KEY_B64}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
       - SPRING_JPA_HIBERNATE_DDL_AUTO=update
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
       - DEMO_MODE=${DEMO_MODE}
       - DEMO_ALLOWED_USERS=${DEMO_ALLOWED_USERS}
       - DEMO_TIME_LIMIT_SECONDS=${DEMO_TIME_LIMIT_SECONDS}
-      - DEMO_TOKEN_SECRET=${DEMO_TOKEN_SECRET}
       - ACCESS_TOKEN_EXP_SECONDS=${ACCESS_TOKEN_EXP_SECONDS}
       - REFRESH_TOKEN_EXP_SECONDS=${REFRESH_TOKEN_EXP_SECONDS}
       - MFA_TOKEN_EXP_SECONDS=${MFA_TOKEN_EXP_SECONDS}
@@ -97,7 +97,7 @@ services:
       - "9001"
       - "9000"
     environment:
-      - JWT_SECRET=${SECRET_KEY}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
       - REALTIME_PORT=9001
       - PEER_PORT=9000
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
@@ -119,7 +119,7 @@ services:
       - "8080"
     environment:
       - DATABASE_URL=postgres://postgres:${HUB_DB_PASSWORD}@hub-service-db:5432/hub-service?sslmode=disable
-      - JWT_SECRET=${SECRET_KEY}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
       - PORT=8080
       - BOT_SECRET=${BOT_SECRET}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
@@ -194,7 +194,7 @@ services:
       - AUTH_URL=http://voip-gateway:3000/auth
       - HUB_SERVICE_URL=http://voip-gateway:3000/hub
       - BOT_SECRET=${BOT_SECRET}
-      - JWT_SECRET=${SECRET_KEY}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
       - PEER_HOST=voip-gateway
       - PEER_PORT=3000
       - PEER_PATH=/peerjs

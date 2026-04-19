@@ -1,16 +1,11 @@
-import { createHmac } from 'crypto';
-
 import { extractUserId, checkUserRateLimit, secondsToTimestamp, isAllowedUrl } from '../http/Routes';
+import { createTestJwt } from './helpers/createJwt';
 
 function makeJwt(sub: string, exp?: number): string {
-    const header  = Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url');
-    const payload = Buffer.from(JSON.stringify({
+    return createTestJwt({
         sub,
         exp: exp ?? Math.floor(Date.now() / 1000) + 3600,
-    })).toString('base64url');
-    const secret = Buffer.from('test-secret');
-    const sig    = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
-    return `${header}.${payload}.${sig}`;
+    });
 }
 
 // ── extractUserId ──────────────────────────────────────────────────────────────

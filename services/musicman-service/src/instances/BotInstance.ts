@@ -14,6 +14,7 @@ import {
   type OpusFrame,
 } from '../pipelines/AudioPipeline';
 import { config } from '../config';
+import { formatErrorForLog, truncateForLog } from '../logging';
 
 export const OPUS_PAYLOAD_TYPE = 111;
 
@@ -60,6 +61,9 @@ export class BotInstance {
 
   protected onAutoLeave: (() => void) | null = null;
   protected turnCredentials: TurnCredentials;
+  protected readonly botType: string;
+  protected readonly modeLabel: 'audio' | 'video';
+  protected readonly logPrefix: string;
 
   private startedAt = Date.now();
   private readonly GRACE_MS = 60_000;
@@ -74,11 +78,20 @@ export class BotInstance {
     url: string,
     protected readonly token: string,
     turnCredentials: TurnCredentials,
+    botType = 'Bot',
   ) {
     this.roomId          = roomId;
-    this.url      = url;
+    this.url             = url;
     this.turnCredentials = turnCredentials;
-    this.pipeline        = new AudioPipeline(url);
+    this.botType         = botType;
+    this.modeLabel       = botType === 'AVBot' ? 'video' : 'audio';
+    this.logPrefix       = `[${botType} ${roomId}]`;
+    this.pipeline        = new AudioPipeline(url, `${botType}:${roomId}`);
+
+    console.log(`${this.logPrefix} Created`, {
+      mode: this.modeLabel,
+      url: truncateForLog(url),
+    });
   }
 
   protected buildIceServers(): IceServer[] {
@@ -113,12 +126,21 @@ export class BotInstance {
   };
 
   protected readonly onEnded = (code: number | null) => {
-    console.log(`[Bot ${this.roomId}] Pipeline ended (exit ${code})`);
+    console.log(`${this.logPrefix} Pipeline ended`, {
+      code,
+      mode: this.modeLabel,
+      url: truncateForLog(this.url),
+      playback: this.getStatus(),
+    });
     this.emitToRoom('musicman:track-ended', { roomId: this.roomId });
   };
 
   protected readonly onPipelineError = (e: Error) =>
-    console.error(`[Bot ${this.roomId}] Pipeline error:`, e);
+    console.error(`${this.logPrefix} Pipeline error`, {
+      mode: this.modeLabel,
+      url: truncateForLog(this.url),
+      error: formatErrorForLog(e),
+    });
 
   protected wirePipeline(): void {
     this.pipeline.on('frame', this.onAudioFrame);
@@ -133,14 +155,23 @@ export class BotInstance {
   }
 
   async start(): Promise<void> {
+    console.log(`${this.logPrefix} Starting`, {
+      mode: this.modeLabel,
+      url: truncateForLog(this.url),
+    });
     this.wirePipeline();
     await this.connectSignaling();
   }
 
-  destroy(): void {
+  destroy(reason = 'manual'): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    console.log(`[Bot ${this.roomId}] Destroying`);
+    console.log(`${this.logPrefix} Destroying`, {
+      reason,
+      mode: this.modeLabel,
+      url: truncateForLog(this.url),
+      playback: this.getStatus(),
+    });
 
     this.unwirePipeline();
     this.pipeline.stop();
@@ -158,13 +189,17 @@ export class BotInstance {
 
   changeTrack(url: string): void {
     if (this.destroyed) return;
-    console.log(`[Bot ${this.roomId}] changeTrack -> ${url}`);
+    console.log(`${this.logPrefix} changeTrack`, {
+      mode: this.modeLabel,
+      previousUrl: truncateForLog(this.url),
+      nextUrl: truncateForLog(url),
+    });
     this.url = url;
 
     this.unwirePipeline();
     this.pipeline.stop();
     this.frameQueue = [];
-    this.pipeline = new AudioPipeline(url);
+    this.pipeline = new AudioPipeline(url, `${this.botType}:${this.roomId}`);
     this.wirePipeline();
     this.pipeline.start();
 
@@ -203,7 +238,7 @@ export class BotInstance {
   protected checkAutoLeave(): void {
     if (Date.now() - this.startedAt < this.GRACE_MS) return;
     if (this.conns.size === 0) {
-      console.log(`[Bot ${this.roomId}] No peers connected, triggering auto-leave`);
+      console.log(`${this.logPrefix} No peers connected, triggering auto-leave`);
       this.onAutoLeave?.();
     }
   }
@@ -288,7 +323,7 @@ export class BotInstance {
         this.closePeer(peerId);
       });
 
-      this.socket.on('room-closed', () => { this.destroy(); });
+      this.socket.on('room-closed', () => { this.destroy('room_closed'); });
 
       this.socket.on('join-error', ({ message: msg }: { message: string }) =>
         console.error(`[Bot ${this.roomId}] join-error: ${msg}`));

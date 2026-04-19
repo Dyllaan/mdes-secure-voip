@@ -148,7 +148,8 @@ func BotJoinHub(w http.ResponseWriter, r *http.Request) {
 	// Use the verified JWT sub as the bot's userID. The bot's account ID is
 	// dynamic (assigned by the auth service at registration/login), so it cannot
 	// be hard-coded. Exploiting this endpoint to grant RoleBot to an arbitrary
-	// user requires both BOT_SECRET and JWT_SECRET - possessing JWT_SECRET alone
+	// user requires both BOT_SECRET and a valid auth-service signing path - possessing
+	// the hub verifier key alone is not sufficient to mint valid bot credentials.
 	// already constitutes total system compromise, so bot-join does not increase
 	// the blast radius.
 	userID := middleware.GetUserID(r)

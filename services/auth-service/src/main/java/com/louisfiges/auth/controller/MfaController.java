@@ -4,12 +4,8 @@ import com.louisfiges.auth.dao.TrustedDeviceDAO;
 import com.louisfiges.auth.dto.mfa.request.MfaVerifyRequest;
 import com.louisfiges.auth.dto.mfa.response.MfaStatusResponse;
 import com.louisfiges.auth.http.ResponseFactory;
-import com.louisfiges.auth.repo.UserRepository;
-import com.louisfiges.auth.service.TotpService;
 import com.louisfiges.auth.service.TrustedDeviceService;
 import com.louisfiges.auth.service.UserService;
-import com.louisfiges.auth.token.TokenProvider;
-import com.louisfiges.auth.token.UserTokenProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -82,7 +78,7 @@ public class MfaController {
     }
 
     // In MfaController
-    @GetMapping("/mfa/trusted-devices")
+    @GetMapping({"/trusted-devices", "/mfa/trusted-devices"})
     public ResponseEntity<?> getTrustedDevices(@RequestHeader("Authorization") String token) {
         return userService.getUserFromToken(token.replace("Bearer ", ""))
                 .map(user -> {
@@ -99,15 +95,18 @@ public class MfaController {
                 .orElse(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
 
-    @DeleteMapping("/mfa/trusted-devices/{deviceId}")
+    @DeleteMapping({"/trusted-devices/{deviceId}", "/mfa/trusted-devices/{deviceId}"})
     public ResponseEntity<?> revokeTrustedDevice(
             @RequestHeader("Authorization") String token,
             @PathVariable UUID deviceId) {
-        trustedDeviceService.revokeTrustedDevice(deviceId);
-        return ResponseEntity.ok(Map.of("message", "Device revoked"));
+        return userService.getUserFromToken(token.replace("Bearer ", ""))
+                .map(user -> trustedDeviceService.revokeTrustedDevice(user, deviceId)
+                        ? ResponseEntity.ok(Map.of("message", "Device revoked"))
+                        : ResponseEntity.status(HttpStatus.NOT_FOUND).body(ResponseFactory.error("Trusted device not found")))
+                .orElse(ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ResponseFactory.error("Invalid token")));
     }
 
-    @DeleteMapping("/mfa/trusted-devices")
+    @DeleteMapping({"/trusted-devices", "/mfa/trusted-devices"})
     public ResponseEntity<?> revokeAllTrustedDevices(@RequestHeader("Authorization") String token) {
         return userService.getUserFromToken(token.replace("Bearer ", ""))
                 .map(user -> {

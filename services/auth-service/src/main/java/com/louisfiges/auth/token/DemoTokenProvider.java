@@ -11,7 +11,7 @@ public class DemoTokenProvider extends TokenProvider {
     private final long demoTokenExpMs;
 
     public DemoTokenProvider() {
-        super("DEMO_TOKEN_SECRET");
+        super(TokenUse.DEMO);
         this.demoTokenExpMs = getExpirationMsFromEnv("DEMO_TOKEN_EXP_SECONDS", DEFAULT_DEMO_TOKEN_EXP_MS);
     }
 

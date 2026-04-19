@@ -19,7 +19,7 @@ public class UserTokenProvider extends TokenProvider {
     private final long refreshTokenExpMs;
 
     public UserTokenProvider() {
-        super("SECRET_KEY");
+        super(TokenUse.ACCESS);
         this.accessTokenExpMs = getExpirationMsFromEnv("ACCESS_TOKEN_EXP_SECONDS", DEFAULT_ACCESS_TOKEN_EXP_MS);
         this.refreshTokenExpMs = getExpirationMsFromEnv("REFRESH_TOKEN_EXP_SECONDS", DEFAULT_REFRESH_TOKEN_EXP_MS);
     }
@@ -28,7 +28,7 @@ public class UserTokenProvider extends TokenProvider {
         return generate(id, username, accessTokenExpMs);
     }
 
-    public String generateRefreshToken(UUID id, String username) {
-        return generate(id, username, refreshTokenExpMs);
+    public long getRefreshTokenExpMs() {
+        return refreshTokenExpMs;
     }
 }

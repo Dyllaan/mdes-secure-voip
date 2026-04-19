@@ -19,6 +19,7 @@ import {
   type TurnCredentials,
 } from './BotInstance';
 import { config } from '../config';
+import { formatErrorForLog, truncateForLog } from '../logging';
 
 const VP8_MAX_RTP_PAYLOAD = 1_200;
 
@@ -54,8 +55,8 @@ export class AVBotInstance extends BotInstance {
     token: string,
     turnCredentials: TurnCredentials,
   ) {
-    super(roomId, url, token, turnCredentials);
-    this.avPipeline = new AVPipeline(url);
+    super(roomId, url, token, turnCredentials, 'AVBot');
+    this.avPipeline = new AVPipeline(url, `AVBot:${roomId}`);
   }
 
   protected override readonly onAudioFrame = (frame: OpusFrame) => {
@@ -85,10 +86,15 @@ export class AVBotInstance extends BotInstance {
     await this.connectSignaling();
   }
 
-  override destroy(): void {
+  override destroy(reason = 'manual'): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    console.log(`[AVBot ${this.roomId}] Destroying`);
+    console.log(`${this.logPrefix} Destroying`, {
+      reason,
+      mode: 'video',
+      url: truncateForLog(this.url),
+      playback: this.getStatus(),
+    });
 
     this.unwireAVPipeline();
     this.avPipeline.stop();
@@ -108,12 +114,16 @@ export class AVBotInstance extends BotInstance {
 
   override changeTrack(url: string): void {
     if (this.destroyed) return;
-    console.log(`[AVBot ${this.roomId}] changeTrack -> ${url}`);
+    console.log(`${this.logPrefix} changeTrack`, {
+      mode: 'video',
+      previousUrl: truncateForLog(this.url),
+      nextUrl: truncateForLog(url),
+    });
     this.url = url;
 
     this.unwireAVPipeline();
     this.avPipeline.stop();
-    this.avPipeline = new AVPipeline(url);
+    this.avPipeline = new AVPipeline(url, `AVBot:${this.roomId}`);
     this.wireAVPipeline();
     this.avPipeline.start();
 
@@ -149,10 +159,17 @@ export class AVBotInstance extends BotInstance {
 
   protected override checkAutoLeave(): void {
     if (this.avConns.size === 0) {
-      console.log(`[AVBot ${this.roomId}] No peers connected, triggering auto-leave`);
+      console.log(`${this.logPrefix} No peers connected, triggering auto-leave`);
       this.onAutoLeave?.();
     }
   }
+
+  protected override readonly onPipelineError = (e: Error) =>
+    console.error(`${this.logPrefix} Pipeline error`, {
+      mode: 'video',
+      url: truncateForLog(this.url),
+      error: formatErrorForLog(e),
+    });
 
   protected override async onAllUsers(users: AllUsersPayload): Promise<void> {
     console.log(`[AVBot ${this.roomId}] all-users (${users.length}):`, users.map(u => u.alias));

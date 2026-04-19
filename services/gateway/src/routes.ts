@@ -18,6 +18,7 @@ import {
 } from './middleware/middleware';
 import { turnCredentials } from './config/turnCredentials';
 import { requireAuth } from './middleware/authMiddleware';
+import { requirePeerAuth } from './middleware/peerAuth';
 /**
  * Gateway service that proxies requests to the appropriate backend services, handles authentication, and provides a unified API for the frontend. It also includes health checks and rate limiting to ensure reliability and security.
  */
@@ -57,6 +58,14 @@ function makeProxy(target: string, opts: Partial<Options> = {}) {
       res.status(503).json({ error: 'Service unavailable' });
     }),
   });
+}
+
+function forwardSetCookieHeader(upstream: { headers?: { getSetCookie?: () => string[]; get?: (name: string) => string | null } }, res: Response) {
+  const setCookies = upstream.headers?.getSetCookie?.()
+    ?? (upstream.headers?.get?.('set-cookie') ? [upstream.headers.get('set-cookie')!] : []);
+  if (setCookies.length > 0) {
+    res.setHeader('Set-Cookie', setCookies);
+  }
 }
 
 app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
@@ -111,12 +120,16 @@ app.post('/auth/user/login',
     try {
       const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
+        },
         body: JSON.stringify(req.body),
       });
 
       const text = await upstream.text();
       const body = text ? JSON.parse(text) : {};
+      forwardSetCookieHeader(upstream as any, res);
 
       return res.status(upstream.status).json(body);
     } catch (err) {
@@ -136,21 +149,17 @@ app.post('/auth/user/logout',
 app.post('/auth/user/refresh',
   authLimiter,
   async (req: Request, res: Response) => {
-    const { refreshToken } = req.body ?? {};
-
-    if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
-      return res.status(400).json({ error: 'Invalid request body' });
-    }
-
     try {
       const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
+        headers: {
+          ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
+        },
       });
 
       const text = await upstream.text();
       const body = text ? JSON.parse(text) : {};
+      forwardSetCookieHeader(upstream as any, res);
 
       return res.status(upstream.status).json(body);
     } catch (err) {
@@ -232,7 +241,7 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'PeerJS proxy error'),
 });
-app.use('/peerjs', peerJsProxy);
+app.use('/peerjs', requirePeerAuth, peerJsProxy);
 
 app.get('/turn-credentials', generalLimiter, requireAuth, turnCredentials);
 

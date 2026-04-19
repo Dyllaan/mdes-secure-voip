@@ -1,6 +1,9 @@
 // Each test resets all env vars and re-imports the config module using jest.resetModules()
+const { readFileSync } = require('fs');
+const { resolve } = require('path');
 
-const REQUIRED_VARS = ['SIGNALING_URL', 'HUB_SERVICE_URL', 'AUTH_URL', 'GATEWAY_URL', 'PEER_HOST', 'BOT_USERNAME', 'BOT_PASSWORD', 'BOT_SECRET', 'JWT_SECRET', 'TURN_HOST'];
+const REQUIRED_VARS = ['SIGNALING_URL', 'HUB_SERVICE_URL', 'AUTH_URL', 'GATEWAY_URL', 'PEER_HOST', 'BOT_USERNAME', 'BOT_PASSWORD', 'BOT_SECRET', 'JWT_PUBLIC_KEY_B64', 'TURN_HOST'];
+const TEST_PUBLIC_KEY = readFileSync(resolve(__dirname, '../../../../test-fixtures/jwt/public.pem'), 'utf8');
 
 function setAllEnvVars() {
   process.env.SIGNALING_URL   = 'http://signaling:3001';
@@ -11,7 +14,7 @@ function setAllEnvVars() {
   process.env.BOT_USERNAME    = 'testbot';
   process.env.BOT_PASSWORD    = 'testpass';
   process.env.BOT_SECRET      = 'botsecret';
-  process.env.JWT_SECRET      = 'jwtsecret';
+  process.env.JWT_PUBLIC_KEY_B64 = Buffer.from(TEST_PUBLIC_KEY).toString('base64');
   process.env.TURN_HOST       = 'turn.test';
 }
 
@@ -31,6 +34,13 @@ describe('config module', () => {
         expect(() => require('../config')).toThrow(`Missing required env var: ${varName}`);
       });
     }
+
+    it('should throw when JWT_PUBLIC_KEY_B64 is malformed', () => {
+      setAllEnvVars();
+      process.env.JWT_PUBLIC_KEY_B64 = Buffer.from('bad-key').toString('base64');
+      jest.resetModules();
+      expect(() => require('../config')).toThrow('Invalid JWT_PUBLIC_KEY_B64');
+    });
   });
 
   describe('optional variables with defaults', () => {
