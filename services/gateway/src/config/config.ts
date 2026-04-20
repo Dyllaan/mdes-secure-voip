@@ -45,6 +45,8 @@ const config = {
   HUB_SERVICE_URL: process.env.HUB_SERVICE_URL as string,
   MUSICMAN_URL: process.env.MUSICMAN_URL as string,
   TURN_SECRET: process.env.TURN_SECRET as string,
+  BOT_SECRET: process.env.BOT_SECRET ?? '',
+  BOT_USERNAME: (process.env.BOT_USERNAME ?? 'musicman').trim().toLowerCase(),
   JWT_PUBLIC_KEY_B64: Buffer.from(jwtPublicKey).toString('base64'),
   JWT_ISSUER: process.env.JWT_ISSUER ?? 'mdes-secure-voip-auth',
   JWT_ACCESS_AUDIENCE: process.env.JWT_ACCESS_AUDIENCE ?? 'voip-services',

@@ -5,7 +5,7 @@ import pinoHttp from 'pino-http';
 import { createProxyMiddleware, fixRequestBody, type Options } from 'http-proxy-middleware';
 import type { ClientRequest, IncomingMessage } from 'http';
 import type { Socket } from 'net';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 
 import { config, logger } from './config/config';
 import {
@@ -67,6 +67,18 @@ function forwardSetCookieHeader(upstream: { headers?: { getSetCookie?: () => str
   if (setCookies.length > 0) {
     res.setHeader('Set-Cookie', setCookies);
   }
+}
+
+function isAuthorisedBotLogin(req: Request): boolean {
+  if (!config.BOT_SECRET) return false;
+  const username = String(req.body?.username ?? '').trim().toLowerCase();
+  const providedSecret = String(req.headers['x-bot-secret'] ?? '');
+  const expected = Buffer.from(config.BOT_SECRET);
+  const actual = Buffer.from(providedSecret);
+
+  return username === config.BOT_USERNAME
+    && expected.length === actual.length
+    && timingSafeEqual(expected, actual);
 }
 
 app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
@@ -150,6 +162,39 @@ app.post('/auth/user/logout',
 );
 
 app.post('/auth/user/register', authSlowLimiter, authLimiter);
+
+app.post('/auth/user/bot-login',
+  async (req: Request, res: Response) => {
+    const { username } = req.body ?? {};
+    if (typeof username !== 'string' || username.length > 64) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+    if (!isAuthorisedBotLogin(req)) {
+      return res.status(401).json({ error: 'Invalid bot credentials' });
+    }
+
+    try {
+      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/bot-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bot-Secret': String(req.headers['x-bot-secret'] ?? ''),
+          ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
+        },
+        body: JSON.stringify({ username }),
+      });
+
+      const text = await upstream.text();
+      const body = text ? JSON.parse(text) : {};
+      forwardSetCookieHeader(upstream as any, res);
+
+      return res.status(upstream.status).json(body);
+    } catch (err) {
+      logger.error({ err }, 'Bot login proxy error');
+      return res.status(503).json({ error: 'Auth service unavailable' });
+    }
+  },
+);
 
 app.post('/auth/user/refresh',
   authSlowLimiter,

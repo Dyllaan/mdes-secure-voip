@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { register, login, startTokenRefresh, fetchTurnCredentials } from './Auth';
+import { login, startTokenRefresh, fetchTurnCredentials } from './Auth';
 import { BotInstance } from './instances/BotInstance';
 import { config } from './config';
 import { createRouter } from './http/Routes';
@@ -19,7 +19,6 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 (async () => {
     try {
-        await register();
         await login();
         await fetchTurnCredentials();
         startTokenRefresh();

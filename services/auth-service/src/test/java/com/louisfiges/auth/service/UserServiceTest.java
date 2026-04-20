@@ -816,6 +816,51 @@ class UserServiceTest {
     }
 
     @Nested
+    @DisplayName("Service User Tests")
+    class ServiceUserTests {
+
+        @Test
+        @DisplayName("Should create a missing service user and return tokens")
+        void shouldCreateMissingServiceUser() {
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+            when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
+            when(userRepository.save(any(UserDAO.class))).thenAnswer(invocation -> {
+                UserDAO user = invocation.getArgument(0);
+                user.setId(USER_ID);
+                return user;
+            });
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
+
+            AuthSuccessResponse response = userService.upsertServiceUser(USERNAME, PASSWORD);
+
+            assertThat(response.username()).isEqualTo(USERNAME);
+            assertThat(response.accessToken()).isEqualTo(ACCESS_TOKEN);
+            assertThat(response.refreshToken()).isEqualTo(REFRESH_TOKEN);
+        }
+
+        @Test
+        @DisplayName("Should reset MFA and password for an existing service user")
+        void shouldResetExistingServiceUser() {
+            testUser.setMfaEnabled(true);
+            testUser.setMfaSecret(MFA_SECRET);
+            when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
+            when(passwordEncoder.encode(PASSWORD)).thenReturn(ENCODED_PASSWORD);
+            when(userRepository.save(testUser)).thenReturn(testUser);
+            when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
+            when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
+
+            AuthSuccessResponse response = userService.upsertServiceUser(USERNAME, PASSWORD);
+
+            assertThat(response.username()).isEqualTo(USERNAME);
+            assertThat(testUser.isMfaEnabled()).isFalse();
+            assertThat(testUser.getMfaSecret()).isNull();
+            assertThat(testUser.getPassword()).isEqualTo(ENCODED_PASSWORD);
+            verify(userRepository).save(testUser);
+        }
+    }
+
+    @Nested
     @DisplayName("Get User From Token Tests")
     class GetUserFromTokenTests {
 

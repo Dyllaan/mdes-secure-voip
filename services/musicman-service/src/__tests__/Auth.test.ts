@@ -72,8 +72,11 @@ describe('Auth', () => {
       const Auth = await importFreshAuth();
       await Auth.login();
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://auth:4000/user/login',
-        expect.objectContaining({ method: 'POST' })
+        'http://auth:4000/user/bot-login',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'X-Bot-Secret': 'botsecret' }),
+        })
       );
     });
 
@@ -201,7 +204,7 @@ describe('Auth', () => {
       await jest.advanceTimersByTimeAsync(50 * 60 * 1000 + 1);
 
       const urls = mockFetch.mock.calls.map((c) => c[0] as string);
-      expect(urls).toContain('http://auth:4000/user/login');
+      expect(urls).toContain('http://auth:4000/user/bot-login');
       expect(urls).toContain('http://gateway:3000/turn-credentials');
 
       Auth.stopTokenRefresh();

@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Locale;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -150,7 +151,9 @@ public class UserService {
 
                         return (LoginResult) createAuthenticatedResponse(user, newDeviceToken);
                     } catch (Exception e) {
-                        return new LoginResult.Failure("Failed to verify MFA code");
+                        return new LoginResult.Failure(e.getMessage() == null || e.getMessage().isBlank()
+                                ? "Failed to verify MFA code"
+                                : e.getMessage());
                     }
                 })
                 .orElse(new LoginResult.Failure("Invalid or expired MFA token"));
@@ -180,6 +183,34 @@ public class UserService {
                 null
         );
         return new RegisterResult.Success(response);
+    }
+
+    @Transactional
+    public AuthSuccessResponse upsertServiceUser(String username, String password) {
+        String normalisedUsername = username.trim().toLowerCase(Locale.ROOT);
+        UserDAO user = userRepository.findByUsername(normalisedUsername)
+                .map(existing -> {
+                    existing.setUsername(normalisedUsername);
+                    existing.setPassword(passwordEncoder.encode(password));
+                    existing.setMfaEnabled(false);
+                    existing.setMfaSecret(null);
+                    return userRepository.save(existing);
+                })
+                .orElseGet(() -> userRepository.save(new UserDAO(
+                        normalisedUsername,
+                        passwordEncoder.encode(password),
+                        LocalDateTime.now(),
+                        false
+                )));
+
+        LoginResult result = createAuthenticatedResponse(user, null);
+        if (result instanceof LoginResult.Success success) {
+            return success.response();
+        }
+        if (result instanceof LoginResult.DemoRateLimited demoRateLimited) {
+            throw new IllegalStateException("Service user unexpectedly demo rate limited: " + demoRateLimited.demoToken());
+        }
+        throw new IllegalStateException("Unexpected service-user authentication state");
     }
 
     public Optional<LoginResult> refreshToken(String refreshToken) {

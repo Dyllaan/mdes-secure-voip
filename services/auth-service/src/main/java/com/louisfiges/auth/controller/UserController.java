@@ -1,10 +1,12 @@
 package com.louisfiges.auth.controller;
 
+import com.louisfiges.auth.config.BotAuthConfig;
 import com.louisfiges.auth.dto.mfa.request.LoginRequest;
 import com.louisfiges.auth.dto.mfa.request.MfaVerifyRequest;
 import com.louisfiges.auth.dto.request.AuthRequest;
 import com.louisfiges.auth.dto.request.DeleteUserRequest;
 import com.louisfiges.auth.dto.response.DeleteResult;
+import com.louisfiges.auth.dto.response.AuthSuccessResponse;
 import com.louisfiges.auth.dto.response.LoginResult;
 import com.louisfiges.auth.dto.response.RegisterResult;
 import com.louisfiges.auth.dto.request.UpdatePasswordRequest;
@@ -35,9 +37,11 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
+    private final BotAuthConfig botAuthConfig;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, BotAuthConfig botAuthConfig) {
         this.userService = userService;
+        this.botAuthConfig = botAuthConfig;
     }
 
     @PostMapping("/login")
@@ -181,6 +185,26 @@ public class UserController {
             case RegisterResult.Banned ignored -> ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ResponseFactory.error("Registration not permitted"));
         };
+    }
+
+    @PostMapping("/bot-login")
+    public ResponseEntity<?> botLogin(
+            @RequestHeader(value = "X-Bot-Secret", required = false) String botSecret,
+            @RequestBody AuthRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        if (!botAuthConfig.isEnabled()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ResponseFactory.error("Bot login is disabled"));
+        }
+        if (!botAuthConfig.isAllowedUsername(request.username())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ResponseFactory.error("Bot login not permitted"));
+        }
+        if (!botAuthConfig.hasMatchingSecret(botSecret)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ResponseFactory.error("Invalid bot secret"));
+        }
+
+        AuthSuccessResponse response = userService.upsertServiceUser(request.username(), botAuthConfig.botPassword());
+        return withAuthCookies(ResponseEntity.ok(), response, httpRequest).body(response);
     }
 
     @DeleteMapping("/delete")

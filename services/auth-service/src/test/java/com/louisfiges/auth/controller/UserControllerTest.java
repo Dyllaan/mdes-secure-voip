@@ -1,6 +1,8 @@
 package com.louisfiges.auth.controller;
 
+import com.louisfiges.auth.config.BotAuthConfig;
 import com.louisfiges.auth.dto.mfa.request.LoginRequest;
+import com.louisfiges.auth.dto.request.AuthRequest;
 import com.louisfiges.auth.dto.mfa.request.MfaVerifyRequest;
 import com.louisfiges.auth.dto.response.AuthSuccessResponse;
 import com.louisfiges.auth.dto.response.LoginResult;
@@ -33,14 +35,50 @@ class UserControllerTest {
 
     @Mock
     private UserService userService;
+    @Mock
+    private BotAuthConfig botAuthConfig;
 
     private MockMvc mockMvc;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService, botAuthConfig)).build();
         objectMapper = new ObjectMapper();
+    }
+
+    @Test
+    @DisplayName("Should return successful bot login when secret and username are allowed")
+    void shouldReturnSuccessfulBotLogin() throws Exception {
+        when(botAuthConfig.isEnabled()).thenReturn(true);
+        when(botAuthConfig.isAllowedUsername("musicman")).thenReturn(true);
+        when(botAuthConfig.hasMatchingSecret("botsecret")).thenReturn(true);
+        when(botAuthConfig.botPassword()).thenReturn("ignored");
+        when(userService.upsertServiceUser("musicman", "ignored"))
+                .thenReturn(new AuthSuccessResponse("musicman", "access_token", "refresh_token", false, null));
+
+        mockMvc.perform(post("/user/bot-login")
+                        .header("X-Bot-Secret", "botsecret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AuthRequest("musicman", "unused"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("musicman"))
+                .andExpect(jsonPath("$.accessToken").value("access_token"))
+                .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString(RefreshTokenCookieFactory.COOKIE_NAME + "=refresh_token")));
+    }
+
+    @Test
+    @DisplayName("Should reject bot login when secret is invalid")
+    void shouldRejectBotLoginWithInvalidSecret() throws Exception {
+        when(botAuthConfig.isEnabled()).thenReturn(true);
+        when(botAuthConfig.isAllowedUsername("musicman")).thenReturn(true);
+        when(botAuthConfig.hasMatchingSecret("wrongsecret")).thenReturn(false);
+
+        mockMvc.perform(post("/user/bot-login")
+                        .header("X-Bot-Secret", "wrongsecret")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new AuthRequest("musicman", "unused"))))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

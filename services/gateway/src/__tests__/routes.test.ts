@@ -215,6 +215,52 @@ describe('POST /auth/user/login', () => {
   });
 });
 
+describe('POST /auth/user/bot-login', () => {
+  let fetchSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    fetchSpy = jest.spyOn(global, 'fetch' as any);
+  });
+
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('rejects invalid bot credentials before proxying', async () => {
+    const { app } = await loadApp({ BOT_SECRET: 'botsecret', BOT_USERNAME: 'musicman' });
+
+    const res = await request(app)
+      .post('/auth/user/bot-login')
+      .set('X-Bot-Secret', 'wrongsecret')
+      .send({ username: 'musicman' });
+
+    expect(res.status).toBe(401);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('proxies bot login when the secret and username match', async () => {
+    const { app } = await loadApp({ BOT_SECRET: 'botsecret', BOT_USERNAME: 'musicman' });
+
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ accessToken: makeJwt('musicman') }),
+    } as any);
+
+    const res = await request(app)
+      .post('/auth/user/bot-login')
+      .set('X-Bot-Secret', 'botsecret')
+      .send({ username: 'musicman' });
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/user/bot-login'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'X-Bot-Secret': 'botsecret' }),
+      }),
+    );
+  });
+});
+
 describe('POST /auth/user/refresh', () => {
   let fetchSpy: jest.SpyInstance;
 

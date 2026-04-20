@@ -3,6 +3,7 @@ import { config } from './config';
 const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
 const MAX_RETRIES = 10;
 const RETRY_DELAY_MS = 3000;
+const MAX_RETRY_DELAY_MS = 30000;
 
 let _token: string | null = null;
 let _refreshTimer: NodeJS.Timeout | null = null;
@@ -38,12 +39,19 @@ export async function register(): Promise<void> {
 }
 
 export async function login(): Promise<string> {
-    const url  = `${config.AUTH_URL}/user/login`;
-    const body = JSON.stringify({ username: config.BOT_USERNAME, password: config.BOT_PASSWORD });
+    const url  = `${config.AUTH_URL}/user/bot-login`;
+    const body = JSON.stringify({ username: config.BOT_USERNAME });
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-            const res     = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+            const res     = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Bot-Secret': config.BOT_SECRET,
+                },
+                body,
+            });
             const rawBody = await res.text().catch(() => '(could not read body)');
 
             if (!res.ok) throw new Error(`Auth failed [${res.status}]: ${rawBody}`);
@@ -62,7 +70,8 @@ export async function login(): Promise<string> {
             return token;
         } catch (err) {
             if (attempt === MAX_RETRIES) throw err;
-            await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+            const delayMs = Math.min(RETRY_DELAY_MS * (2 ** (attempt - 1)), MAX_RETRY_DELAY_MS);
+            await new Promise(res => setTimeout(res, delayMs));
         }
     }
 

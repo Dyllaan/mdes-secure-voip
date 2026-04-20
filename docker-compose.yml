@@ -18,6 +18,8 @@ services:
       - CORS_ORIGIN=${ALLOWED_ORIGINS}
       - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
       - TURN_SECRET=${TURN_SECRET}
+      - BOT_SECRET=${BOT_SECRET}
+      - BOT_USERNAME=musicman
     depends_on:
       p2p-auth-service:
         condition: service_healthy
@@ -67,6 +69,9 @@ services:
       - DEMO_TOKEN_EXP_SECONDS=${DEMO_TOKEN_EXP_SECONDS}
       - TRUSTED_DEVICE_VALIDITY_DAYS=${TRUSTED_DEVICE_VALIDITY_DAYS}
       - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - BOT_SECRET=${BOT_SECRET}
+      - BOT_USERNAME=musicman
+      - BOT_PASSWORD=${BOT_PASSWORD}
     restart: always
     networks:
       - voip-network
