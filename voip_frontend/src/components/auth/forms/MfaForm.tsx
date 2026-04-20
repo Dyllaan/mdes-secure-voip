@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { ArrowLeft, KeyRound } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from "@/hooks/auth/useAuth";
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Errors from '@/components/layout/Errors';

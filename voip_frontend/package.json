@@ -1,7 +1,7 @@
 {
   "name": "voip_frontend",
   "private": true,
-  "version": "0.9.6",
+  "version": "1.0.0",
   "main": "electron/dist/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
