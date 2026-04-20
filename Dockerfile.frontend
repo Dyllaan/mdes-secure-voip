@@ -1,28 +1,26 @@
 FROM node:22-alpine AS build
 WORKDIR /app/voip_frontend
-
 COPY voip_frontend/package*.json ./
 RUN npm ci
-
 COPY voip_frontend/ ./
 RUN npm run build:web
 
-# Doesnt require root
 FROM nginxinc/nginx-unprivileged:alpine
 
+# Copy Nginx config
 COPY nginx.conf /etc/nginx/nginx.conf
 
-# Copy your environment variable injection script
-COPY docker/frontend/40-env-js.sh /docker-entrypoint.d/40-env-js.sh
-
-# Copy the build artifacts from the first stage
+# Copy build artifacts
 COPY --from=build /app/voip_frontend/dist /usr/share/nginx/html
 
-# Switch to root temporarily just to set script permissions, 
-# then switch back to the nginx user.
+# Copy the environment script
+COPY docker/frontend/40-env-js.sh /docker-entrypoint.d/40-env-js.sh
+
 USER root
-RUN chmod +x /docker-entrypoint.d/40-env-js.sh
+# Create a dedicated directory for the generated JS file
+RUN mkdir -p /usr/share/nginx/html/assets && \
+    chown -R nginx:nginx /usr/share/nginx/html/assets && \
+    chmod +x /docker-entrypoint.d/40-env-js.sh
 USER nginx
 
-# Standard port for unprivileged Nginx
 EXPOSE 8080
