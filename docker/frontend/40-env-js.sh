@@ -41,4 +41,4 @@ write_var() {
   write_var 'VITE_MAX_ALIAS_LENGTH' "${VITE_MAX_ALIAS_LENGTH:-}"
   write_var 'VITE_MIN_ALIAS_LENGTH' "${VITE_MIN_ALIAS_LENGTH:-}"
   echo '};'
-} > /usr/share/nginx/html/env.js
+} > /usr/share/nginx/html/config/env.js
