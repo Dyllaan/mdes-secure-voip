@@ -6,10 +6,26 @@ import { logger } from '../config/config';
 
 export const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
-  message: { error: 'Too many requests, slow down' },
+  max: 5,
+  message: { error: 'Too many login attempts, slow down' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    const username = (req.body?.username ?? req.body?.email ?? 'unknown').toLowerCase();
+    return `${req.ip}:${username}`;
+  },
+});
+
+export const authSlowLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts, try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const username = (req.body?.username ?? req.body?.email ?? 'unknown').toLowerCase();
+    return `${req.ip}:${username}`;
+  },
 });
 
 export const generalLimiter = rateLimit({

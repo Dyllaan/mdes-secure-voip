@@ -133,10 +133,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     setMfaRequired(false);
     setPendingMfaToken(null);
 
-    if (userData.deviceToken) {
-      toast.success('Device trusted for 30 days');
-    }
-
     if (successToast) {
       toast.success(successToast);
     }
@@ -285,7 +281,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const login = async (username: string, password: string, mfaCode?: string, trustDevice?: boolean): Promise<LoginResult> => {
+  const login = async (username: string, password: string, mfaCode?: string): Promise<LoginResult> => {
     try {
       const deviceFingerprint = await getDeviceFingerprint();
 
@@ -294,7 +290,6 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         password,
         deviceFingerprint,
         ...(mfaCode && { mfaCode }),
-        ...(trustDevice && { trustDevice })
       }, { validateStatus: () => true });
 
       if (response.status === 202) {

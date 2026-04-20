@@ -34,7 +34,7 @@ export const config = {
   JWT_ACCESS_AUDIENCE: process.env.JWT_ACCESS_AUDIENCE ?? 'voip-services',
 
   PORT: parseInt(process.env.PORT ?? '4000'),
-  PEER_ID_EVENT: process.env.PEER_ID_EVEN ?? 'peer-assigned',
+  PEER_ID_EVENT: process.env.PEER_ID_EVENT ?? 'peer-assigned',
   PEER_ID_KEY: process.env.PEER_ID_KEY ?? 'peerId',
   SCREEN_PEER_ID_EVENT: process.env.SCREEN_PEER_ID_EVENT  ?? 'screen-peer-assigned',
   SCREEN_PEER_ID_KEY: process.env.SCREEN_PEER_ID_KEY ?? 'peerId',

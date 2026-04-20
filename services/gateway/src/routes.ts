@@ -15,6 +15,7 @@ import {
   breakers,
   circuitBreaker,
   requestId,
+  authSlowLimiter,
 } from './middleware/middleware';
 import { turnCredentials } from './config/turnCredentials';
 import { requireAuth } from './middleware/authMiddleware';
@@ -106,6 +107,7 @@ app.get('/health', generalLimiter, async (_req: Request, res: Response) => {
 });
 
 app.post('/auth/user/login',
+  authSlowLimiter,
   authLimiter,
   async (req: Request, res: Response) => {
     const { username, password } = req.body ?? {};
@@ -141,35 +143,29 @@ app.post('/auth/user/login',
 
 app.post('/auth/user/logout',
   requireAuth,
+  authLimiter,
   async (_req: Request, _res: Response, next: NextFunction) => {
     next();
   },
 );
 
-app.post('/auth/user/refresh',
+app.post('/auth/user/register', authSlowLimiter, authLimiter);
+
+app.post('/auth/user/register',
+  authSlowLimiter,
   authLimiter,
-  async (req: Request, res: Response) => {
-    try {
-      const upstream = await fetch(`${config.AUTH_SERVICE_URL}/user/refresh`, {
-        method: 'POST',
-        headers: {
-          ...(req.headers.cookie ? { Cookie: req.headers.cookie } : {}),
-        },
-      });
-
-      const text = await upstream.text();
-      const body = text ? JSON.parse(text) : {};
-      forwardSetCookieHeader(upstream as any, res);
-
-      return res.status(upstream.status).json(body);
-    } catch (err) {
-      logger.error({ err }, 'Refresh proxy error');
-      return res.status(503).json({ error: 'Auth service unavailable' });
-    }
-  },
+  circuitBreaker(breakers.auth, 'Auth'),
+  makeProxy(config.AUTH_SERVICE_URL, {
+    pathRewrite: { '^/auth': '' },
+    onError: (err: Error, _req: Request, res: Response) => {
+      logger.error({ err }, 'Auth service error');
+      res.status(503).json({ error: 'Auth service unavailable' });
+    },
+  }),
 );
 
 app.use('/auth',
+  authSlowLimiter,
   authLimiter,
   circuitBreaker(breakers.auth, 'Auth'),
   makeProxy(config.AUTH_SERVICE_URL, {

@@ -56,28 +56,25 @@ class BackupCodeServiceTest {
     class GenerateAndSaveBackupCodesTests {
 
         @Test
-        @DisplayName("Should generate correct number of backup codes")
-        void shouldGenerateCorrectNumberOfCodes() {
-            int codeCount = 10;
+        @DisplayName("Should generate uppercase codes only")
+        void shouldGenerateUppercaseCodes() {
             when(passwordEncoder.encode(anyString())).thenReturn("hashed_code");
 
-            List<String> codes = backupCodeService.generateAndSaveBackupCodes(testUser, codeCount);
+            List<String> codes = backupCodeService.generateAndSaveBackupCodes(testUser, 100);
 
-            assertThat(codes).hasSize(codeCount);
-            verify(backupCodeRepository, times(codeCount)).save(any(BackupCodeDAO.class));
+            assertThat(codes).allMatch(code -> code.equals(code.toUpperCase()));
+            assertThat(codes).allMatch(code -> code.matches("[A-Z2-9]{8}"));
         }
 
         @Test
-        @DisplayName("Should generate 8-digit codes")
-        void shouldGenerate8DigitCodes() {
-            int codeCount = 5;
+        @DisplayName("Should generate 8-character alphanumeric codes")
+        void shouldGenerate8CharAlphanumericCodes() {
             when(passwordEncoder.encode(anyString())).thenReturn("hashed_code");
 
-            List<String> codes = backupCodeService.generateAndSaveBackupCodes(testUser, codeCount);
-
+            List<String> codes = backupCodeService.generateAndSaveBackupCodes(testUser, 5);
 
             assertThat(codes).allMatch(code -> code.length() == 8);
-            assertThat(codes).allMatch(code -> code.matches("\\d{8}"));
+            assertThat(codes).allMatch(code -> code.matches("[A-Z2-9]{8}"));
         }
 
         @Test
@@ -180,20 +177,8 @@ class BackupCodeServiceTest {
 
 
             assertThat(codes).hasSize(1);
-            assertThat(codes.get(0)).matches("\\d{8}");
+            assertThat(codes.getFirst()).matches("[A-HJ-NP-Z2-9]{8}");
             verify(backupCodeRepository, times(1)).save(any(BackupCodeDAO.class));
-        }
-
-        @Test
-        @DisplayName("Should pad codes with leading zeros")
-        void shouldPadCodesWithLeadingZeros() {
-            int codeCount = 100;
-            when(passwordEncoder.encode(anyString())).thenReturn("hashed_code");
-
-            List<String> codes = backupCodeService.generateAndSaveBackupCodes(testUser, codeCount);
-
-            assertThat(codes).allMatch(code -> code.length() == 8);
-            assertThat(codes).allMatch(code -> code.matches("^\\d{8}$"));
         }
     }
 
@@ -437,7 +422,7 @@ class BackupCodeServiceTest {
             List<String> generatedCodes = backupCodeService.generateAndSaveBackupCodes(testUser, codeCount);
             assertThat(generatedCodes).hasSize(codeCount);
 
-            String codeToVerify = generatedCodes.get(0);
+            String codeToVerify = generatedCodes.getFirst();
             BackupCodeDAO backupCode = new BackupCodeDAO();
             backupCode.setCodeHash("hashed_" + codeToVerify);
             backupCode.setUser(testUser);

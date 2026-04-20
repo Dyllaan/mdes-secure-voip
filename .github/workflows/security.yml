@@ -1,0 +1,94 @@
+name: Security Scan
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 3 * * 1'  # weekly Monday 3am
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          vuln-type: library
+          severity: CRITICAL,HIGH
+          format: sarif
+          output: trivy-results.sarif
+        continue-on-error: true
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: npm audit (gateway)
+        working-directory: ./services/gateway
+        run: |
+          npm ci
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: npm audit (realtime)
+        working-directory: ./services/realtime
+        run: |
+          npm ci
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: npm audit (musicman)
+        working-directory: ./services/musicman-service
+        run: |
+          npm ci
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: npm audit (frontend)
+        working-directory: ./voip_frontend
+        run: |
+          npm ci
+          npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Go vulnerability check
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: services/hub-service/go.mod
+          go-package: ./services/hub-service/...
+        continue-on-error: true
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/typescript
+            p/nodejs
+            p/golang
+            p/java
+            p/secrets
+        continue-on-error: true

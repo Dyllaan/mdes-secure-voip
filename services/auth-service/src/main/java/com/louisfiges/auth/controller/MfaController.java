@@ -20,6 +20,7 @@ public class MfaController {
 
     private final UserService userService;
     private final TrustedDeviceService trustedDeviceService;
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MfaController.class);
 
     public MfaController(UserService userService, TrustedDeviceService trustedDeviceService) {
         this.userService = userService;
@@ -34,6 +35,7 @@ public class MfaController {
         }
 
         if (!token.startsWith("Bearer ")) {
+            logger.warn("Invalid Authorization header format");
             return ResponseEntity.status(401)
                     .body(ResponseFactory.error("Authorization header must start with 'Bearer '"));
         }
@@ -44,8 +46,9 @@ public class MfaController {
                     .orElseGet(() -> ResponseEntity.badRequest()
                             .body(ResponseFactory.mfaInvalid("MFA already enabled or invalid token")));
         } catch (Exception e) {
+            logger.error("Error during MFA setup", e);
             return ResponseEntity.internalServerError()
-                    .body(ResponseFactory.mfaInvalid("Failed to generate QR code: " + e.getMessage()));
+                    .body(ResponseFactory.mfaInvalid("Failed to generate QR code: "));
         }
     }
 

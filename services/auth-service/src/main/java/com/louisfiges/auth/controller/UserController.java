@@ -26,6 +26,10 @@ import com.louisfiges.auth.http.ResponseFactory;
 
 import java.util.Map;
 
+/**
+ * Lockout and backoff handled at service layer, controller just returns appropriate status codes and messages based on service response.
+ */
+
 @RestController
 @RequestMapping("/user")
 public class UserController {
@@ -168,9 +172,7 @@ public class UserController {
                     .body(ResponseFactory.error("Username is invalid. It must be 3-48 characters long and can only contain letters, numbers, underscores, and hyphens."));
         }
 
-        String clientIp = extractClientIp(httpRequest);
-
-        return switch (userService.register(request.username(), request.password(), clientIp)) {
+        return switch (userService.register(request.username(), request.password())) {
             case RegisterResult.Success success -> ResponseEntity.status(HttpStatus.CREATED)
                     .header(HttpHeaders.SET_COOKIE, RefreshTokenCookieFactory.build(success.response().refreshToken(), isSecureRequest(httpRequest)).toString())
                     .body(success.response());

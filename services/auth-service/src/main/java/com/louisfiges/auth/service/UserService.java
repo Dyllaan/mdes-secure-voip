@@ -150,13 +150,13 @@ public class UserService {
 
                         return (LoginResult) createAuthenticatedResponse(user, newDeviceToken);
                     } catch (Exception e) {
-                        return new LoginResult.Failure(e.getMessage());
+                        return new LoginResult.Failure("Failed to verify MFA code");
                     }
                 })
                 .orElse(new LoginResult.Failure("Invalid or expired MFA token"));
     }
 
-    public RegisterResult register(String username, String password, String clientIp) {
+    public RegisterResult register(String username, String password) {
         if (userRepository.findByUsername(username).isPresent()) {
             return new RegisterResult.UsernameTaken();
         }

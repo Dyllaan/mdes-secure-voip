@@ -13,7 +13,7 @@ import java.util.UUID;
 @Component
 public class UserTokenProvider extends TokenProvider {
     private static final long DEFAULT_ACCESS_TOKEN_EXP_MS = 1000L * 60 * 15; // 15 minutes
-    private static final long DEFAULT_REFRESH_TOKEN_EXP_MS = 1000L * 60 * 60 * 24 * 28; // 28 days
+    private static final long DEFAULT_REFRESH_TOKEN_EXP_MS = 1000L * 60 * 60 * 24 * 7; // 7 days
 
     private final long accessTokenExpMs;
     private final long refreshTokenExpMs;

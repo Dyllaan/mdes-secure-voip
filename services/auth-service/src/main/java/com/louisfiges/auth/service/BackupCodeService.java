@@ -22,16 +22,26 @@ public class BackupCodeService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    private static final String ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O,0,I,1 confusion
+
+    private String generateCode() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder(8);
+        for (int i = 0; i < 8; i++) {
+            sb.append(ALPHABET.charAt(random.nextInt(ALPHABET.length())));
+        }
+        return sb.toString(); // ~32^8 = 1 trillion combinations with numbers this is only 10^8
+    }
+
     public List<String> generateAndSaveBackupCodes(UserDAO user, int count) {
         // Delete old codes first
         backupCodeRepository.deleteByUser(user);
 
         List<String> plainCodes = new ArrayList<>();
-        SecureRandom random = new SecureRandom();
 
         for (int i = 0; i < count; i++) {
-            // Generate 8-digit code
-            String code = String.format("%08d", random.nextInt(100000000));
+            // Generate a random 8-character code
+            String code = generateCode();
             plainCodes.add(code);
 
             // Store hashed version

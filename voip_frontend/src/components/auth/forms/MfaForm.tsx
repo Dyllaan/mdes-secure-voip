@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Errors from '@/components/layout/Errors';
 import useMfaCode from '@/hooks/auth/useMfaCode';
+import MfaCodeInput from '../MfaCodeInput';
 
 interface MfaFormProps {
   onSuccess: () => void;
@@ -26,21 +27,10 @@ export default function MfaForm({ onSuccess }: MfaFormProps) {
     <>
       <form onSubmit={handleSubmit} className="space-y-4 pt-4">
         <div className="space-y-2">
-          <Label htmlFor="mfaCode" className="flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-muted-foreground" />
-            Authentication Code
-          </Label>
-          <Input
-            id="mfaCode"
-            type="text"
-            value={mfaCode}
-            onChange={(e) => handleChange(e.target.value)}
-            placeholder="000000"
-            disabled={isLoading}
-            maxLength={8}
-            autoComplete="one-time-code"
-            autoFocus
-            className="text-center text-2xl tracking-widest font-mono"
+          <MfaCodeInput
+            verificationCode={mfaCode}
+            setVerificationCode={handleChange}
+            isLoading={isLoading}
           />
         </div>
         <div className="flex items-center space-x-2 pt-2">

@@ -510,7 +510,7 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
-            RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
+            RegisterResult result = userService.register(USERNAME, PASSWORD);
 
             assertThat(result).isInstanceOf(RegisterResult.Success.class);
             RegisterResult.Success success = (RegisterResult.Success) result;
@@ -536,7 +536,7 @@ class UserServiceTest {
             when(userTokenProvider.generateAccessToken(USER_ID, USERNAME)).thenReturn(ACCESS_TOKEN);
             when(refreshTokenProvider.generateToken(eq(USER_ID), eq(USERNAME), anyLong())).thenReturn(REFRESH_TOKEN);
 
-            RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
+            RegisterResult result = userService.register(USERNAME, PASSWORD);
 
             assertThat(result).isInstanceOf(RegisterResult.Success.class);
             verify(demoSessionService).recordFirstLoginAt(eq(USER_ID), anyLong());
@@ -547,7 +547,7 @@ class UserServiceTest {
         void shouldFailToRegisterExistingUser() {
             when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(testUser));
 
-            RegisterResult result = userService.register(USERNAME, PASSWORD, "127.0.0.1");
+            RegisterResult result = userService.register(USERNAME, PASSWORD);
 
             assertThat(result).isInstanceOf(RegisterResult.UsernameTaken.class);
             verify(userRepository, never()).save(any(UserDAO.class));

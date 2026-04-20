@@ -10,5 +10,6 @@ public record AuthSuccessResponse(
         @JsonIgnore
         String refreshToken,
         boolean mfaEnabled,
+        @JsonIgnore
         String deviceToken
 ) {}

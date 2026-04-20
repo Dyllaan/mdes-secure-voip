@@ -7,12 +7,12 @@ export default function MfaCodeInput({verificationCode, setVerificationCode, isL
 }) {
     return (
         <div className="space-y-2">
-            <Label htmlFor="verifyCode">Enter 6-digit code from Authenticator app</Label>
+            <Label htmlFor="verifyCode">Enter 6-digit code from Authenticator app or Backup Code</Label>
             <Input
             id="verifyCode"
             type="text"
             value={verificationCode}
-            onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+            onChange={(e) => setVerificationCode(e.target.value)}
             placeholder="000000"
             maxLength={6}
             disabled={isLoading}

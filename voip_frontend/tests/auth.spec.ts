@@ -699,7 +699,6 @@ test.describe('Auth - Register page', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           ...MOCK_USER,
-          deviceToken: 'trusted-device-token',
         }),
       }),
     );
