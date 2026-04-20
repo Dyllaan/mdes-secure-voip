@@ -79,7 +79,7 @@ describe('/auth proxy', () => {
   it('has correct rate limit header', async () => {
     const { app } = await loadApp();
     const res = await request(app).post('/auth/login');
-    expect(res.headers['ratelimit-limit']).toBe('20');
+    expect(res.headers['ratelimit-limit']).toBe('5');
   });
 });
 

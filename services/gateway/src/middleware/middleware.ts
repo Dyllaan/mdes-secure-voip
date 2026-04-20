@@ -1,8 +1,13 @@
-import rateLimit from 'express-rate-limit';
 import CircuitBreaker from 'opossum';
 import { randomUUID } from 'crypto';
 import { type Request, type Response, type NextFunction } from 'express';
 import { logger } from '../config/config';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+
+const authKeyGenerator = (req: Request) => {
+  const username = (req.body?.username ?? req.body?.email ?? 'unknown').toLowerCase();
+  return `${ipKeyGenerator(req.ip ?? '')}:${username}`;
+};
 
 export const authLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -10,10 +15,7 @@ export const authLimiter = rateLimit({
   message: { error: 'Too many login attempts, slow down' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const username = (req.body?.username ?? req.body?.email ?? 'unknown').toLowerCase();
-    return `${req.ip}:${username}`;
-  },
+  keyGenerator: authKeyGenerator,
 });
 
 export const authSlowLimiter = rateLimit({
@@ -22,10 +24,7 @@ export const authSlowLimiter = rateLimit({
   message: { error: 'Too many login attempts, try again later' },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
-    const username = (req.body?.username ?? req.body?.email ?? 'unknown').toLowerCase();
-    return `${req.ip}:${username}`;
-  },
+  keyGenerator: authKeyGenerator,
 });
 
 export const generalLimiter = rateLimit({

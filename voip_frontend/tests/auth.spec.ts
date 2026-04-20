@@ -247,7 +247,7 @@ test.describe('Auth - Login page', () => {
     await page.getByTestId('password-input').fill('password123');
     await page.getByTestId('login-submit').click();
 
-    await expect(page.locator('#mfaCode')).toBeVisible({ timeout: 3000 });
+    await expect(page.locator('#verifyCode')).toBeVisible({ timeout: 3000 });
   });
 
   test('MFA verification success redirects to key setup when device keys are missing', async ({ page }) => {
@@ -272,7 +272,7 @@ test.describe('Auth - Login page', () => {
     await page.getByTestId('password-input').fill('password123');
     await page.getByTestId('login-submit').click();
 
-    await page.locator('#mfaCode').fill('123456');
+    await page.locator('#verifyCode').fill('123456');
     await page.getByRole('button', { name: 'Verify Code' }).click();
 
     await expect(page).toHaveURL(/#\/keys$/, { timeout: 5000 });
@@ -300,14 +300,14 @@ test.describe('Auth - Login page', () => {
     await page.getByTestId('password-input').fill('password123');
     await page.getByTestId('login-submit').click();
 
-    await page.locator('#mfaCode').fill('123456');
+    await page.locator('#verifyCode').fill('123456');
     await page.getByRole('button', { name: 'Verify Code' }).click();
 
-    await expect(page.locator('#mfaCode')).toBeVisible();
+    await expect(page.locator('#verifyCode')).toBeVisible();
     await expect(page.getByText('Invalid authentication code').first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Verify Code' })).toHaveText('Verify Code');
-    await expect(page.locator('#mfaCode')).toBeEnabled();
-    await page.locator('#mfaCode').fill('654321');
+    await expect(page.locator('#verifyCode')).toBeEnabled();
+    await page.locator('#verifyCode').fill('654321');
     await expect(page.getByRole('button', { name: 'Verify Code' })).toBeEnabled();
   });
 
@@ -697,20 +697,23 @@ test.describe('Auth - Register page', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          ...MOCK_USER,
-        }),
+        body: JSON.stringify({ ...MOCK_USER }),
       }),
     );
     await mockAuthRoutes(page);
-
     await page.goto('/#/login');
     await page.getByTestId('username-input').fill('testuser');
     await page.getByTestId('password-input').fill('password123');
     await page.getByTestId('login-submit').click();
-
     await expect(page).toHaveURL(/#\/keys$/, { timeout: 5000 });
-    await expect.poll(async () => page.evaluate(() => localStorage.getItem('deviceToken'))).toBeNull();
+
+    // device token must not appear anywhere in localStorage
+    await expect.poll(async () =>
+      page.evaluate(() => {
+        const user = JSON.parse(localStorage.getItem('user') ?? '{}');
+        return 'deviceToken' in user;
+      })
+    ).toBe(false);
   });
 
   test('server error during registration shows error toast', async ({ page }) => {

@@ -12,7 +12,7 @@ const config = {
   PEER_PATH: env.VITE_PEER_PATH || '/peerjs',
   GATEWAY_URL: env.VITE_GATEWAY_URL || 'http://localhost:4000',
   MUSICMAN_URL: env.VITE_MUSICMAN_URL ?? 'http://localhost:4000',
-  GITHUB_URL: env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/voip_and_content_synchronisation',
+  GITHUB_URL: env.VITE_GITHUB_URL || 'https://github.com/Dyllaan/mdes-secure-voip',
   TURN_HOST: env.VITE_TURN_HOST || window.location.hostname,
   TURN_PORT: Number(env.VITE_TURN_PORT || 3478),
   TURN_SECURE: (env.VITE_TURN_SECURE ?? 'false') === 'true',

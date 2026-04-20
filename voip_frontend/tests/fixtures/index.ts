@@ -5,7 +5,6 @@ export const MOCK_USER = {
   sub: 'test-user-id',
   username: 'testuser',
   accessToken: 'fake-access-token',
-  refreshToken: 'fake-refresh-token',
   mfaEnabled: false,
 };
 
@@ -94,6 +93,7 @@ const CORS_HEADERS = {
 
 export async function enableAppE2EHarness(page: Page) {
   await page.addInitScript(() => {
+    (window as any).__FINGERPRINT_OVERRIDE__ = 'e2e-test-device';
     const createMediaStream = ({ audio = false, video = false }: { audio?: boolean; video?: boolean } = {}) => {
       const tracks: MediaStreamTrack[] = [];
 
@@ -384,7 +384,7 @@ export async function bootstrapSignedOut(page: Page) {
 
 export async function bootstrapSignedIn(page: Page, user = MOCK_USER) {
   await enableAppE2EHarness(page);
-  await mockAuthRoutes(page, user, { meStatus: 401, refreshStatus: 401, mfaEnabled: user.mfaEnabled ?? false });
+  await mockAuthRoutes(page, user, { meStatus: 200, refreshStatus: 401, mfaEnabled: user.mfaEnabled ?? false });
   await mockSocketIO(page);
   await mockWebSocket(page);
   await page.route('**/auth/user/login', (route) =>
@@ -404,7 +404,7 @@ export async function bootstrapSignedIn(page: Page, user = MOCK_USER) {
 
 export async function bootstrapSignedInWithKeys(page: Page, user = MOCK_USER) {
   await enableAppE2EHarness(page);
-  await mockAuthRoutes(page, user, { meStatus: 401, refreshStatus: 401, mfaEnabled: user.mfaEnabled ?? false });
+  await mockAuthRoutes(page, user, { meStatus: 200, refreshStatus: 401, mfaEnabled: user.mfaEnabled ?? false });
   await mockSocketIO(page);
   await mockWebSocket(page);
   await page.route('**/auth/user/login', (route) =>

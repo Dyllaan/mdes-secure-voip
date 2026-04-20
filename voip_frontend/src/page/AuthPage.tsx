@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useAuth } from "@/hooks/auth/useAuth";
-
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from "@/hooks/auth/useAuth";
 import LoginForm from '@/components/auth/forms/LoginForm';
 import RegisterForm from '@/components/auth/forms/RegisterForm';
 import MfaForm from '@/components/auth/forms/MfaForm';
@@ -33,12 +32,12 @@ export default function AuthPage({ mode = 'login' }: { mode?: 'login' | 'registe
   return (
     <Page header footer>
       {isLogin ? (
-        <LoginForm 
+        <LoginForm
           onSuccess={handleAuthSuccess}
           onToggleMode={toggleAuthMode}
         />
       ) : (
-        <RegisterForm 
+        <RegisterForm
           onSuccess={handleAuthSuccess}
           onToggleMode={toggleAuthMode}
         />

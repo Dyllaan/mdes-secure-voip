@@ -1,4 +1,3 @@
-
 import { Navigate } from 'react-router-dom';
 import { useAuth } from "@/hooks/auth/useAuth";
 
@@ -14,7 +13,7 @@ const isElectron = window.electronAPI || (() => {
 export default function RootRoute() {
   const { signedIn, isLoading } = useAuth();
   if (isLoading) return null;
-  if (isElectron) return <Navigate to="/login" replace />;
   if (signedIn) return <Navigate to="/hub-list" replace />;
+  if (isElectron) return <Navigate to="/login" replace />;
   return <Landing />;
 }
