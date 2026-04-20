@@ -49,7 +49,7 @@ services:
     environment:
       - SPRING_PROFILES_ACTIVE=docker
       - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
-      - SPRING_DATASOURCE_USERNAME=nanny
+      - SPRING_DATASOURCE_USERNAME=auth-db-user
       - SPRING_DATASOURCE_PASSWORD=${AUTH_DB_PASSWORD}
       - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
       - JWT_PRIVATE_KEY_B64=${JWT_PRIVATE_KEY_B64}
@@ -160,7 +160,7 @@ services:
     image: postgres:latest
     container_name: auth-db
     environment:
-      - POSTGRES_USER=nanny
+      - POSTGRES_USER=auth-db-user
       - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
       - POSTGRES_DB=postgres
     volumes:
@@ -171,7 +171,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nanny -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U auth-db-user -d postgres"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -229,7 +229,6 @@ services:
     command: >
       -n
       --log-file=stdout
-      --lt-cred-mech
       --fingerprint
       --no-multicast-peers
       --no-cli
