@@ -1,47 +1,68 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from "react";
 import { useAuth } from "@/hooks/auth/useAuth";
-import LoginForm from '@/components/auth/forms/LoginForm';
-import RegisterForm from '@/components/auth/forms/RegisterForm';
-import MfaForm from '@/components/auth/forms/MfaForm';
-import Page from "@/components/layout/Page";
+import Section from "@/components/layout/Section";
+import LoginForm from "@/components/auth/forms/LoginForm";
+import RegisterForm from "@/components/auth/forms/RegisterForm";
+import MfaForm from "@/components/auth/forms/MfaForm";
 
-export default function AuthPage({ mode = 'login' }: { mode?: 'login' | 'register' }) {
-  const [isLogin, setIsLogin] = useState(mode === 'login');
+export interface AuthFormProps {
+  onSuccess: () => void;
+}
+
+function AuthSwitcher({
+  isLogin,
+  onToggle,
+}: {
+  isLogin: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-1.5 pt-4 text-sm text-muted-foreground">
+      <span>
+        {isLogin ? "Don't have an account?" : "Already have an account?"}
+      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="font-medium text-foreground underline underline-offset-4 hover:text-primary transition-colors"
+      >
+        {isLogin ? "Sign up" : "Sign in"}
+      </button>
+    </div>
+  );
+}
+
+export default function AuthPage({
+  mode = "login",
+}: {
+  mode?: "login" | "register";
+}) {
+  const [isLogin, setIsLogin] = useState(mode === "login");
   const { mfaRequired } = useAuth();
-  const navigate = useNavigate();
+
 
   const toggleAuthMode = () => {
     setIsLogin(!isLogin);
   };
 
-  const handleAuthSuccess = () => {
-    navigate('/');
-  }
-
   if (mfaRequired) {
     return (
       <div className="bg-background flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-6">
-          <MfaForm onSuccess={handleAuthSuccess} />
+          <MfaForm onSuccess={() => {}} />
         </div>
       </div>
     );
   }
 
   return (
-    <Page header footer>
-      {isLogin ? (
-        <LoginForm
-          onSuccess={handleAuthSuccess}
-          onToggleMode={toggleAuthMode}
-        />
-      ) : (
-        <RegisterForm
-          onSuccess={handleAuthSuccess}
-          onToggleMode={toggleAuthMode}
-        />
-      )}
-    </Page>
+    <div className="px-4">
+      <Section
+        title={isLogin ? "Login" : "Register"}
+      >
+        {isLogin ? <LoginForm /> : <RegisterForm />}
+        <AuthSwitcher isLogin={isLogin} onToggle={toggleAuthMode} />
+      </Section>
+    </div>
   );
 }

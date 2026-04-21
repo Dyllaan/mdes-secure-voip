@@ -291,6 +291,29 @@ describe('BotInstance', () => {
       expect(callPeerSpy).toHaveBeenCalledWith('peer-a');
       expect(callPeerSpy).toHaveBeenCalledWith('peer-b');
       expect(pipelineStartSpy).toHaveBeenCalled();
+      bot.destroy();
+    });
+
+    it('retries calling existing room peers when the initial offer does not connect', async () => {
+      jest.useFakeTimers();
+      const bot = makeBot();
+      const callPeerSpy = jest.spyOn(bot as any, 'callPeer').mockResolvedValue(undefined);
+      (bot as any).myPeerId = 'peer-self';
+
+      await (bot as any).onAllUsers([
+        { peerId: 'peer-a', alias: 'alice', userId: 'user-a' },
+      ]);
+
+      expect(callPeerSpy).toHaveBeenCalledTimes(1);
+
+      jest.advanceTimersByTime(1_500);
+      await Promise.resolve();
+
+      expect(callPeerSpy).toHaveBeenCalledTimes(2);
+      expect(callPeerSpy).toHaveBeenNthCalledWith(2, 'peer-a');
+
+      bot.destroy();
+      jest.useRealTimers();
     });
   });
 });

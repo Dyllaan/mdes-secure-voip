@@ -67,9 +67,13 @@ export class BotInstance {
   protected readonly modeLabel: 'audio' | 'video';
   protected readonly logPrefix: string;
   protected readonly logger: Logger;
+  protected readonly peerRetryTimers = new Map<string, NodeJS.Timeout>();
+  protected readonly peerRetryCounts = new Map<string, number>();
 
   private startedAt = Date.now();
   private readonly GRACE_MS = 60_000;
+  private readonly PEER_CALL_RETRY_MS = 1_500;
+  private readonly MAX_PEER_CALL_RETRIES = 2;
 
   readonly roomId: string;
   readonly videoMode: boolean = false;
@@ -190,6 +194,9 @@ export class BotInstance {
     this.unwirePipeline();
     this.pipeline.stop();
     this.frameQueue = [];
+    for (const timer of this.peerRetryTimers.values()) clearTimeout(timer);
+    this.peerRetryTimers.clear();
+    this.peerRetryCounts.clear();
 
     if (this.hbTimer) {
       clearInterval(this.hbTimer);
@@ -310,10 +317,71 @@ export class BotInstance {
               alias,
               error: formatErrorForLog(error),
             });
+          } finally {
+            this.schedulePeerRetry(peerId, alias, 'all-users');
           }
         }),
     );
     this.pipeline.start();
+  }
+
+  protected schedulePeerRetry(remotePeerId: string, alias: string, source: 'all-users' | 'user-connected'): void {
+    if (this.destroyed) return;
+    const currentTimer = this.peerRetryTimers.get(remotePeerId);
+    if (currentTimer) clearTimeout(currentTimer);
+
+    const timer = setTimeout(() => {
+      this.peerRetryTimers.delete(remotePeerId);
+      if (this.destroyed) return;
+
+      const existingConn = this.conns.get(remotePeerId);
+      if (existingConn?.pc.connectionState === 'connected') {
+        this.peerRetryCounts.delete(remotePeerId);
+        return;
+      }
+
+      const nextAttempt = (this.peerRetryCounts.get(remotePeerId) ?? 0) + 1;
+      if (nextAttempt > this.MAX_PEER_CALL_RETRIES) {
+        this.peerRetryCounts.delete(remotePeerId);
+        return;
+      }
+
+      this.peerRetryCounts.set(remotePeerId, nextAttempt);
+      if (existingConn) {
+        this.logger.info('peer.retry.resetting_stale_connection', {
+          remotePeerId,
+          alias,
+          source,
+          attempt: nextAttempt,
+          state: existingConn.pc.connectionState,
+        });
+        this.closePeer(remotePeerId);
+      }
+
+      this.logger.info('peer.call_retry', {
+        remotePeerId,
+        alias,
+        source,
+        attempt: nextAttempt,
+        maxRetries: this.MAX_PEER_CALL_RETRIES,
+      });
+
+      void this.callPeer(remotePeerId)
+        .catch((error) => {
+          this.logger.warn('peer.call_retry_failed', {
+            remotePeerId,
+            alias,
+            source,
+            attempt: nextAttempt,
+            error: formatErrorForLog(error),
+          });
+        })
+        .finally(() => {
+          this.schedulePeerRetry(remotePeerId, alias, source);
+        });
+    }, this.PEER_CALL_RETRY_MS);
+
+    this.peerRetryTimers.set(remotePeerId, timer);
   }
 
   protected connectSignaling(): Promise<void> {
@@ -378,6 +446,7 @@ export class BotInstance {
             error: formatErrorForLog(error),
           });
         });
+        this.schedulePeerRetry(peerId, alias, 'user-connected');
       });
 
       this.socket.on('user-disconnected', (peerId: string) => {
@@ -535,6 +604,12 @@ export class BotInstance {
       peerLogger.info('peer_connection.state_changed', { state });
       if (state === 'connected') {
         this.isConnected = true;
+        this.peerRetryCounts.delete(remotePeerId);
+        const retryTimer = this.peerRetryTimers.get(remotePeerId);
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          this.peerRetryTimers.delete(remotePeerId);
+        }
         const conn = this.conns.get(remotePeerId);
         if (conn && this.frameQueue.length > 0) {
           this.logger.info('audio.frame_queue.flushed', {
@@ -650,6 +725,11 @@ export class BotInstance {
 
   protected closePeer(peerId: string): void {
     const conn = this.conns.get(peerId);
+    const retryTimer = this.peerRetryTimers.get(peerId);
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      this.peerRetryTimers.delete(peerId);
+    }
     if (!conn) return;
     try {
       conn.pc.close();
