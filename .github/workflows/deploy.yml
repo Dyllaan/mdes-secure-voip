@@ -26,30 +26,23 @@ jobs:
           filters: |
             gateway:
               - 'services/gateway/**'
-              - 'Dockerfile.gateway'
               - '.github/workflows/deploy.yml'
             realtime:
               - 'services/realtime/**'
-              - 'Dockerfile.realtime'
               - '.github/workflows/deploy.yml'
             frontend:
               - 'voip_frontend/**'
-              - 'Dockerfile.frontend'
               - '.dockerignore'
               - 'docker/frontend/**'
-              - 'nginx.conf'
               - '.github/workflows/deploy.yml'
             hub:
               - 'services/hub-service/**'
-              - 'Dockerfile.hub-service'
               - '.github/workflows/deploy.yml'
             musicman:
               - 'services/musicman-service/**'
-              - 'Dockerfile.musicman-service'
               - '.github/workflows/deploy.yml'
             auth:
               - 'services/auth-service/**'
-              - 'Dockerfile.auth-service'
               - '.github/workflows/deploy.yml'
   test:
     needs: detect-changes
@@ -213,9 +206,8 @@ jobs:
         if: needs.detect-changes.outputs.frontend == 'true'
         run: |
           docker build \
-            -f Dockerfile.frontend \
             -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
-            .
+            ./voip_frontend
           docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
 
   build-electron:

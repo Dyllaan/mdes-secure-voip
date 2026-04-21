@@ -26,7 +26,6 @@ COPY --from=builder /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Install bgutil POT provider plugin for yt-dlp
 RUN pip3 install -U bgutil-ytdlp-pot-provider --break-system-packages
 
 COPY --from=builder /app/dist ./dist

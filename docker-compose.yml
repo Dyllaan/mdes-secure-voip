@@ -1,4 +1,3 @@
-#dev
 x-logging-default: &logging-default
   driver: local
   options:
@@ -9,7 +8,6 @@ services:
   p2p-voip-frontend:
     build:
       context: ./voip_frontend
-      dockerfile: Dockerfile.frontend
       args:
         NGINX_CONF: nginx.dev.conf
     container_name: p2p-voip-frontend
@@ -59,7 +57,6 @@ services:
   p2p-voip-gateway:
     build:
       context: ./services/gateway
-      dockerfile: ../../Dockerfile.gateway
     container_name: voip-gateway
     user: "1000:1000"
     ports:
@@ -104,7 +101,6 @@ services:
   p2p-auth-service:
     build:
       context: ./services/auth-service
-      dockerfile: ../../Dockerfile.auth-service
     container_name: voip-auth-service
     user: "1000:1000"
     read_only: true
@@ -151,7 +147,6 @@ services:
   p2p-voip-realtime-service:
     build:
       context: ./services/realtime
-      dockerfile: Dockerfile.realtime
     container_name: voip-realtime
     user: "1000:1000"
     read_only: true
@@ -179,7 +174,6 @@ services:
   p2p-hub-service:
     build:
       context: ./services/hub-service
-      dockerfile: Dockerfile.hub-service
     container_name: hub-service
     user: "1000:1000"
     environment:
@@ -266,7 +260,6 @@ services:
   p2p-musicman-service:
     build:
       context: ./services/musicman-service
-      dockerfile: ../../Dockerfile.musicman-service
     container_name: musicman-service
     user: "1000:1000"
     tmpfs:

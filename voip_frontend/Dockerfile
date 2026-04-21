@@ -1,27 +1,18 @@
-# Build stage
-FROM node:18-alpine AS build
-
+FROM node:22-alpine AS build
 WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
 RUN npm ci
+COPY . ./
+RUN npm run build:web
 
-# Copy source code and env
-COPY . .
-
-# Build with env vars baked in
-RUN npm run build
-
-# Production stage
-FROM nginx:alpine
-
-# Copy built files (env vars already baked in)
+FROM nginxinc/nginx-unprivileged:alpine
+ARG NGINX_CONF=nginx.conf
+COPY ${NGINX_CONF} /etc/nginx/nginx.conf
+COPY 40-env-js.sh /docker-entrypoint.d/40-env-js.sh
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# Copy nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
+USER root
+RUN mkdir -p /usr/share/nginx/html/config && \
+    chown -R nginx:nginx /usr/share/nginx/html/config && \
+    chmod +x /docker-entrypoint.d/40-env-js.sh
+USER nginx
+EXPOSE 8080

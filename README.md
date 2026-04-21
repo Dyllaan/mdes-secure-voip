@@ -1,16 +1,16 @@
 # MDES — Secure VoIP & Chat
 
-A self-hosted, microservices-based platform for end-to-end encrypted voice/video calls and real-time messaging. Organized around **hubs → channels → rooms**, with TOTP-based MFA, a media bot, and support for both web and desktop (Electron) clients.
+A self-hosted, microservices-based platform for end-to-end encrypted voice calls and real-time messaging. Organized around **hubs -> channels -> rooms**, with TOTP-based MFA, a media bot, and support for both web and desktop (Electron) clients.
 
-## Features
-
-- **Voice & video calls** via WebRTC P2P (PeerJS), with COTURN for NAT traversal
-- **Real-time text messaging** per room using Socket.io
-- **Hub & channel management** — invite-code access control, rate-limited redemption
-- **Authentication** — JWT (access/refresh), TOTP MFA, trusted device management, demo mode
-- **MusicMan bot** — streams YouTube, SoundCloud, and Spotify audio into calls via yt-dlp
-- **Desktop app** — Electron wrapper for Windows
-- **Security** — no privileged containers, capability dropping, helmet headers, CORS filtering, rate limiting
+| Features |  |
+| ----------- | ----------- |
+| Voice calls | via WebRTC P2P (PeerJS), with COTURN for NAT traversal |
+| Realtime Communication | AES-256-GCM encrypted messaging, screenshares, VoIP
+| Hubs & channels | invite-code access control, rate-limited redemption |
+| Authentication | JWT (access/refresh), TOTP MFA, trusted device management, demo mode |
+| MusicMan Bot | streams YouTube, SoundCloud, and Spotify audio into calls via yt-dlp |
+| Desktop App | Electron wrapper for Windows |
+| Security | no privileged containers, capability dropping, helmet headers, CORS filtering, rate limiting |
 
 ## Architecture
 
@@ -42,37 +42,27 @@ git clone https://github.com/your-org/mdes-secure-voip.git
 cd mdes-secure-voip
 cp .env.example .env.local
 ```
+#### JWT Secret Configuration
 
-Edit `.env.local` — the required values are:
+Authentication uses RS256 asymmetric signing to decouple token creation from verification. The server uses a Private Key to sign JWTs, while the Public Key allows services to verify authenticity without the ability to forge tokens. This 2048-bit RSA pair is Base64-encoded to ensure the PEM structure remains string-safe.
 
-```bash
-# JWT — shared across all services
-SECRET_KEY=<long random string>
-TEMP_MFA_SECRET_KEY=<long random string>
+```powershell
+# Generate the Private Key and derive the Public Key
+$priv = openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>$null
+$pub  = $priv | openssl rsa -pubout 2>$null
 
-# Databases
-AUTH_DB_PASSWORD=<password>
-HUB_DB_PASSWORD=<password>
+# Convert keys to Base64 strings
+$JWT_PRIVATE_KEY_B64 = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($priv))
+$JWT_PUBLIC_KEY_B64  = [Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pub))
 
-# MusicMan bot credentials (must match a registered user)
-BOT_SECRET=<secret>
-BOT_PASSWORD=<password>
-
-# TURN server
-TURN_SECRET=<32-byte hex, e.g. openssl rand -hex 32>
-COTURN_REALM=<your domain or hostname>
-COTURN_EXTERNAL_IP=<your public IP>
-TURN_HOST=10.10.10.10
-TURN_PORT=3478
-
-# CORS — the URL your frontend is served from
-ALLOWED_ORIGINS=http://localhost
-
-# Demo mode (optional — set false to disable)
-DEMO_MODE=false
+# Output
+"JWT_PRIVATE_KEY_B64=$JWT_PRIVATE_KEY_B64"
+"JWT_PUBLIC_KEY_B64=$JWT_PUBLIC_KEY_B64"
 ```
 
-Token expiry, media limits, and log levels can also be tuned — see `.env.example` for the full reference.
+#### Demo Secret
+
+Token expiry, media limits, and log levels can be configured as laid out in `.env.example`.
 
 ### 2. Start the stack
 
