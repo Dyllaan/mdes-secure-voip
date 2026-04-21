@@ -48,19 +48,15 @@ export default function AuthPage({
 
   if (mfaRequired) {
     return (
-      <div className="bg-background flex items-center justify-center p-6">
-        <div className="w-full max-w-md space-y-6">
-          <MfaForm onSuccess={() => {}} />
-        </div>
+      <div className="w-full max-w-md mx-auto p-6 pt-12">
+        <MfaForm onSuccess={() => {}} />
       </div>
     );
   }
 
   return (
-    <div className="px-4">
-      <Section
-        title={isLogin ? "Login" : "Register"}
-      >
+    <div className="w-full max-w-md mx-auto px-4 pt-12">
+      <Section title={isLogin ? "Login" : "Register"}>
         {isLogin ? <LoginForm /> : <RegisterForm />}
         <AuthSwitcher isLogin={isLogin} onToggle={toggleAuthMode} />
       </Section>
