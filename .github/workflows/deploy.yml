@@ -161,7 +161,7 @@ jobs:
         run: |
           docker build \
             --build-arg PORT=3000 \
-            -f Dockerfile.gateway \
+            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-voip-gateway:latest \
             ./services/gateway
           docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
@@ -170,7 +170,7 @@ jobs:
         if: needs.detect-changes.outputs.realtime == 'true'
         run: |
           docker build \
-            -f Dockerfile.realtime \
+            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
             .
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
@@ -179,7 +179,7 @@ jobs:
         if: needs.detect-changes.outputs.hub == 'true'
         run: |
           docker build \
-            -f Dockerfile.hub-service \
+            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-hub-service:latest \
             .
           docker push ${{ env.REGISTRY }}/p2p-hub-service:latest
@@ -188,7 +188,7 @@ jobs:
         if: needs.detect-changes.outputs.musicman == 'true'
         run: |
           docker build \
-            -f Dockerfile.musicman-service \
+            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-musicman-service:latest \
             ./services/musicman-service
           docker push ${{ env.REGISTRY }}/p2p-musicman-service:latest
@@ -197,7 +197,7 @@ jobs:
         if: needs.detect-changes.outputs.auth == 'true'
         run: |
           docker build \
-            -f Dockerfile.auth-service \
+            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-auth-service:latest \
             ./services/auth-service
           docker push ${{ env.REGISTRY }}/p2p-auth-service:latest
