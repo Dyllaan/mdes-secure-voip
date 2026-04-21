@@ -651,26 +651,50 @@ test.describe('Auth - Register page', () => {
     await expect(page.getByTestId('login-form')).toBeVisible();
   });
 
-  test('password mismatch keeps register submit disabled and shows validation', async ({ page }) => {
+  test('password mismatch blocks registration and shows validation after submit', async ({ page }) => {
+    let registerRequests = 0;
+
     await mockAuthRoutes(page);
+    await page.route('**/auth/user/register', async (route) => {
+      registerRequests += 1;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_USER),
+      });
+    });
     await page.goto('/#/register');
     await page.getByTestId('username-input').fill('newuser');
     await page.getByTestId('password-input').fill('Password1');
     await page.getByTestId('confirm-password-input').fill('Different1');
+    await page.getByTestId('register-submit').click();
 
-    await expect(page.getByTestId('register-submit')).toBeDisabled();
     await expect(page.getByText('Passwords do not match')).toBeVisible();
+    await expect(page).toHaveURL(/#\/register$/);
+    await expect.poll(() => registerRequests).toBe(0);
   });
 
-  test('password shorter than 8 chars keeps register submit disabled', async ({ page }) => {
+  test('short passwords block registration and show validation after submit', async ({ page }) => {
+    let registerRequests = 0;
+
     await mockAuthRoutes(page);
+    await page.route('**/auth/user/register', async (route) => {
+      registerRequests += 1;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_USER),
+      });
+    });
     await page.goto('/#/register');
     await page.getByTestId('username-input').fill('newuser');
     await page.getByTestId('password-input').fill('short');
     await page.getByTestId('confirm-password-input').fill('short');
+    await page.getByTestId('register-submit').click();
 
-    await expect(page.getByTestId('register-submit')).toBeDisabled();
-    await expect(page.getByText('Password must be at least 8 characters')).toBeVisible();
+    await expect(page.getByText(/^Password must be at least 8 characters$/)).toBeVisible();
+    await expect(page).toHaveURL(/#\/register$/);
+    await expect.poll(() => registerRequests).toBe(0);
   });
 
   test('successful registration logs the user in and sends them to key setup when keys are missing', async ({ page }) => {
