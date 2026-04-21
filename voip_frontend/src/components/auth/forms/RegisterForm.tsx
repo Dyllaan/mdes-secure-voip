@@ -38,6 +38,7 @@ export default function RegisterForm() {
                     {...field}
                     type="text"
                     placeholder="Username"
+                    data-testid="username-input"
                     className={cn(
                       "text-base h-12",
                       shouldShowError(
@@ -68,6 +69,7 @@ export default function RegisterForm() {
                     {...field}
                     type="password"
                     placeholder="Password"
+                    data-testid="password-input"
                     className={cn(
                       "text-base h-12",
                       shouldShowError(
@@ -99,6 +101,7 @@ export default function RegisterForm() {
                     {...field}
                     type="password"
                     placeholder="Confirm Password"
+                    data-testid="confirm-password-input"
                     className={cn(
                       "text-base h-12",
                       shouldShowError(
@@ -118,6 +121,7 @@ export default function RegisterForm() {
           type="button"
           className="w-full mt-6"
           onClick={handleSubmitClick}
+          data-testid="register-submit"
         >
           Create Account
         </Button>

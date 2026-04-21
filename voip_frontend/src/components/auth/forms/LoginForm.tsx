@@ -9,7 +9,7 @@ export default function LoginForm() {
   const { username, setUsername, password, setPassword, loading, handleSubmit } = useLoginForm();
 
   return (
-    <form className="space-y-4">
+    <form className="space-y-4" data-testid="login-form">
       <div className="space-y-2">
         <Label htmlFor="username" className="flex items-center gap-2 text-base">
           <UserIcon className="w-4 h-4 text-muted-foreground" />
@@ -25,6 +25,7 @@ export default function LoginForm() {
           required
           disabled={loading}
           autoComplete="username"
+          data-testid="username-input"
         />
       </div>
 
@@ -43,6 +44,7 @@ export default function LoginForm() {
           required
           disabled={loading}
           autoComplete="current-password"
+          data-testid="password-input"
         />
       </div>
 
@@ -51,6 +53,7 @@ export default function LoginForm() {
         disabled={loading}
         className="w-full mt-6"
         onClick={handleSubmit}
+        data-testid="login-submit"
       >
         {loading ? 'Signing in...' : 'Sign In'}
       </Button>

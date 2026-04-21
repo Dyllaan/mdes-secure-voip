@@ -8,7 +8,7 @@ x-logging-default: &logging-default
 services:
   p2p-voip-frontend:
     build:
-      context: .
+      context: ./voip_frontend
       dockerfile: Dockerfile.frontend
       args:
         NGINX_CONF: nginx.dev.conf
@@ -150,7 +150,7 @@ services:
 
   p2p-voip-realtime-service:
     build:
-      context: .
+      context: ./services/realtime
       dockerfile: Dockerfile.realtime
     container_name: voip-realtime
     user: "1000:1000"
@@ -178,7 +178,7 @@ services:
 
   p2p-hub-service:
     build:
-      context: .
+      context: ./services/hub-service
       dockerfile: Dockerfile.hub-service
     container_name: hub-service
     user: "1000:1000"

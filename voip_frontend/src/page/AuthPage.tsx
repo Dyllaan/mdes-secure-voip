@@ -25,6 +25,7 @@ function AuthSwitcher({
         type="button"
         onClick={onToggle}
         className="font-medium text-foreground underline underline-offset-4 hover:text-primary transition-colors"
+        data-testid={isLogin ? "switch-to-register" : "switch-to-login"}
       >
         {isLogin ? "Sign up" : "Sign in"}
       </button>
