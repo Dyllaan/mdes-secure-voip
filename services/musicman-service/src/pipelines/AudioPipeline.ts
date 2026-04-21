@@ -4,17 +4,24 @@
  * Spawns a yt-dlp | ffmpeg subprocess pipeline to extract Opus audio frames
  * from a URL, emitting 'frame' events at 20ms intervals and an 'ended' event
  * when the stream finishes. Supports pause/resume and seek.
- * ONLY USED WHEN VIDEO MODE IS DISABLED. In video mode, the AVPipeline class is used instead,
+ * ONLY USED WHEN VIDEO MODE IS DISABLED. In video mode, the AVPipeline class is used instead.
  */
 
 import { spawn, type ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
-import { appendStderrLines, summarizeStderrLines, truncateForLog } from '../logging';
+import {
+    appendStderrLines,
+    createLogger,
+    summarizeStderrLines,
+    truncateForLog,
+    type Logger,
+} from '../logging';
 
 export const OPUS_FRAME_MS = 20;
 export const SAMPLE_RATE = 48_000;
 export const CHANNELS = 1;
 export const RTP_TIMESTAMP_STEP = SAMPLE_RATE * OPUS_FRAME_MS / 1000;
+const YTDLP_TEMP_DIR = (process.env.YTDLP_TEMP_DIR ?? '/tmp').trim() || '/tmp';
 
 export interface OpusFrame {
     data: Buffer;
@@ -85,6 +92,9 @@ export class AudioPipeline extends EventEmitter {
     private ytdlpStderrLines: string[] = [];
     private ffmpegStderrLines: string[] = [];
     private failureEmitted = false;
+    private endedRunId = -1;
+    private runId = 0;
+    private readonly logger: Logger;
 
     get running() { return this._running; }
     get isPaused() { return this._paused; }
@@ -95,14 +105,11 @@ export class AudioPipeline extends EventEmitter {
         private readonly logContext = 'audio-pipeline',
     ) {
         super();
+        this.logger = createLogger('audioPipeline', { logContext });
     }
 
     private get logPrefix(): string {
         return `[AudioPipeline ${this.logContext}]`;
-    }
-
-    private recordStderr(target: string[], chunk: Buffer): void {
-        appendStderrLines(target, chunk);
     }
 
     private emitProcessFailure(
@@ -120,6 +127,7 @@ export class AudioPipeline extends EventEmitter {
 
     start(seekMs = 0): void {
         if (this._running) return;
+        const runId = ++this.runId;
         this._running = true;
         this._paused = false;
         this._frameCount = 0;
@@ -127,12 +135,14 @@ export class AudioPipeline extends EventEmitter {
         this.ytdlpStderrLines = [];
         this.ffmpegStderrLines = [];
         this.failureEmitted = false;
+        this.endedRunId = -1;
 
         const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
         const ytdlpArgs = [
             '--no-playlist',
             '--no-warnings',
+            '--paths', `temp:${YTDLP_TEMP_DIR}`,
             '--js-runtimes', 'quickjs:/usr/bin/qjs',
             '--extractor-args', `youtubepot-bgutilhttp:base_url=${potBaseUrl}`,
             '-f', 'ba/b',
@@ -144,8 +154,6 @@ export class AudioPipeline extends EventEmitter {
         }
 
         ytdlpArgs.push(this.url);
-
-        this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
         const ffmpegArgs = [
             '-loglevel', 'error',
@@ -162,7 +170,7 @@ export class AudioPipeline extends EventEmitter {
             'pipe:1',
         ];
 
-        console.log(`${this.logPrefix} Starting`, {
+        this.logger.info('pipeline.start', {
             url: truncateForLog(this.url),
             seekMs,
             commands: {
@@ -171,6 +179,7 @@ export class AudioPipeline extends EventEmitter {
             },
         });
 
+        this.ytdlp = spawn('yt-dlp', ytdlpArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
         this.ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
         this.ytdlp.stdout!.on('error', () => {});
@@ -179,36 +188,46 @@ export class AudioPipeline extends EventEmitter {
         this.ytdlp.stdout!.pipe(this.ffmpeg.stdin!);
 
         this.ffmpeg.stdout!.on('data', (chunk: Buffer) => {
+            if (runId !== this.runId) return;
             this.buf = Buffer.concat([this.buf, chunk]);
             this.buf = extractOggPackets(this.buf, (pkt) => this.queue.push(pkt));
+            this.logger.debug('ffmpeg.stdout.chunk', {
+                chunkBytes: chunk.length,
+                queueLength: this.queue.length,
+                bufferedBytes: this.buf.length,
+            });
         });
 
         this.ytdlp.stderr!.on('data', (d: Buffer) => {
-            this.recordStderr(this.ytdlpStderrLines, d);
-            process.stderr.write(`[yt-dlp] ${d}`);
+            if (runId !== this.runId) return;
+            appendStderrLines(this.ytdlpStderrLines, d);
+            this.logger.debug('ytdlp.stderr', { message: d.toString() });
         });
 
         this.ffmpeg.stderr!.on('data', (d: Buffer) => {
-            this.recordStderr(this.ffmpegStderrLines, d);
+            if (runId !== this.runId) return;
+            appendStderrLines(this.ffmpegStderrLines, d);
             const msg = d.toString();
             if (!msg.includes('Error parsing Opus packet header')) {
-                process.stderr.write(`[ffmpeg] ${msg}`);
+                this.logger.debug('ffmpeg.stderr', { message: msg });
             }
         });
 
-        this.ytdlp.on('error', (e) => {
-            console.error(`${this.logPrefix} yt-dlp process error`, {
+        this.ytdlp.on('error', (error) => {
+            if (runId !== this.runId) return;
+            this.logger.error('ytdlp.process_error', {
                 url: truncateForLog(this.url),
-                error: e.message,
+                error,
             });
             this.emitProcessFailure('yt-dlp', {
                 stderrSummary: summarizeStderrLines(this.ytdlpStderrLines),
             });
         });
-        this.ffmpeg.on('error', (e) => {
-            console.error(`${this.logPrefix} ffmpeg process error`, {
+        this.ffmpeg.on('error', (error) => {
+            if (runId !== this.runId) return;
+            this.logger.error('ffmpeg.process_error', {
                 url: truncateForLog(this.url),
-                error: e.message,
+                error,
             });
             this.emitProcessFailure('ffmpeg', {
                 stderrSummary: summarizeStderrLines(this.ffmpegStderrLines),
@@ -216,6 +235,7 @@ export class AudioPipeline extends EventEmitter {
         });
 
         this.ytdlp.on('exit', (code, signal) => {
+            if (runId !== this.runId) return;
             const stderrSummary = summarizeStderrLines(this.ytdlpStderrLines);
             const summary = {
                 code,
@@ -225,16 +245,17 @@ export class AudioPipeline extends EventEmitter {
                 stderrSummary,
             };
             if (code !== 0 && code !== null) {
-                console.error(`${this.logPrefix} yt-dlp exited unexpectedly`, summary);
+                this.logger.error('ytdlp.exit.unexpected', summary);
                 if (this._frameCount === 0) {
                     this.emitProcessFailure('yt-dlp', { code, signal, stderrSummary });
                 }
             } else {
-                console.log(`${this.logPrefix} yt-dlp exited`, summary);
+                this.logger.info('ytdlp.exit', summary);
             }
         });
 
         this.ffmpeg.on('close', (code) => {
+            if (runId !== this.runId) return;
             const stderrSummary = summarizeStderrLines(this.ffmpegStderrLines);
             const summary = {
                 code,
@@ -243,28 +264,33 @@ export class AudioPipeline extends EventEmitter {
                 stderrSummary,
             };
             if (code !== 0 && code !== null) {
-                console.error(`${this.logPrefix} ffmpeg closed unexpectedly`, summary);
+                this.logger.error('ffmpeg.close.unexpected', summary);
                 if (this._frameCount === 0) {
                     this.emitProcessFailure('ffmpeg', { code, stderrSummary });
                 }
             } else {
-                console.log(`${this.logPrefix} ffmpeg closed`, summary);
+                this.logger.info('ffmpeg.close', summary);
             }
-            this._running = false;
+            if (runId !== this.runId || !this._running) return;
             this._drainCheck = setInterval(() => {
+                if (runId !== this.runId) return;
                 if (this.queue.length === 0) {
-                    if (this._drainCheck) { clearInterval(this._drainCheck); this._drainCheck = null; }
-                    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-                    this.emit('ended', code);
+                    this.finishRun(runId, code);
                 }
             }, OPUS_FRAME_MS);
         });
 
         this.timer = setInterval(() => {
+            if (runId !== this.runId) return;
             if (this._paused) return;
             if (this.queue.length > 0) {
                 const frame = this.queue.shift()!;
                 this._frameCount++;
+                this.logger.debug('audio.frame.emitted', {
+                    frameCount: this._frameCount,
+                    queueRemaining: this.queue.length,
+                    positionMs: this.positionMs,
+                });
                 this.emit('frame', { data: frame, durationMs: OPUS_FRAME_MS } satisfies OpusFrame);
             }
         }, OPUS_FRAME_MS);
@@ -272,15 +298,25 @@ export class AudioPipeline extends EventEmitter {
 
     stop(): void {
         if (!this._running) return;
+        this.runId += 1;
         this._running = false;
 
-        if (this.timer) { clearInterval(this.timer); this.timer = null; }
-        if (this._drainCheck) { clearInterval(this._drainCheck); this._drainCheck = null; }
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+        if (this._drainCheck) {
+            clearInterval(this._drainCheck);
+            this._drainCheck = null;
+        }
 
         this._paused = false;
         this._frameCount = 0;
         this._seekOffsetMs = 0;
         this.failureEmitted = false;
+        this.endedRunId = -1;
+
+        this.logger.info('pipeline.stop');
 
         try { this.ffmpeg?.stdin?.end(); } catch { /* already closed */ }
         this.ytdlp?.kill('SIGTERM');
@@ -293,15 +329,39 @@ export class AudioPipeline extends EventEmitter {
     }
 
     pause(): void {
-        if (this._running && !this._paused) this._paused = true;
+        if (this._running && !this._paused) {
+            this._paused = true;
+            this.logger.info('pipeline.pause', { positionMs: this.positionMs });
+        }
     }
 
     resume(): void {
-        if (this._running && this._paused) this._paused = false;
+        if (this._running && this._paused) {
+            this._paused = false;
+            this.logger.info('pipeline.resume', { positionMs: this.positionMs });
+        }
     }
 
     seek(ms: number): void {
+        this.logger.info('pipeline.seek', { ms, previousPositionMs: this.positionMs });
         this.stop();
         this.start(Math.max(0, ms));
+    }
+
+    private finishRun(runId: number, code: number | null): void {
+        if (runId !== this.runId || this.endedRunId === runId) return;
+        this.endedRunId = runId;
+        if (this._drainCheck) {
+            clearInterval(this._drainCheck);
+            this._drainCheck = null;
+        }
+        this._running = false;
+        this._paused = false;
+        if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+        this.logger.info('pipeline.ended', { code });
+        this.emit('ended', code);
     }
 }

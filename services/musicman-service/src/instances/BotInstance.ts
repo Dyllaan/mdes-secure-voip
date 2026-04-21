@@ -14,24 +14,24 @@ import {
   type OpusFrame,
 } from '../pipelines/AudioPipeline';
 import { config } from '../config';
-import { formatErrorForLog, truncateForLog } from '../logging';
+import { createLogger, formatErrorForLog, type Logger, truncateForLog } from '../logging';
 
 export const OPUS_PAYLOAD_TYPE = 111;
 
 export interface PeerConn {
-  pc:                RTCPeerConnection;
-  track:             MediaStreamTrack;
-  transceiver:       RTCRtpTransceiver;
-  connectionId:      string;
-  ssrc:              number;
-  seq:               number;
-  timestamp:         number;
-  answerSent:        boolean;
+  pc: RTCPeerConnection;
+  track: MediaStreamTrack;
+  transceiver: RTCRtpTransceiver;
+  connectionId: string;
+  ssrc: number;
+  seq: number;
+  timestamp: number;
+  answerSent: boolean;
   pendingCandidates: Array<RTCIceCandidate>;
 }
 
-export type IceEntry             = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
-export type AllUsersPayload      = Array<{ peerId: string; alias: string; userId: string }>;
+export type IceEntry = { candidate: string; sdpMid?: string; sdpMLineIndex?: number };
+export type AllUsersPayload = Array<{ peerId: string; alias: string; userId: string }>;
 export type UserConnectedPayload = { peerId: string; alias: string };
 
 export interface TurnCredentials {
@@ -40,30 +40,33 @@ export interface TurnCredentials {
 }
 
 export interface IceServer {
-  urls:        string;
-  username?:   string;
+  urls: string;
+  username?: string;
   credential?: string;
 }
 
 export class BotInstance {
-  protected socket:   Socket | null = null;
-  protected peerWs:   WebSocket | null = null;
+  protected socket: Socket | null = null;
+  protected peerWs: WebSocket | null = null;
   protected myPeerId: string | null = null;
 
-  protected pipeline:   AudioPipeline;
+  protected pipeline: AudioPipeline;
   protected url: string;
-  protected conns       = new Map<string, PeerConn>();
-  protected iceBuf      = new Map<string, IceEntry[]>();
-  protected hbTimer:    NodeJS.Timeout | null = null;
-  protected destroyed   = false;
+  protected conns = new Map<string, PeerConn>();
+  protected iceBuf = new Map<string, IceEntry[]>();
+  protected hbTimer: NodeJS.Timeout | null = null;
+  protected destroyed = false;
   protected frameQueue: OpusFrame[] = [];
   protected isConnected = false;
 
   protected onAutoLeave: (() => void) | null = null;
+  protected onTrackEndedCallback: (() => void) | null = null;
+  protected onDestroyCallback: ((reason: string) => void) | null = null;
   protected turnCredentials: TurnCredentials;
   protected readonly botType: string;
   protected readonly modeLabel: 'audio' | 'video';
   protected readonly logPrefix: string;
+  protected readonly logger: Logger;
 
   private startedAt = Date.now();
   private readonly GRACE_MS = 60_000;
@@ -72,6 +75,7 @@ export class BotInstance {
   readonly videoMode: boolean = false;
 
   private readonly scheme = config.TURN_SECURE ? 'turns' : 'turn';
+  private _rtpLogCount = 0;
 
   constructor(
     roomId: string,
@@ -80,34 +84,40 @@ export class BotInstance {
     turnCredentials: TurnCredentials,
     botType = 'Bot',
   ) {
-    this.roomId          = roomId;
-    this.url             = url;
+    this.roomId = roomId;
+    this.url = url;
     this.turnCredentials = turnCredentials;
-    this.botType         = botType;
-    this.modeLabel       = botType === 'AVBot' ? 'video' : 'audio';
-    this.logPrefix       = `[${botType} ${roomId}]`;
-    this.pipeline        = new AudioPipeline(url, `${botType}:${roomId}`);
-
-    console.log(`${this.logPrefix} Created`, {
+    this.botType = botType;
+    this.modeLabel = botType === 'AVBot' ? 'video' : 'audio';
+    this.logPrefix = `[${botType} ${roomId}]`;
+    this.logger = createLogger('botInstance', {
+      botType,
+      roomId,
       mode: this.modeLabel,
-      url: truncateForLog(url),
     });
+    this.pipeline = new AudioPipeline(url, `${botType}:${roomId}`);
+
+    this.logger.info('bot.created', { url: truncateForLog(url) });
   }
 
   protected buildIceServers(): IceServer[] {
     const primaryUrl = `${this.scheme}:${config.TURN_HOST}:${config.TURN_PORT}?transport=udp`;
-    console.log(`TURN_SECURE: ${config.TURN_SECURE} | primary TURN URL: ${primaryUrl}`);
+    this.logger.info('turn_servers.built', {
+      turnSecure: config.TURN_SECURE,
+      primaryUrl,
+    });
+
     return [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       {
-        urls:       primaryUrl,
-        username:   this.turnCredentials.username,
+        urls: primaryUrl,
+        username: this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
       {
-        urls:       `turn:${config.TURN_HOST}:3478?transport=udp`,
-        username:   this.turnCredentials.username,
+        urls: `turn:${config.TURN_HOST}:3478?transport=udp`,
+        username: this.turnCredentials.username,
         credential: this.turnCredentials.password,
       },
     ];
@@ -115,6 +125,14 @@ export class BotInstance {
 
   setAutoLeaveCallback(cb: () => void): void {
     this.onAutoLeave = cb;
+  }
+
+  setTrackEndedCallback(cb: () => void): void {
+    this.onTrackEndedCallback = cb;
+  }
+
+  setDestroyCallback(cb: (reason: string) => void): void {
+    this.onDestroyCallback = cb;
   }
 
   protected readonly onAudioFrame = (frame: OpusFrame) => {
@@ -126,21 +144,21 @@ export class BotInstance {
   };
 
   protected readonly onEnded = (code: number | null) => {
-    console.log(`${this.logPrefix} Pipeline ended`, {
+    this.logger.info('pipeline.ended', {
       code,
-      mode: this.modeLabel,
       url: truncateForLog(this.url),
       playback: this.getStatus(),
     });
     this.emitToRoom('musicman:track-ended', { roomId: this.roomId });
+    this.onTrackEndedCallback?.();
   };
 
-  protected readonly onPipelineError = (e: Error) =>
-    console.error(`${this.logPrefix} Pipeline error`, {
-      mode: this.modeLabel,
+  protected readonly onPipelineError = (error: Error) => {
+    this.logger.error('pipeline.error', {
       url: truncateForLog(this.url),
-      error: formatErrorForLog(e),
+      error: formatErrorForLog(error),
     });
+  };
 
   protected wirePipeline(): void {
     this.pipeline.on('frame', this.onAudioFrame);
@@ -155,10 +173,7 @@ export class BotInstance {
   }
 
   async start(): Promise<void> {
-    console.log(`${this.logPrefix} Starting`, {
-      mode: this.modeLabel,
-      url: truncateForLog(this.url),
-    });
+    this.logger.info('bot.starting', { url: truncateForLog(this.url) });
     this.wirePipeline();
     await this.connectSignaling();
   }
@@ -166,9 +181,8 @@ export class BotInstance {
   destroy(reason = 'manual'): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    console.log(`${this.logPrefix} Destroying`, {
+    this.logger.info('bot.destroying', {
       reason,
-      mode: this.modeLabel,
       url: truncateForLog(this.url),
       playback: this.getStatus(),
     });
@@ -177,20 +191,24 @@ export class BotInstance {
     this.pipeline.stop();
     this.frameQueue = [];
 
-    if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
+    if (this.hbTimer) {
+      clearInterval(this.hbTimer);
+      this.hbTimer = null;
+    }
     for (const peerId of [...this.conns.keys()]) this.closePeer(peerId);
 
     if (this.socket?.connected) {
+      this.logger.info('signaling.leave_room.sent', { roomId: this.roomId });
       this.socket.emit('leave-room', { roomId: this.roomId });
       this.socket.disconnect();
     }
     this.peerWs?.close();
+    this.onDestroyCallback?.(reason);
   }
 
   changeTrack(url: string): void {
     if (this.destroyed) return;
-    console.log(`${this.logPrefix} changeTrack`, {
-      mode: this.modeLabel,
+    this.logger.info('bot.change_track', {
       previousUrl: truncateForLog(this.url),
       nextUrl: truncateForLog(url),
     });
@@ -203,42 +221,58 @@ export class BotInstance {
     this.wirePipeline();
     this.pipeline.start();
 
-    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, url: url });
+    this.emitToRoom('musicman:track-changed', { roomId: this.roomId, url });
   }
 
   pause(): void {
     this.pipeline.pause();
+    this.logger.info('bot.pause');
     this.emitToRoom('musicman:state-changed', {
-      roomId: this.roomId, playing: this.pipeline.running, paused: true,
+      roomId: this.roomId,
+      playing: this.pipeline.running,
+      paused: true,
     });
   }
 
   resume(): void {
     this.pipeline.resume();
+    this.logger.info('bot.resume');
     this.emitToRoom('musicman:state-changed', {
-      roomId: this.roomId, playing: this.pipeline.running, paused: false,
+      roomId: this.roomId,
+      playing: this.pipeline.running,
+      paused: false,
     });
   }
 
-  seek(ms: number): void { this.pipeline.seek(ms); }
+  seek(ms: number): void {
+    this.logger.info('bot.seek', { ms });
+    this.pipeline.seek(ms);
+  }
 
   getStatus(): { playing: boolean; paused: boolean; positionMs: number; url: string } {
     return {
-      playing:    this.pipeline.running,
-      paused:     this.pipeline.isPaused,
+      playing: this.pipeline.running,
+      paused: this.pipeline.isPaused,
       positionMs: this.pipeline.positionMs,
       url: this.url,
     };
   }
 
-  protected emitToRoom(event: string, data: Record<string, unknown>): void {
-    if (this.socket?.connected) this.socket.emit(event, data);
+  emitRoomEvent(event: string, data: unknown): void {
+    this.emitToRoom(event, data);
+  }
+
+  protected emitToRoom(event: string, data: unknown): void {
+    if (this.socket?.connected) {
+      this.logger.debug('socket.emit', { event, payload: data });
+      this.socket.emit(event, data);
+    }
   }
 
   protected checkAutoLeave(): void {
     if (Date.now() - this.startedAt < this.GRACE_MS) return;
     if (this.conns.size === 0) {
-      console.log(`${this.logPrefix} No peers connected, triggering auto-leave`);
+      this.logger.info('bot.auto_leave.triggered');
       this.onAutoLeave?.();
     }
   }
@@ -246,9 +280,9 @@ export class BotInstance {
   protected async callPeer(remotePeerId: string): Promise<void> {
     if (this.destroyed || this.conns.has(remotePeerId)) return;
     const connectionId = uuid();
-    console.log(`${this.roomId} → Offering to ${remotePeerId}`);
+    this.logger.info('peer.offer.sending', { remotePeerId, connectionId });
 
-    const conn  = this.makePc(remotePeerId, connectionId);
+    const conn = this.makePc(remotePeerId, connectionId);
     const offer = await conn.pc.createOffer();
     await conn.pc.setLocalDescription(offer);
 
@@ -260,6 +294,25 @@ export class BotInstance {
   }
 
   protected async onAllUsers(users: AllUsersPayload): Promise<void> {
+    this.logger.info('room.users.received', {
+      userCount: users.length,
+      aliases: users.map((user) => user.alias),
+    });
+    await Promise.allSettled(
+      users
+        .filter(({ peerId }) => peerId && peerId !== this.myPeerId)
+        .map(async ({ peerId, alias }) => {
+          try {
+            await this.callPeer(peerId);
+          } catch (error) {
+            this.logger.warn('peer.call_failed', {
+              remotePeerId: peerId,
+              alias,
+              error: formatErrorForLog(error),
+            });
+          }
+        }),
+    );
     this.pipeline.start();
   }
 
@@ -269,6 +322,7 @@ export class BotInstance {
         auth: { token: this.token, username: config.BOT_USERNAME },
         transports: ['websocket'],
       });
+      this.logger.info('signaling.connect.start', { signalingUrl: config.SIGNALING_URL });
 
       const timer = setTimeout(
         () => reject(new Error(`[Bot ${this.roomId}] Socket.IO connection timed out`)),
@@ -280,57 +334,70 @@ export class BotInstance {
 
         if (!peerId) {
           clearTimeout(timer);
-          return reject(new Error(
+          reject(new Error(
             `[Bot ${this.roomId}] '${config.PEER_ID_EVENT}' fired but key '${config.PEER_ID_KEY}' was missing. Payload: ${JSON.stringify(payload)}`,
           ));
+          return;
         }
 
         this.myPeerId = peerId;
-        console.log(`[Bot ${this.roomId}] Assigned peer ID: ${peerId}`);
+        this.logger.info('signaling.peer_id.assigned', { peerId });
 
         try {
           await this.connectPeerWs(peerId);
-        } catch (err) {
+        } catch (error) {
           clearTimeout(timer);
-          return reject(err);
+          reject(error);
+          return;
         }
 
         this.socket!.once('all-users', async (users: AllUsersPayload) => {
           clearTimeout(timer);
-          console.log(`[Bot ${this.roomId}] all-users (${users.length}):`, users.map(u => u.alias));
           try {
             await this.onAllUsers(users);
             resolve();
-          } catch (err) {
-            reject(err);
+          } catch (error) {
+            reject(error);
           }
         });
 
         this.socket!.emit('join-room', {
           roomId: this.roomId,
-          alias:  'musicman',
+          alias: 'musicman',
           userId: config.BOT_USERNAME,
+        });
+        this.logger.info('signaling.join_room.sent', { roomId: this.roomId, peerId });
+      });
+
+      this.socket.on('user-connected', ({ peerId, alias }: UserConnectedPayload) => {
+        this.logger.info('signaling.user_connected', { peerId, alias });
+        void this.callPeer(peerId).catch((error) => {
+          this.logger.warn('peer.call_failed', {
+            remotePeerId: peerId,
+            alias,
+            error: formatErrorForLog(error),
+          });
         });
       });
 
-      this.socket.on('user-connected', async ({ peerId, alias }: UserConnectedPayload) => {
-        console.log(`[Bot ${this.roomId}] user-connected: ${alias} (${peerId})`);
-        // dont call peers let them call us
-      });
-
       this.socket.on('user-disconnected', (peerId: string) => {
-        console.log(`[Bot ${this.roomId}] user-disconnected: ${peerId}`);
+        this.logger.info('signaling.user_disconnected', { peerId });
         this.closePeer(peerId);
       });
 
-      this.socket.on('room-closed', () => { this.destroy('room_closed'); });
+      this.socket.on('room-closed', () => {
+        this.logger.warn('signaling.room_closed');
+        this.destroy('room_closed');
+      });
 
-      this.socket.on('join-error', ({ message: msg }: { message: string }) =>
-        console.error(`[Bot ${this.roomId}] join-error: ${msg}`));
+      this.socket.on('join-error', ({ message: msg }: { message: string }) => {
+        this.logger.error('signaling.join_error', { errorMessage: msg });
+      });
 
-      this.socket.on('connect_error', (err: Error) => {
+      this.socket.on('connect_error', (error: Error) => {
         clearTimeout(timer);
-        reject(err);
+        this.logger.error('signaling.connect_error', { error: formatErrorForLog(error) });
+        reject(error);
       });
     });
   }
@@ -339,10 +406,10 @@ export class BotInstance {
     return new Promise((resolve, reject) => {
       const { PEER_HOST, PEER_PORT, PEER_PATH, PEER_SECURE } = config;
       const proto = PEER_SECURE ? 'wss' : 'ws';
-      const path  = PEER_PATH.endsWith('/') ? PEER_PATH : `${PEER_PATH}/`;
+      const path = PEER_PATH.endsWith('/') ? PEER_PATH : `${PEER_PATH}/`;
       const wsUrl = `${proto}://${PEER_HOST}:${PEER_PORT}${path}peerjs?key=peerjs&id=${encodeURIComponent(peerId)}&token=${encodeURIComponent(this.token)}`;
 
-      console.log(`[PeerWS ${this.roomId}] Connecting -> ${wsUrl}`);
+      this.logger.info('peerws.connect.start', { peerId, wsUrl });
       this.peerWs = new WebSocket(wsUrl);
 
       const timer = setTimeout(
@@ -351,8 +418,10 @@ export class BotInstance {
       );
 
       this.peerWs.on('open', () => {
+        this.logger.info('peerws.connect.open', { peerId });
         this.hbTimer = setInterval(() => {
           if (this.peerWs?.readyState === WebSocket.OPEN) {
+            this.logger.debug('peerws.heartbeat.send', { peerId });
             this.peerWs.send(JSON.stringify({ type: 'HEARTBEAT' }));
           } else {
             clearInterval(this.hbTimer!);
@@ -363,52 +432,87 @@ export class BotInstance {
 
       this.peerWs.on('message', async (raw: WebSocket.RawData) => {
         let msg: { type: string; src: string; dst: string; payload: Record<string, unknown> };
-        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch {
+          this.logger.warn('peerws.message.parse_failed');
+          return;
+        }
 
         switch (msg.type) {
-          case 'OPEN':      clearTimeout(timer); console.log(`[PeerWS ${this.roomId}] Open ✓`); resolve(); break;
-          case 'OFFER':     await this.onOffer(msg.src, msg.payload);     break;
-          case 'ANSWER':    await this.onAnswer(msg.src, msg.payload);    break;
-          case 'CANDIDATE': await this.onCandidate(msg.src, msg.payload); break;
+          case 'OPEN':
+            clearTimeout(timer);
+            this.logger.info('peerws.ready', { peerId });
+            resolve();
+            break;
+          case 'OFFER':
+            await this.onOffer(msg.src, msg.payload);
+            break;
+          case 'ANSWER':
+            await this.onAnswer(msg.src, msg.payload);
+            break;
+          case 'CANDIDATE':
+            await this.onCandidate(msg.src, msg.payload);
+            break;
           case 'LEAVE':
-          case 'EXPIRE':    this.closePeer(msg.src); break;
-          case 'ERROR':     console.error(`[PeerWS ${this.roomId}] Server error:`, msg.payload); break;
-          case 'ID-TAKEN':  reject(new Error(`[Bot ${this.roomId}] Peer ID already taken: ${peerId}`)); break;
+          case 'EXPIRE':
+            this.closePeer(msg.src);
+            break;
+          case 'ERROR':
+            this.logger.error('peerws.server_error', { peerId, payload: msg.payload });
+            break;
+          case 'ID-TAKEN':
+            reject(new Error(`[Bot ${this.roomId}] Peer ID already taken: ${peerId}`));
+            break;
+          default:
+            this.logger.debug('peerws.message.ignored', { peerId, type: msg.type });
+            break;
         }
       });
 
-      this.peerWs.on('error', (err) => { clearTimeout(timer); reject(err); });
+      this.peerWs.on('error', (error) => {
+        clearTimeout(timer);
+        this.logger.error('peerws.error', { peerId, error: formatErrorForLog(error) });
+        reject(error);
+      });
       this.peerWs.on('close', () => {
-        if (this.hbTimer) { clearInterval(this.hbTimer); this.hbTimer = null; }
-        if (!this.destroyed) console.warn(`[PeerWS ${this.roomId}] WebSocket closed unexpectedly`);
+        if (this.hbTimer) {
+          clearInterval(this.hbTimer);
+          this.hbTimer = null;
+        }
+        if (!this.destroyed) this.logger.warn('peerws.closed_unexpectedly', { peerId });
       });
     });
   }
 
   protected sendPeer(type: string, dst: string, payload: Record<string, unknown>): void {
     if (this.peerWs?.readyState !== WebSocket.OPEN) return;
+    this.logger.debug('peerws.send', { type, dst, payload });
     this.peerWs.send(JSON.stringify({ type, src: this.myPeerId, dst, payload }));
   }
 
   private sendCandidate(remotePeerId: string, candidate: RTCIceCandidate, connectionId: string): void {
     setTimeout(() => {
       this.sendPeer('CANDIDATE', remotePeerId, {
-        candidate: candidate.toJSON(), connectionId, type: 'media',
+        candidate: candidate.toJSON(),
+        connectionId,
+        type: 'media',
       });
     }, 100);
   }
 
   protected makePc(remotePeerId: string, connectionId: string): PeerConn {
-    const pc          = new RTCPeerConnection({ iceServers: this.buildIceServers() });
-    const track       = new MediaStreamTrack({ kind: 'audio' });
+    const pc = new RTCPeerConnection({ iceServers: this.buildIceServers() });
+    const track = new MediaStreamTrack({ kind: 'audio' });
     const transceiver = pc.addTransceiver(track, { direction: 'sendonly' });
+    const peerLogger = this.logger.child('peerConnection', { remotePeerId, connectionId });
 
     pc.onicecandidate = ({ candidate }) => {
       if (!candidate) {
-        console.log(`[ICE ${this.roomId}->${remotePeerId}] gathering complete`);
+        peerLogger.info('ice.gathering.complete');
         return;
       }
-      console.log(`[ICE ${this.roomId}->${remotePeerId}] gathered: ${candidate.candidate}`);
+      peerLogger.debug('ice.candidate.gathered', { candidate: candidate.candidate });
       const conn = this.conns.get(remotePeerId);
       if (!conn) return;
       if (!conn.answerSent) {
@@ -419,21 +523,24 @@ export class BotInstance {
     };
 
     pc.onicegatheringstatechange = () => {
-      console.log(`[ICE ${this.roomId}->${remotePeerId}] gathering state: ${pc.iceGatheringState}`);
+      peerLogger.info('ice.gathering.state_changed', { state: pc.iceGatheringState });
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[ICE ${this.roomId}->${remotePeerId}] connection state: ${pc.iceConnectionState}`);
+      peerLogger.info('ice.connection.state_changed', { state: pc.iceConnectionState });
     };
 
     pc.addEventListener('connectionstatechange', () => {
       const state = pc.connectionState;
-      console.log(`[PC ${this.roomId}->${remotePeerId}] state: ${state}`);
+      peerLogger.info('peer_connection.state_changed', { state });
       if (state === 'connected') {
         this.isConnected = true;
         const conn = this.conns.get(remotePeerId);
         if (conn && this.frameQueue.length > 0) {
-          console.log(`[Bot ${this.roomId}] Flushing ${this.frameQueue.length} buffered frames`);
+          this.logger.info('audio.frame_queue.flushed', {
+            remotePeerId,
+            bufferedFrames: this.frameQueue.length,
+          });
           for (const frame of this.frameQueue) this.sendOpusFrame(conn, frame);
           this.frameQueue = [];
         }
@@ -445,11 +552,14 @@ export class BotInstance {
     });
 
     const conn: PeerConn = {
-      pc, track, transceiver, connectionId,
-      ssrc:              Math.floor(Math.random() * 0xFFFFFFFF),
-      seq:               Math.floor(Math.random() * 0xFFFF),
-      timestamp:         Math.floor(Math.random() * 0xFFFFFFFF),
-      answerSent:        false,
+      pc,
+      track,
+      transceiver,
+      connectionId,
+      ssrc: Math.floor(Math.random() * 0xFFFFFFFF),
+      seq: Math.floor(Math.random() * 0xFFFF),
+      timestamp: Math.floor(Math.random() * 0xFFFFFFFF),
+      answerSent: false,
       pendingCandidates: [],
     };
     this.conns.set(remotePeerId, conn);
@@ -464,11 +574,11 @@ export class BotInstance {
     }
 
     const connectionId = payload.connectionId as string;
-    console.log(`[Bot ${this.roomId}] ← Answering offer from ${remotePeerId}`);
+    this.logger.info('peer.offer.received', { remotePeerId, connectionId });
 
-    const conn    = this.makePc(remotePeerId, connectionId);
-    const sdpObj  = payload.sdp as { sdp: string; type: string } | string;
-    const sdpStr  = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
+    const conn = this.makePc(remotePeerId, connectionId);
+    const sdpObj = payload.sdp as { sdp: string; type: string } | string;
+    const sdpStr = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
     const sdpType = typeof sdpObj === 'string' ? payload.type as string : sdpObj.type;
 
     await conn.pc.setRemoteDescription(new RTCSessionDescription(sdpStr, sdpType as 'offer' | 'answer'));
@@ -478,12 +588,14 @@ export class BotInstance {
     await conn.pc.setLocalDescription(answer);
 
     this.sendPeer('ANSWER', remotePeerId, {
-      sdp: { sdp: answer.sdp, type: answer.type }, connectionId, browser: 'node-bot',
+      sdp: { sdp: answer.sdp, type: answer.type },
+      connectionId,
+      browser: 'node-bot',
     });
 
     conn.answerSent = true;
-    for (const c of conn.pendingCandidates) {
-      this.sendCandidate(remotePeerId, c, connectionId);
+    for (const candidate of conn.pendingCandidates) {
+      this.sendCandidate(remotePeerId, candidate, connectionId);
     }
     conn.pendingCandidates = [];
   }
@@ -491,15 +603,15 @@ export class BotInstance {
   protected async onAnswer(remotePeerId: string, payload: Record<string, unknown>): Promise<void> {
     const conn = this.conns.get(remotePeerId);
     if (!conn) return;
-    console.log(`[Bot ${this.roomId}] ← Answer received from ${remotePeerId}`);
-    const sdpObj  = payload.sdp as { sdp: string; type: string } | string;
-    const sdpStr  = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
+    this.logger.info('peer.answer.received', { remotePeerId, connectionId: conn.connectionId });
+    const sdpObj = payload.sdp as { sdp: string; type: string } | string;
+    const sdpStr = typeof sdpObj === 'string' ? sdpObj : sdpObj.sdp;
     const sdpType = typeof sdpObj === 'string' ? payload.type as string : sdpObj.type;
     await conn.pc.setRemoteDescription(new RTCSessionDescription(sdpStr, sdpType as 'offer' | 'answer'));
     await this.drainIceBuf(remotePeerId, conn.pc);
     conn.answerSent = true;
-    for (const c of conn.pendingCandidates) {
-      this.sendCandidate(remotePeerId, c, conn.connectionId);
+    for (const candidate of conn.pendingCandidates) {
+      this.sendCandidate(remotePeerId, candidate, conn.connectionId);
     }
     conn.pendingCandidates = [];
   }
@@ -514,34 +626,45 @@ export class BotInstance {
       this.iceBuf.set(remotePeerId, buf);
       return;
     }
-    try { await conn.pc.addIceCandidate(new RTCIceCandidate(raw)); } catch (err) {
-      console.warn(`[Bot ${this.roomId}] ICE candidate error for ${remotePeerId}:`, err);
+    try {
+      await conn.pc.addIceCandidate(new RTCIceCandidate(raw));
+    } catch (error) {
+      this.logger.warn('ice.candidate.add_failed', {
+        remotePeerId,
+        error: formatErrorForLog(error),
+      });
     }
   }
 
   protected async drainIceBuf(peerId: string, pc: RTCPeerConnection): Promise<void> {
     const buf = this.iceBuf.get(peerId) ?? [];
     this.iceBuf.delete(peerId);
-    for (const cand of buf) {
-      try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch { /* stale */ }
+    for (const candidate of buf) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        // Ignore stale candidates
+      }
     }
   }
 
   protected closePeer(peerId: string): void {
     const conn = this.conns.get(peerId);
     if (!conn) return;
-    try { conn.pc.close(); } catch {}
+    try {
+      conn.pc.close();
+    } catch {
+      // Ignore close failures
+    }
     this.conns.delete(peerId);
     this.iceBuf.delete(peerId);
-    console.log(`[Bot ${this.roomId}] Closed audio peer: ${peerId}`);
+    this.logger.info('peer.closed', { peerId });
     this.checkAutoLeave();
   }
 
-  private _rtpLogCount = 0;
-
   protected sendOpusFrame(conn: PeerConn, frame: OpusFrame): void {
     if (conn.pc.connectionState !== 'connected') return;
-    conn.seq       = (conn.seq + 1) & 0xFFFF;
+    conn.seq = (conn.seq + 1) & 0xFFFF;
     conn.timestamp = (conn.timestamp + RTP_TIMESTAMP_STEP) >>> 0;
     const header = Buffer.alloc(12);
     header[0] = 0x80;
@@ -550,16 +673,26 @@ export class BotInstance {
     header.writeUInt32BE(conn.timestamp, 4);
     header.writeUInt32BE(conn.ssrc, 8);
     const pkt = Buffer.concat([header, frame.data]);
+
     try {
       conn.track.writeRtp(pkt);
       if (this._rtpLogCount < 3) {
         this._rtpLogCount++;
-        console.log(`[Bot ${this.roomId}] writeRtp ok #${this._rtpLogCount} - ssrc: ${conn.ssrc}, seq: ${conn.seq}, pt: ${OPUS_PAYLOAD_TYPE}, bytes: ${pkt.length}`);
+        this.logger.debug('rtp.write.success', {
+          logCount: this._rtpLogCount,
+          ssrc: conn.ssrc,
+          seq: conn.seq,
+          payloadType: OPUS_PAYLOAD_TYPE,
+          bytes: pkt.length,
+        });
       }
-    } catch (e) {
+    } catch (error) {
       if (this._rtpLogCount < 3) {
         this._rtpLogCount++;
-        console.error(`[Bot ${this.roomId}] writeRtp ERROR #${this._rtpLogCount}:`, e);
+        this.logger.error('rtp.write.failed', {
+          logCount: this._rtpLogCount,
+          error: formatErrorForLog(error),
+        });
       }
     }
   }

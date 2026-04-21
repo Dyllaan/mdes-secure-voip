@@ -50,23 +50,59 @@ jest.mock('../pipelines/AudioPipeline', () => ({
   RTP_TIMESTAMP_STEP: 960,
 }));
 
+import { EventEmitter } from 'events';
 import { BotInstance } from '../instances/BotInstance';
 import { AudioPipeline } from '../pipelines/AudioPipeline';
 
 const mockTurnCredentials = { username: 'turn-user', password: 'turn-pass', ttl: 3600 };
 const TEST_URL = 'https://www.youtube.com/watch?v=test123';
 
+function captureStdoutLogs() {
+  const writes: string[] = [];
+  const spy = jest.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+    writes.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write);
+
+  return {
+    spy,
+    entries: () => writes
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>),
+  };
+}
+
 function makeBot() {
   return new BotInstance('room-test', TEST_URL, 'mock-token', mockTurnCredentials);
+}
+
+function makeMockPipeline() {
+  const emitter = new EventEmitter() as EventEmitter & {
+    start: jest.Mock;
+    stop: jest.Mock;
+    pause: jest.Mock;
+    resume: jest.Mock;
+    seek: jest.Mock;
+    running: boolean;
+    isPaused: boolean;
+    positionMs: number;
+  };
+  emitter.start = jest.fn();
+  emitter.stop = jest.fn();
+  emitter.pause = jest.fn();
+  emitter.resume = jest.fn();
+  emitter.seek = jest.fn();
+  emitter.running = false;
+  emitter.isPaused = false;
+  emitter.positionMs = 0;
+  return emitter;
 }
 
 describe('BotInstance', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (AudioPipeline as unknown as jest.Mock).mockImplementation(() => ({
-      start: jest.fn(), stop: jest.fn(), pause: jest.fn(), resume: jest.fn(), seek: jest.fn(),
-      on: jest.fn(), removeListener: jest.fn(), running: false, isPaused: false, positionMs: 0,
-    }));
+    (AudioPipeline as unknown as jest.Mock).mockImplementation(() => makeMockPipeline());
   });
 
   describe('constructor', () => {
@@ -134,17 +170,41 @@ describe('BotInstance', () => {
     });
 
     it('logs the previous and next url', () => {
-      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const logCapture = captureStdoutLogs();
       const bot = makeBot();
       const newUrl = 'https://www.youtube.com/watch?v=newtrack';
 
       bot.changeTrack(newUrl);
 
-      expect(logSpy).toHaveBeenCalledWith('[Bot room-test] changeTrack', expect.objectContaining({
+      const entry = logCapture.entries().find((log) => log.message === 'bot.change_track');
+      expect(entry).toMatchObject({
+        message: 'bot.change_track',
+        context: 'botInstance',
         previousUrl: TEST_URL,
         nextUrl: newUrl,
-      }));
-      logSpy.mockRestore();
+      });
+      logCapture.spy.mockRestore();
+    });
+
+    it('ignores ended events from the old pipeline after changing track', () => {
+      const bot = makeBot();
+      const onTrackEnded = jest.fn();
+      bot.setTrackEndedCallback(onTrackEnded);
+
+      (bot as any).wirePipeline();
+      const oldPipeline = (bot as any).pipeline as ReturnType<typeof makeMockPipeline>;
+
+      bot.changeTrack('https://www.youtube.com/watch?v=newtrack');
+      const newPipeline = (bot as any).pipeline as ReturnType<typeof makeMockPipeline>;
+
+      expect(oldPipeline.listenerCount('ended')).toBe(0);
+      expect(newPipeline.listenerCount('ended')).toBe(1);
+
+      oldPipeline.emit('ended', 0);
+      expect(onTrackEnded).not.toHaveBeenCalled();
+
+      newPipeline.emit('ended', 0);
+      expect(onTrackEnded).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -189,16 +249,19 @@ describe('BotInstance', () => {
     });
 
     it('logs the destroy reason', () => {
-      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const logCapture = captureStdoutLogs();
       const bot = makeBot();
 
       bot.destroy('room_closed');
 
-      expect(logSpy).toHaveBeenCalledWith('[Bot room-test] Destroying', expect.objectContaining({
+      const entry = logCapture.entries().find((log) => log.message === 'bot.destroying');
+      expect(entry).toMatchObject({
+        message: 'bot.destroying',
+        context: 'botInstance',
         reason: 'room_closed',
         mode: 'audio',
-      }));
-      logSpy.mockRestore();
+      });
+      logCapture.spy.mockRestore();
     });
   });
 
@@ -208,6 +271,26 @@ describe('BotInstance', () => {
       const cb  = jest.fn();
       bot.setAutoLeaveCallback(cb);
       expect((bot as any).onAutoLeave).toBe(cb);
+    });
+  });
+
+  describe('onAllUsers()', () => {
+    it('calls existing room peers before starting playback', async () => {
+      const bot = makeBot();
+      const callPeerSpy = jest.spyOn(bot as any, 'callPeer').mockResolvedValue(undefined);
+      const pipelineStartSpy = (bot as any).pipeline.start as jest.Mock;
+      (bot as any).myPeerId = 'peer-self';
+
+      await (bot as any).onAllUsers([
+        { peerId: 'peer-a', alias: 'alice', userId: 'user-a' },
+        { peerId: 'peer-b', alias: 'bob', userId: 'user-b' },
+        { peerId: 'peer-self', alias: 'musicman', userId: 'musicman' },
+      ]);
+
+      expect(callPeerSpy).toHaveBeenCalledTimes(2);
+      expect(callPeerSpy).toHaveBeenCalledWith('peer-a');
+      expect(callPeerSpy).toHaveBeenCalledWith('peer-b');
+      expect(pipelineStartSpy).toHaveBeenCalled();
     });
   });
 });

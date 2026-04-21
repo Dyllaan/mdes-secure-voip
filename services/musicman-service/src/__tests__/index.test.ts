@@ -8,26 +8,77 @@ jest.mock('../Auth', () => ({
     getTurnCredentials:   jest.fn().mockReturnValue({ username: 'u', password: 'p', ttl: 3600 }),
 }));
 
-const mockBotFactory = (_roomId: string, url: string) => ({
-    start:                jest.fn().mockResolvedValue(undefined),
-    destroy:              jest.fn(),
-    pause:                jest.fn(),
-    resume:               jest.fn(),
-    seek:                 jest.fn(),
-    changeTrack:          jest.fn(),
-    setAutoLeaveCallback: jest.fn(),
-    videoMode:            false,
-    getStatus:            jest.fn().mockReturnValue({
-        playing: true, paused: false, positionMs: 1000, url, videoMode: false,
-    }),
+const mockSessionState = (roomId: string, url: string) => ({
+    roomId,
+    queue: [{ id: 'item-1', url, title: 'Test', channel: 'YouTube', duration: '3:00', durationMs: 180000, source: 'youtube' }],
+    currentIndex: 0,
+    currentTrack: { id: 'item-1', url, title: 'Test', channel: 'YouTube', duration: '3:00', durationMs: 180000, source: 'youtube' },
+    playing: true,
+    paused: false,
+    positionMs: 1000,
+    videoMode: false,
+    screenPeerId: null,
+    url,
 });
 
+const makeMockSession = (roomId: string, url: string) => ({
+    roomId,
+    videoMode: false,
+    start:      jest.fn().mockResolvedValue(undefined),
+    destroy:    jest.fn(),
+    pause:      jest.fn(),
+    resume:     jest.fn(),
+    seek:       jest.fn(),
+    playNow:    jest.fn(),
+    playItem:   jest.fn(),
+    addItems:   jest.fn(),
+    removeItem: jest.fn(),
+    clear:      jest.fn(),
+    next:       jest.fn(),
+    reorder:    jest.fn(),
+    shuffle:    jest.fn(),
+    getState:   jest.fn().mockReturnValue(mockSessionState(roomId, url)),
+});
+
+type MockSession = ReturnType<typeof makeMockSession>;
+
+let capturedOnDisposed: ((roomId: string, reason: string) => void) | null = null;
+
+jest.mock('../music/MusicSession', () => ({
+    MusicSession: jest.fn().mockImplementation((roomId: string, _bot: unknown, items: Array<{ url: string }>, onDisposed: (roomId: string, reason: string) => void) => {
+        capturedOnDisposed = onDisposed;
+        return makeMockSession(roomId, items[0]?.url ?? '');
+    }),
+}));
+
 jest.mock('../instances/BotInstance', () => ({
-    BotInstance: jest.fn().mockImplementation(mockBotFactory),
+    BotInstance: jest.fn().mockImplementation((roomId: string, url: string) => ({
+        roomId,
+        url,
+        videoMode: false,
+        start:                  jest.fn().mockResolvedValue(undefined),
+        destroy:                jest.fn(),
+        setAutoLeaveCallback:   jest.fn(),
+        setTrackEndedCallback:  jest.fn(),
+        setDestroyCallback:     jest.fn(),
+        emitRoomEvent:          jest.fn(),
+        getStatus:              jest.fn().mockReturnValue({ playing: true, paused: false, positionMs: 0, url }),
+    })),
 }));
 
 jest.mock('../instances/AVBotInstance', () => ({
-    AVBotInstance: jest.fn().mockImplementation(mockBotFactory),
+    AVBotInstance: jest.fn().mockImplementation((roomId: string, url: string) => ({
+        roomId,
+        url,
+        videoMode: true,
+        start:                  jest.fn().mockResolvedValue(undefined),
+        destroy:                jest.fn(),
+        setAutoLeaveCallback:   jest.fn(),
+        setTrackEndedCallback:  jest.fn(),
+        setDestroyCallback:     jest.fn(),
+        emitRoomEvent:          jest.fn(),
+        getStatus:              jest.fn().mockReturnValue({ playing: true, paused: false, positionMs: 0, url }),
+    })),
 }));
 
 jest.mock('../HubHandler', () => ({
@@ -40,7 +91,7 @@ jest.mock('express', () => {
         const app = actualExpress();
         app.listen = jest.fn().mockImplementation((_port: unknown, cb?: () => void) => {
             cb?.();
-            return {} as any;
+            return { on: jest.fn(), close: jest.fn() } as any;
         });
         return app;
     };
@@ -68,6 +119,22 @@ function authHeader(sub = `user-${Math.random()}`) {
     return { Authorization: `Bearer ${makeJwt(sub)}` };
 }
 
+function captureStderrLogs() {
+    const writes: string[] = [];
+    const spy = jest.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+        writes.push(chunk.toString());
+        return true;
+    }) as typeof process.stderr.write);
+
+    return {
+        spy,
+        entries: () => writes
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Record<string, unknown>),
+    };
+}
+
 function allowRoomAccess(roomIds: string[] = []) {
     return jest.fn().mockImplementation(async (input: string | URL | Request) => {
         const url = String(input);
@@ -83,6 +150,7 @@ let mockFetch: jest.Mock;
 beforeEach(() => {
     mockFetch = jest.fn().mockResolvedValue({ ok: true });
     global.fetch = mockFetch as typeof fetch;
+    capturedOnDisposed = null;
 });
 
 afterEach(() => {
@@ -135,10 +203,13 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(403);
         });
 
-        it('should return 200 { ok: true } on success', async () => {
-            const res = await request(app).post('/join').set(authHeader()).send({ roomId: `room-new-${Math.random()}`, url: ALLOWED_URL });
+        it('should return 200 with ok:true and session state on success', async () => {
+            const roomId = `room-new-${Math.random()}`;
+            const res = await request(app).post('/join').set(authHeader()).send({ roomId, url: ALLOWED_URL });
             expect(res.status).toBe(200);
             expect(res.body.ok).toBe(true);
+            expect(res.body.session).toBeDefined();
+            expect(res.body.roomId).toBe(roomId);
         });
 
         it('should return 409 when a bot is already in the room', async () => {
@@ -147,6 +218,38 @@ describe('Express routes (index.ts)', () => {
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             expect(res.status).toBe(409);
+        });
+
+        it('should return 429 on the 6th request within 60s from same user', async () => {
+            const sub     = `rate-limit-user-${Math.random()}`;
+            const headers = { Authorization: `Bearer ${makeJwt(sub)}` };
+            for (let i = 0; i < 5; i++) {
+                await request(app).post('/join').set(headers)
+                    .send({ roomId: `rl-room-${i}-${Math.random()}`, url: ALLOWED_URL });
+            }
+            const res = await request(app).post('/join').set(headers)
+                .send({ roomId: `rl-room-5-${Math.random()}`, url: ALLOWED_URL });
+            expect(res.status).toBe(429);
+        });
+
+        it('should treat non-boolean videoMode as false', async () => {
+            const roomId = `room-vm-${Math.random()}`;
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId, url: ALLOWED_URL, videoMode: 'yes' });
+            expect(res.status).toBe(200);
+            expect(res.body.videoMode).toBe(false);
+        });
+
+        it('should return 400 when roomId exceeds 128 chars', async () => {
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
+            expect(res.status).toBe(400);
+        });
+
+        it('should return 400 when url exceeds 2048 chars', async () => {
+            const res = await request(app).post('/join').set(authHeader())
+                .send({ roomId: 'room1', url: 'https://youtube.com/' + 'a'.repeat(2048) });
+            expect(res.status).toBe(400);
         });
     });
 
@@ -187,6 +290,12 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(200);
             expect(res.body.action).toBe('join');
         });
+
+        it('should return 400 when roomId exceeds 128 chars', async () => {
+            const res = await request(app).post('/play').set(authHeader())
+                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
+            expect(res.status).toBe(400);
+        });
     });
 
     describe('POST /leave', () => {
@@ -205,9 +314,9 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(404);
         });
 
-        it('should return 200 and call bot.destroy() when bot exists', async () => {
+        it('should return 200 and call session.destroy() when session exists', async () => {
             const sub    = `user-leave-${Math.random()}`;
-            const roomId = 'room-to-leave';
+            const roomId = `room-to-leave-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/leave').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
@@ -217,7 +326,7 @@ describe('Express routes (index.ts)', () => {
         it('should return 403 when caller is not a room member', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
-            const res = await request(app).post('/leave').set(authHeader()).send({ roomId: 'room-to-leave' });
+            const res = await request(app).post('/leave').set(authHeader()).send({ roomId: 'some-room' });
             expect(res.status).toBe(403);
         });
     });
@@ -228,23 +337,24 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(401);
         });
 
-        it('should return 404 when no bot in room', async () => {
+        it('should return 404 when no session in room', async () => {
             const res = await request(app).post('/pause').set(authHeader()).send({ roomId: 'no-bot' });
             expect(res.status).toBe(404);
         });
 
-        it('should return 200 and call bot.pause() when bot exists', async () => {
+        it('should return 200 and call session.pause() when session exists', async () => {
             const sub    = `user-pause-${Math.random()}`;
-            const roomId = 'room-pause';
+            const roomId = `room-pause-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/pause').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
+            expect(res.body.ok).toBe(true);
         });
 
         it('should return 403 when caller is not a room member', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
-            const res = await request(app).post('/pause').set(authHeader()).send({ roomId: 'room-pause' });
+            const res = await request(app).post('/pause').set(authHeader()).send({ roomId: 'some-room' });
             expect(res.status).toBe(403);
         });
     });
@@ -255,23 +365,24 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(401);
         });
 
-        it('should return 404 when no bot in room', async () => {
+        it('should return 404 when no session in room', async () => {
             const res = await request(app).post('/resume').set(authHeader()).send({ roomId: 'no-bot' });
             expect(res.status).toBe(404);
         });
 
-        it('should return 200 and call bot.resume() when bot exists', async () => {
+        it('should return 200 and call session.resume() when session exists', async () => {
             const sub    = `user-resume-${Math.random()}`;
-            const roomId = 'room-resume';
+            const roomId = `room-resume-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).post('/resume').set(authHeader(sub)).send({ roomId });
             expect(res.status).toBe(200);
+            expect(res.body.ok).toBe(true);
         });
 
         it('should return 403 when caller is not a room member', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
-            const res = await request(app).post('/resume').set(authHeader()).send({ roomId: 'room-resume' });
+            const res = await request(app).post('/resume').set(authHeader()).send({ roomId: 'some-room' });
             expect(res.status).toBe(403);
         });
     });
@@ -302,36 +413,41 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(400);
         });
 
-        it('should return 404 when no bot in room', async () => {
+        it('should return 404 when no session in room', async () => {
             const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'no-bot', seconds: 30 });
             expect(res.status).toBe(404);
         });
 
-        it('should return 200 and call bot.seek(seconds * 1000) when bot exists', async () => {
+        it('should return 200 and call session.seek(seconds * 1000) when session exists', async () => {
             const sub    = `user-seek-${Math.random()}`;
-            const roomId = 'room-seek';
+            const roomId = `room-seek-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
+
+            const { MusicSession } = require('../music/MusicSession');
+            const mockSession = (MusicSession as jest.Mock).mock.results.at(-1)?.value as MockSession;
+
             const res = await request(app).post('/seek').set(authHeader(sub)).send({ roomId, seconds: 45 });
             expect(res.status).toBe(200);
             expect(res.body.seconds).toBe(45);
+            expect(mockSession.seek).toHaveBeenCalledWith(45000);
         });
 
         it('should clamp negative seconds to 0', async () => {
             const sub    = `user-seek-neg-${Math.random()}`;
-            const roomId = 'room-seek-neg';
+            const roomId = `room-seek-neg-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
-            const { BotInstance } = require('../instances/BotInstance');
-            const mockBot = (BotInstance as jest.Mock).mock.results.at(-1)?.value;
-            const seekMock = jest.fn();
-            if (mockBot) mockBot.seek = seekMock;
+
+            const { MusicSession } = require('../music/MusicSession');
+            const mockSession = (MusicSession as jest.Mock).mock.results.at(-1)?.value as MockSession;
+
             await request(app).post('/seek').set(authHeader(sub)).send({ roomId, seconds: -10 });
-            expect(seekMock).toHaveBeenCalledWith(0);
+            expect(mockSession.seek).toHaveBeenCalledWith(0);
         });
 
         it('should return 403 when caller is not a room member', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
-            const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'room-seek', seconds: 45 });
+            const res = await request(app).post('/seek').set(authHeader()).send({ roomId: 'some-room', seconds: 45 });
             expect(res.status).toBe(403);
         });
     });
@@ -342,7 +458,7 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(401);
         });
 
-        it('should return { rooms: [...] } with current room IDs', async () => {
+        it('should return { rooms: [] } when no accessible rooms', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
             const res = await request(app).get('/rooms').set(authHeader());
@@ -357,14 +473,14 @@ describe('Express routes (index.ts)', () => {
             expect(res.status).toBe(401);
         });
 
-        it('should return 404 when no bot in the room', async () => {
+        it('should return 404 when no session in the room', async () => {
             const res = await request(app).get('/status/nonexistent').set(authHeader());
             expect(res.status).toBe(404);
         });
 
-        it('should return bot.getStatus() JSON on success', async () => {
+        it('should return session.getState() on success', async () => {
             const sub    = `user-status-${Math.random()}`;
-            const roomId = 'room-status';
+            const roomId = `room-status-${Math.random()}`;
             await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
             const res = await request(app).get(`/status/${roomId}`).set(authHeader(sub));
             expect(res.status).toBe(200);
@@ -374,7 +490,7 @@ describe('Express routes (index.ts)', () => {
         it('should return 403 when caller is not a room member', async () => {
             mockFetch = allowRoomAccess([]);
             global.fetch = mockFetch as typeof fetch;
-            const res = await request(app).get('/status/room-status').set(authHeader());
+            const res = await request(app).get('/status/some-room').set(authHeader());
             expect(res.status).toBe(403);
         });
     });
@@ -400,17 +516,19 @@ describe('Express routes (index.ts)', () => {
         });
 
         it('should reject malformed URLs', async () => {
-            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+            const logCapture = captureStderrLogs();
             const res = await request(app).post('/join').set(authHeader())
                 .send({ roomId: 'room-bad', url: 'not-a-url' });
             expect(res.status).toBe(400);
-            expect(warnSpy).toHaveBeenCalledWith('[MusicmanRoute] Request rejected', expect.objectContaining({
+            const entry = logCapture.entries().find((log) => log.message === 'request.rejected');
+            expect(entry).toMatchObject({
+                context: 'http.routes.request',
                 route: '/join',
-                reason: 'malformed_url',
+                rejectionReason: 'malformed_url',
                 roomId: 'room-bad',
                 url: 'not-a-url',
-            }));
-            warnSpy.mockRestore();
+            });
+            logCapture.spy.mockRestore();
         });
     });
 
@@ -431,17 +549,17 @@ describe('Express routes (index.ts)', () => {
         });
     });
 
-    describe('Rate limiting', () => {
-        it('should return 429 on the 6th request within 60s from same user', async () => {
-            const sub     = `rate-limit-user-${Math.random()}`;
-            const headers = { Authorization: `Bearer ${makeJwt(sub)}` };
-            for (let i = 0; i < 5; i++) {
-                await request(app).post('/join').set(headers)
-                    .send({ roomId: `rl-room-${i}-${Math.random()}`, url: ALLOWED_URL });
-            }
-            const res = await request(app).post('/join').set(headers)
-                .send({ roomId: `rl-room-5-${Math.random()}`, url: ALLOWED_URL });
-            expect(res.status).toBe(429);
+    describe('session lifecycle via onDisposed callback', () => {
+        it('should remove the session from the map when onDisposed fires', async () => {
+            const sub    = `user-disposed-${Math.random()}`;
+            const roomId = `room-disposed-${Math.random()}`;
+            await request(app).post('/join').set(authHeader(sub)).send({ roomId, url: ALLOWED_URL });
+
+            expect(capturedOnDisposed).not.toBeNull();
+            capturedOnDisposed!(roomId, 'test_reason');
+
+            const res = await request(app).get(`/status/${roomId}`).set(authHeader(sub));
+            expect(res.status).toBe(404);
         });
     });
 
@@ -465,45 +583,6 @@ describe('Express routes (index.ts)', () => {
             const res = await request(app).post('/resolve').set(authHeader())
                 .send({ url: 'https://youtube.com/' + 'a'.repeat(2048) });
             expect(res.status).toBe(400);
-        });
-    });
-
-    describe('Input length and type validation', () => {
-        it('should return 400 when roomId exceeds 128 chars on /join', async () => {
-            const res = await request(app).post('/join').set(authHeader())
-                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
-            expect(res.status).toBe(400);
-        });
-
-        it('should return 400 when url exceeds 2048 chars on /join', async () => {
-            const res = await request(app).post('/join').set(authHeader())
-                .send({ roomId: 'room1', url: 'https://youtube.com/' + 'a'.repeat(2048) });
-            expect(res.status).toBe(400);
-        });
-
-        it('should return 400 when roomId exceeds 128 chars on /play', async () => {
-            const res = await request(app).post('/play').set(authHeader())
-                .send({ roomId: 'a'.repeat(129), url: ALLOWED_URL });
-            expect(res.status).toBe(400);
-        });
-
-        it('should return 400 when seconds is a string on /seek', async () => {
-            const res = await request(app).post('/seek').set(authHeader())
-                .send({ roomId: 'room1', seconds: 'thirty' });
-            expect(res.status).toBe(400);
-        });
-
-        it('should return 400 when seconds is Infinity on /seek', async () => {
-            const res = await request(app).post('/seek').set(authHeader())
-                .send({ roomId: 'room1', seconds: Infinity });
-            expect(res.status).toBe(400);
-        });
-
-        it('should treat non-boolean videoMode as false on /join', async () => {
-            const res = await request(app).post('/join').set(authHeader())
-                .send({ roomId: `room-vm-${Math.random()}`, url: ALLOWED_URL, videoMode: 'yes' });
-            expect(res.status).toBe(200);
-            expect(res.body.videoMode).toBe(false);
         });
     });
 });

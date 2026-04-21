@@ -66,6 +66,22 @@ import { AVPipeline } from '../pipelines/AVPipeline';
 const mockTurnCredentials = { username: 'turn-user', password: 'turn-pass', ttl: 3600 };
 const TEST_URL = 'https://www.youtube.com/watch?v=test123';
 
+function captureStdoutLogs() {
+  const writes: string[] = [];
+  const spy = jest.spyOn(process.stdout, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+    writes.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write);
+
+  return {
+    spy,
+    entries: () => writes
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>),
+  };
+}
+
 function makeBot() {
   return new AVBotInstance('room-test', TEST_URL, 'mock-token', mockTurnCredentials);
 }
@@ -145,17 +161,20 @@ describe('AVBotInstance', () => {
     });
 
     it('logs the previous and next url', () => {
-      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const logCapture = captureStdoutLogs();
       const bot = makeBot();
       const newUrl = 'https://www.youtube.com/watch?v=newvideo';
 
       bot.changeTrack(newUrl);
 
-      expect(logSpy).toHaveBeenCalledWith('[AVBot room-test] changeTrack', expect.objectContaining({
+      const entry = logCapture.entries().find((log) => log.message === 'av_bot.change_track');
+      expect(entry).toMatchObject({
+        message: 'av_bot.change_track',
+        context: 'botInstance',
         previousUrl: TEST_URL,
         nextUrl: newUrl,
-      }));
-      logSpy.mockRestore();
+      });
+      logCapture.spy.mockRestore();
     });
   });
 
@@ -209,16 +228,19 @@ describe('AVBotInstance', () => {
     });
 
     it('logs the destroy reason', () => {
-      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const logCapture = captureStdoutLogs();
       const bot = makeBot();
 
       bot.destroy('room_closed');
 
-      expect(logSpy).toHaveBeenCalledWith('[AVBot room-test] Destroying', expect.objectContaining({
+      const entry = logCapture.entries().find((log) => log.message === 'av_bot.destroying');
+      expect(entry).toMatchObject({
+        message: 'av_bot.destroying',
+        context: 'botInstance',
         reason: 'room_closed',
         mode: 'video',
-      }));
-      logSpy.mockRestore();
+      });
+      logCapture.spy.mockRestore();
     });
   });
 

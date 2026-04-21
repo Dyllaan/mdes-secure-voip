@@ -1,8 +1,14 @@
 import { createPublicKey } from 'crypto';
+import { createLogger, parseBooleanish } from './logging';
+
+const log = createLogger('config');
 
 const req = (name: string): string => {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing required env var: ${name}`);
+  if (!v) {
+    log.error('env.missing', { name });
+    throw new Error(`Missing required env var: ${name}`);
+  }
   return v;
 };
 
@@ -12,6 +18,7 @@ const decodeAndValidatePublicKey = (raw: string): string => {
     createPublicKey(pem);
     return Buffer.from(pem).toString('base64');
   } catch {
+    log.error('jwt_public_key.invalid');
     throw new Error('Invalid JWT_PUBLIC_KEY_B64');
   }
 };
@@ -44,5 +51,6 @@ export const config = {
 
   ALLOWED_AUDIO_ORIGINS: process.env.ALLOWED_AUDIO_ORIGINS,
   ALLOWED_VIDEO_ORIGINS: process.env.ALLOWED_VIDEO_ORIGINS,
+  DEBUG: parseBooleanish(process.env.DEBUG),
 
 };

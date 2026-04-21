@@ -596,12 +596,39 @@ export async function mockMusicRoutes(
   page: Page,
   options: {
     activeRooms?: string[];
-    statusByRoom?: Record<string, { playing: boolean; paused: boolean; positionMs: number; url: string; videoMode?: boolean; screenPeerId?: string | null } | null>;
+    statusByRoom?: Record<string, {
+      roomId?: string;
+      queue?: Array<{ id: string; url: string; title: string; channel: string; duration: string; durationMs: number; source?: 'youtube' | 'spotify' | 'soundcloud' }>;
+      currentIndex?: number;
+      currentTrack?: { id: string; url: string; title: string; channel: string; duration: string; durationMs: number; source?: 'youtube' | 'spotify' | 'soundcloud' } | null;
+      playing: boolean;
+      paused: boolean;
+      positionMs: number;
+      url: string | null;
+      videoMode?: boolean;
+      screenPeerId?: string | null;
+    } | null>;
     resolveItems?: Array<{ id: string; url: string; title: string; channel: string; duration: string; durationMs: number }>;
+    sharedState?: {
+      activeRooms: Set<string>;
+      statusByRoom: Record<string, {
+        roomId?: string;
+        queue?: Array<{ id: string; url: string; title: string; channel: string; duration: string; durationMs: number; source?: 'youtube' | 'spotify' | 'soundcloud' }>;
+        currentIndex?: number;
+        currentTrack?: { id: string; url: string; title: string; channel: string; duration: string; durationMs: number; source?: 'youtube' | 'spotify' | 'soundcloud' } | null;
+        playing: boolean;
+        paused: boolean;
+        positionMs: number;
+        url: string | null;
+        videoMode?: boolean;
+        screenPeerId?: string | null;
+      } | null>;
+    };
   } = {},
 ) {
-  const activeRooms = new Set(options.activeRooms ?? []);
-  const statusByRoom = { ...(options.statusByRoom ?? {}) };
+  const seekRequests: Array<{ roomId: string; requestedSeconds: number; appliedSeconds: number }> = [];
+  const activeRooms = options.sharedState?.activeRooms ?? new Set(options.activeRooms ?? []);
+  const statusByRoom = options.sharedState?.statusByRoom ?? { ...(options.statusByRoom ?? {}) };
   const resolveItems = options.resolveItems ?? [
     {
       id: 'yt-track-1',
@@ -623,6 +650,52 @@ export async function mockMusicRoutes(
     }
 
     const CORS = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    const normalizeSession = (roomId: string) => {
+      const session = statusByRoom[roomId];
+      if (!session) return null;
+      const queue = session.queue ?? (session.url ? [{
+        id: `item-${roomId}`,
+        url: session.url,
+        title: 'Test Track',
+        channel: 'Test Channel',
+        duration: '3:15',
+        durationMs: 195000,
+      }] : []);
+      const currentIndex = session.currentIndex ?? 0;
+      return {
+        roomId,
+        queue,
+        currentIndex,
+        currentTrack: session.currentTrack ?? queue[currentIndex] ?? null,
+        playing: session.playing,
+        paused: session.paused,
+        positionMs: session.positionMs,
+        url: session.url,
+        videoMode: session.videoMode ?? false,
+        screenPeerId: session.screenPeerId ?? null,
+      };
+    };
+
+    const clampSeekSeconds = (
+      session: ReturnType<typeof normalizeSession>,
+      seconds: number,
+    ) => {
+      if (!session || !Number.isFinite(seconds)) return 0;
+      const durationMs = session.currentTrack?.durationMs ?? 0;
+      if (durationMs <= 0) return 0;
+      return Math.min(Math.max(0, Math.floor(seconds)), Math.floor(durationMs / 1000));
+    };
+
+    const fulfillSession = (roomId: string) => {
+      const session = normalizeSession(roomId);
+      if (session) {
+        activeRooms.add(roomId);
+      } else {
+        activeRooms.delete(roomId);
+      }
+      statusByRoom[roomId] = session;
+      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ ok: true, roomId, session }) });
+    };
 
     if (method === 'POST' && pathname.endsWith('/musicman/hub/join')) {
       return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ success: true }) });
@@ -638,8 +711,17 @@ export async function mockMusicRoutes(
 
     if (method === 'POST' && pathname.endsWith('/musicman/play')) {
       const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; url: string; videoMode?: boolean };
-      activeRooms.add(body.roomId);
       statusByRoom[body.roomId] = {
+        roomId: body.roomId,
+        queue: [{
+          id: `item-${body.roomId}`,
+          url: body.url,
+          title: 'Test Track',
+          channel: 'Test Channel',
+          duration: '3:15',
+          durationMs: 195000,
+        }],
+        currentIndex: 0,
         playing: true,
         paused: false,
         positionMs: 0,
@@ -647,7 +729,127 @@ export async function mockMusicRoutes(
         videoMode: body.videoMode ?? false,
         screenPeerId: body.videoMode ? 'music-screen-peer' : null,
       };
-      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ success: true }) });
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/add')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; items: Array<{ id: string; url: string; title: string; channel: string; duration: string; durationMs: number }>; videoMode?: boolean };
+      const existing = normalizeSession(body.roomId);
+      const queue = existing ? [...existing.queue, ...body.items] : [...body.items];
+      statusByRoom[body.roomId] = {
+        roomId: body.roomId,
+        queue,
+        currentIndex: existing?.currentIndex ?? 0,
+        playing: true,
+        paused: false,
+        positionMs: existing?.positionMs ?? 0,
+        url: (existing?.currentTrack ?? queue[0])?.url ?? null,
+        videoMode: existing?.videoMode ?? body.videoMode ?? false,
+        screenPeerId: (existing?.videoMode ?? body.videoMode) ? 'music-screen-peer' : null,
+      };
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/play')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; itemId: string };
+      const existing = normalizeSession(body.roomId);
+      if (!existing) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'No bot in room' }) });
+      const currentIndex = existing.queue.findIndex((item) => item.id === body.itemId);
+      statusByRoom[body.roomId] = {
+        ...existing,
+        currentIndex: currentIndex >= 0 ? currentIndex : existing.currentIndex,
+        currentTrack: currentIndex >= 0 ? existing.queue[currentIndex] : existing.currentTrack,
+        url: currentIndex >= 0 ? existing.queue[currentIndex].url : existing.url,
+        paused: false,
+        playing: true,
+      };
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/remove')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; itemId: string };
+      const existing = normalizeSession(body.roomId);
+      if (!existing) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'No bot in room' }) });
+      const removeIndex = existing.queue.findIndex((item) => item.id === body.itemId);
+      if (removeIndex === -1) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'Queue item not found' }) });
+      const queue = existing.queue.filter((item) => item.id !== body.itemId);
+      if (queue.length === 0) {
+        activeRooms.delete(body.roomId);
+        statusByRoom[body.roomId] = null;
+        return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ ok: true, roomId: body.roomId, session: null }) });
+      }
+      const currentIndex = removeIndex === existing.currentIndex ? 0 : (removeIndex < existing.currentIndex ? existing.currentIndex - 1 : existing.currentIndex);
+      statusByRoom[body.roomId] = {
+        ...existing,
+        queue,
+        currentIndex,
+        currentTrack: queue[currentIndex] ?? null,
+        url: queue[currentIndex]?.url ?? null,
+        paused: false,
+        playing: true,
+      };
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/clear')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string };
+      activeRooms.delete(body.roomId);
+      statusByRoom[body.roomId] = null;
+      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ ok: true, roomId: body.roomId }) });
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/reorder')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; itemIds: string[] };
+      const existing = normalizeSession(body.roomId);
+      if (!existing) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'No bot in room' }) });
+      const byId = new Map(existing.queue.map((item) => [item.id, item]));
+      const queue = body.itemIds.map((itemId) => byId.get(itemId)).filter(Boolean);
+      const currentId = existing.currentTrack?.id ?? null;
+      const currentIndex = currentId ? queue.findIndex((item) => item?.id === currentId) : 0;
+      statusByRoom[body.roomId] = {
+        ...existing,
+        queue: queue as typeof existing.queue,
+        currentIndex: currentIndex >= 0 ? currentIndex : 0,
+        currentTrack: queue[(currentIndex >= 0 ? currentIndex : 0)] ?? null,
+      };
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/shuffle')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string };
+      const existing = normalizeSession(body.roomId);
+      if (!existing) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'No bot in room' }) });
+      const current = existing.currentTrack;
+      const remaining = existing.queue.filter((item) => item.id !== current?.id).reverse();
+      statusByRoom[body.roomId] = {
+        ...existing,
+        queue: current ? [current, ...remaining] : remaining,
+        currentIndex: current ? 0 : existing.currentIndex,
+        currentTrack: current ?? remaining[0] ?? null,
+      };
+      return fulfillSession(body.roomId);
+    }
+
+    if (method === 'POST' && pathname.endsWith('/musicman/queue/next')) {
+      const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string };
+      const existing = normalizeSession(body.roomId);
+      if (!existing) return route.fulfill({ status: 404, headers: CORS, body: JSON.stringify({ error: 'No bot in room' }) });
+      const queue = existing.queue.filter((_, index) => index !== existing.currentIndex);
+      if (queue.length === 0) {
+        activeRooms.delete(body.roomId);
+        statusByRoom[body.roomId] = null;
+        return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ ok: true, roomId: body.roomId, session: null }) });
+      }
+      statusByRoom[body.roomId] = {
+        ...existing,
+        queue,
+        currentIndex: 0,
+        currentTrack: queue[0],
+        url: queue[0].url,
+        paused: false,
+        playing: true,
+      };
+      return fulfillSession(body.roomId);
     }
 
     if (method === 'POST' && pathname.endsWith('/musicman/leave')) {
@@ -659,29 +861,38 @@ export async function mockMusicRoutes(
 
     if (method === 'POST' && pathname.endsWith('/musicman/pause')) {
       const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string };
-      const current = statusByRoom[body.roomId];
+      const current = normalizeSession(body.roomId);
       if (current) current.paused = true;
-      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ success: true }) });
+      statusByRoom[body.roomId] = current;
+      return fulfillSession(body.roomId);
     }
 
     if (method === 'POST' && pathname.endsWith('/musicman/resume')) {
       const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string };
-      const current = statusByRoom[body.roomId];
+      const current = normalizeSession(body.roomId);
       if (current) current.paused = false;
-      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ success: true }) });
+      statusByRoom[body.roomId] = current;
+      return fulfillSession(body.roomId);
     }
 
     if (method === 'POST' && pathname.endsWith('/musicman/seek')) {
       const body = JSON.parse(route.request().postData() ?? '{}') as { roomId: string; seconds: number };
-      const current = statusByRoom[body.roomId];
-      if (current) current.positionMs = body.seconds * 1000;
-      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ success: true }) });
+      const current = normalizeSession(body.roomId);
+      const appliedSeconds = clampSeekSeconds(current, body.seconds);
+      seekRequests.push({
+        roomId: body.roomId,
+        requestedSeconds: body.seconds,
+        appliedSeconds,
+      });
+      if (current) current.positionMs = appliedSeconds * 1000;
+      statusByRoom[body.roomId] = current;
+      return fulfillSession(body.roomId);
     }
 
     const statusMatch = pathname.match(/\/musicman\/status\/(.+)$/);
     if (method === 'GET' && statusMatch) {
       const roomId = decodeURIComponent(statusMatch[1]);
-      const status = statusByRoom[roomId] ?? null;
+      const status = normalizeSession(roomId);
       return route.fulfill({
         status: 200,
         headers: CORS,
@@ -695,6 +906,10 @@ export async function mockMusicRoutes(
       body: JSON.stringify({ error: `Unmocked music route: ${method} ${url}` }),
     });
   });
+
+  return {
+    seekRequests,
+  };
 }
 
 /**

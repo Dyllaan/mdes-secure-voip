@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
     Music2, Play, Pause, Square, Loader2, Radio,
     ListMusic, Plus, ChevronDown, ChevronUp, SkipForward, Trash2, Cast,
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import useMusicMan from '@/hooks/musicman/useMusicMan';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import Playlist, { type PlaylistItem } from './Playlist';
+import type { MusicRoomStateEvent } from './types';
 
 interface MusicmanPanelProps {
     roomId: string;
@@ -49,45 +50,6 @@ function isSupportedUrl(url: string) {
     return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)/.test(url.trim());
 }
 
-/** True for single-track URLs that can be played immediately without a resolve round-trip. */
-function isSingleTrack(url: string): boolean {
-    try {
-        const u = new URL(url.trim());
-        if (u.searchParams.get('list')) return false;
-        if (u.hostname === 'youtu.be') return true;
-        if (u.hostname.includes('youtube.com')) return !!u.searchParams.get('v');
-        if (u.hostname.includes('soundcloud.com')) {
-            const parts = u.pathname.split('/').filter(Boolean);
-            return parts.length === 2 && !parts.includes('sets');
-        }
-    } catch { /* ignore */ }
-    return false;
-}
-
-/** Build a lightweight stub item from a URL so playback can start immediately. */
-function stubFromUrl(url: string): PlaylistItem {
-    const stubId = `stub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    try {
-        const u = new URL(url.trim());
-        if (u.hostname.includes('soundcloud.com')) {
-            const parts = u.pathname.split('/').filter(Boolean);
-            return {
-                id: stubId, url,
-                title:   parts.length >= 2 ? parts[parts.length - 1].replace(/-/g, ' ') : 'Loading…',
-                channel: parts[0] ?? 'SoundCloud',
-                duration: '-', durationMs: 0, source: 'soundcloud',
-            };
-        }
-        const vid = u.hostname === 'youtu.be'
-            ? u.pathname.slice(1).split('?')[0]
-            : u.searchParams.get('v');
-        if (vid) {
-            return { id: vid, url, title: 'Loading…', channel: 'YouTube', duration: '-', durationMs: 0, source: 'youtube' };
-        }
-    } catch { /* ignore */ }
-    return { id: stubId, url, title: 'Loading…', channel: '-', duration: '-', durationMs: 0 };
-}
-
 function mediaLabel(url: string): string {
     try {
         const u = new URL(url.trim());
@@ -99,10 +61,12 @@ function mediaLabel(url: string): string {
         const vid = u.hostname === 'youtu.be'
             ? u.pathname.slice(1).split('?')[0]
             : u.searchParams.get('v');
-        if (vid) return `youtube.com/…${vid.slice(-6)}`;
+        if (vid) return `youtube.com/...${vid.slice(-6)}`;
         const pid = u.searchParams.get('list');
-        if (pid) return `Playlist …${pid.slice(-6)}`;
-    } catch { /* ignore */ }
+        if (pid) return `Playlist ...${pid.slice(-6)}`;
+    } catch {
+        // Ignore malformed URLs for display fallback.
+    }
     return url;
 }
 
@@ -113,205 +77,92 @@ function formatMs(ms: number): string {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-const MAX_QUEUE   = 27;
-const STORAGE_KEY = (roomId: string) => `mdes:queue:${roomId}`;
-
-function loadQueue(roomId: string): PlaylistItem[] {
-    try {
-        const raw   = localStorage.getItem(STORAGE_KEY(roomId));
-        const items = raw ? JSON.parse(raw) : [];
-        return Array.isArray(items) ? items.slice(0, MAX_QUEUE) : [];
-    } catch {
-        return [];
-    }
-}
-
-function saveQueue(roomId: string, items: PlaylistItem[]) {
-    try {
-        localStorage.setItem(STORAGE_KEY(roomId), JSON.stringify(items));
-    } catch { }
-}
+const MAX_QUEUE = 27;
 
 export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined }: MusicmanPanelProps) {
     const {
-        play, leave, pause, resume, seek, getStatus, resolve,
-        isActive, isPaused, nowPlaying, loading, error, joinHub,
+        addQueueItems,
+        clearQueue,
+        leave,
+        pause,
+        resume,
+        seek,
+        getStatus,
+        resolve,
+        isActive,
+        nowPlaying,
+        loading,
+        error,
+        joinHub,
+        getRoomState,
+        removeQueueItem,
+        reorderQueue,
+        shuffleQueue,
+        playQueueItem,
+        playNext,
+        applySessionStateEvent,
     } = useMusicMan();
     const { socket } = useConnection();
 
-    const active  = isActive(roomId);
-    const paused  = isPaused(roomId);
+    const active = isActive(roomId);
+    const roomState = getRoomState(roomId);
+    const paused = roomState?.paused ?? false;
     const playing = nowPlaying(roomId);
+    const queue = roomState?.queue ?? [];
+    const currentIndex = roomState?.currentIndex ?? 0;
+    const currentTrack = roomState?.currentTrack ?? null;
+    const activeVideoMode = roomState?.videoMode ?? false;
 
-    const [queue, setQueue]               = useState<PlaylistItem[]>(() => loadQueue(roomId));
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const [queueOpen, setQueueOpen]       = useState(() => loadQueue(roomId).length > 0);
-    const [urlInput, setUrlInput]         = useState('');
-    const [inputError, setInputError]     = useState<string | null>(null);
-    const [resolving, setResolving]       = useState(false);
-    const [positionMs, setPositionMs]     = useState(0);
-    const [botJoined, setBotJoined]       = useState(hasMusicman);
+    const [queueOpen, setQueueOpen] = useState(false);
+    const [urlInput, setUrlInput] = useState('');
+    const [inputError, setInputError] = useState<string | null>(null);
+    const [resolving, setResolving] = useState(false);
+    const [positionMs, setPositionMs] = useState(0);
+    const [botJoined, setBotJoined] = useState(hasMusicman);
+    const [isSeeking, setIsSeeking] = useState(false);
+    const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
 
     /**
      * Video screenshare mode streams the YouTube video as a peer screenshare.
      * Locked at the moment the bot first joins a room to change it the bot
-     * must leave and rejoin. The toggle is disabled while the bot is
-     * active.
+     * must leave and rejoin.
      */
     const [videoMode, setVideoMode] = useState(false);
-    /** Tracks whether the currently-active session was started in video mode. */
-    const [activeVideoMode, setActiveVideoMode] = useState(false);
 
-    const inputRef             = useRef<HTMLInputElement>(null);
-    const transitioningRef     = useRef(false);
-    const handlePlayNextRef    = useRef<() => Promise<void>>(() => Promise.resolve());
-    const botAvailable = hasMusicman || botJoined;
+    const inputRef = useRef<HTMLInputElement>(null);
+    const seekInteractionRef = useRef(false);
+    const seekPreviewSecondsRef = useRef<number | null>(null);
+    const botAvailable = hasMusicman || botJoined || active;
+    const currentDurationMs = currentTrack?.durationMs ?? 0;
+    const seekEnabled = currentDurationMs > 0;
+    const seekMax = seekEnabled ? Math.floor(currentDurationMs / 1000) : 0;
+    const clampSeekSeconds = (seconds: number) => {
+        if (!Number.isFinite(seconds) || !seekEnabled) return 0;
+        return Math.min(Math.max(0, Math.floor(seconds)), seekMax);
+    };
 
     useEffect(() => {
         if (hasMusicman) setBotJoined(true);
     }, [hasMusicman]);
 
-    const resolveAndUpdate = useCallback(async (url: string, stubId: string) => {
-        try {
-            const resolved = await resolve(url);
-            if (resolved.length === 0) return;
-            const r = resolved[0];
-            setQueue(prev => {
-                const next = prev.map(item =>
-                    (item.id === stubId || item.url === url)
-                        ? { ...item, id: r.id, url: r.url, title: r.title, channel: r.channel, duration: r.duration, durationMs: r.durationMs }
-                        : item
-                );
-                saveQueue(roomId, next);
-                return next;
-            });
-        } catch (e) {
-            console.error('[resolveAndUpdate] failed:', e);
-        }
-    }, [resolve, roomId]);
-
-    const updateQueue = (next: PlaylistItem[]) => {
-        setQueue(next);
-        saveQueue(roomId, next);
-    };
-
-    const addToQueue = (items: PlaylistItem[]) => {
-        setQueue(prev => {
-            const next = [...prev, ...items];
-            saveQueue(roomId, next);
-            return next;
-        });
-    };
-
-    const handleRemoveFromQueue = async (id: string) => {
-        const idx = queue.findIndex(i => i.id === id);
-        if (idx === -1) return;
-
-        const next = queue.filter(i => i.id !== id);
-        updateQueue(next);
-
-        if (idx < currentIndex) {
-            setCurrentIndex(c => Math.max(0, c - 1));
-        } else if (idx === currentIndex) {
-            setCurrentIndex(0);
-            setPositionMs(0);
-            if (next.length > 0) {
-                await playItem(next[0]);
-            } else if (active) {
-                await handleStop();
-            }
-        }
-    };
-
-    const shuffleQueue = () => {
-        setQueue(prev => {
-            const next = [...prev];
-            for (let i = next.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [next[i], next[j]] = [next[j], next[i]];
-            }
-            saveQueue(roomId, next);
-            return next;
-        });
-        setCurrentIndex(0);
-    };
-
-    const clearQueue = () => {
-        setQueue([]);
-        setCurrentIndex(0);
-        saveQueue(roomId, []);
-    };
-
-    const playItem = async (item: PlaylistItem) => {
-        const url = item.url ?? `https://www.youtube.com/watch?v=${item.id}`;
-        setPositionMs(0);
-        // Pass videoMode on first join; on track changes the bot already knows its mode
-        await play(roomId, url, videoMode);
-        if (!active) setActiveVideoMode(videoMode);
-    };
-
-    const handlePlayFromQueue = async (id: string) => {
-        const idx = queue.findIndex(i => i.id === id);
-        if (idx === -1) return;
-        setCurrentIndex(idx);
-        await playItem(queue[idx]);
-    };
-
-    const handlePlayNext = useCallback(async () => {
-        if (queue.length === 0) return;
-        const nextQueue = queue.filter((_, i) => i !== currentIndex);
-        updateQueue(nextQueue);
-        setCurrentIndex(0);
-        setPositionMs(0);
-        if (nextQueue.length > 0) {
-            await playItem(nextQueue[0]);
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [queue, currentIndex]);
+    useEffect(() => {
+        if (queue.length > 0) setQueueOpen(true);
+    }, [queue.length]);
 
     useEffect(() => {
-        handlePlayNextRef.current = handlePlayNext;
-    }, [handlePlayNext]);
-
-    // clear queue if the bot is not currently running in this room
-    useEffect(() => {
-        getStatus(roomId).then(status => {
-            if (!status) {
-                clearQueue();
-            } else {
-                // Sync video mode state from an already-active bot
-                setActiveVideoMode(status.videoMode ?? false);
-                setVideoMode(status.videoMode ?? false);
-            }
-        });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // When the bot stops, clear the active video mode indicator
-    useEffect(() => {
-        if (!active) setActiveVideoMode(false);
-    }, [active]);
-
-    const handlePauseResume = async () => {
-        if (paused) {
-            await resume(roomId);
-        } else {
-            await pause(roomId);
+        if (!isSeeking) setPositionMs(roomState?.positionMs ?? 0);
+        if (!active) {
+            setVideoMode(false);
+            setIsSeeking(false);
+            setSeekPreviewSeconds(null);
+            seekInteractionRef.current = false;
+            seekPreviewSecondsRef.current = null;
         }
-    };
+    }, [active, isSeeking, roomState?.positionMs]);
 
-    const handleSeek = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const seconds = Number(e.target.value);
-        setPositionMs(seconds * 1000);
-        await seek(roomId, seconds);
-    };
-
-    const handleStop = async () => {
-        try {
-            await leave(roomId);
-            setPositionMs(0);
-        } catch { }
-    };
+    useEffect(() => {
+        void getStatus(roomId);
+    }, [getStatus, roomId]);
 
     useEffect(() => {
         if (!active) {
@@ -321,46 +172,116 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
         const poll = async () => {
             const status = await getStatus(roomId);
-            if (status) setPositionMs(status.positionMs);
+            if (!status) setPositionMs(0);
         };
 
-        poll();
         const intervalId = setInterval(poll, 5000);
         return () => clearInterval(intervalId);
     }, [active, roomId, getStatus]);
 
-
     useEffect(() => {
         if (!socket) return;
 
-        const onTrackEnded = (d: { roomId: string }) => {
-            if (d.roomId !== roomId) return;
-            if (transitioningRef.current) return;
-            transitioningRef.current = true;
-            handlePlayNextRef.current().finally(() => {
-                transitioningRef.current = false;
-            });
+        const onSessionState = (event: MusicRoomStateEvent) => {
+            if (event.roomId !== roomId) return;
+            applySessionStateEvent(event);
+            if (!event.active) {
+                setPositionMs(0);
+                setIsSeeking(false);
+                setSeekPreviewSeconds(null);
+                seekInteractionRef.current = false;
+                seekPreviewSecondsRef.current = null;
+            } else if (event.state && !seekInteractionRef.current) {
+                setPositionMs(event.state.positionMs);
+            }
         };
 
-        const onStateChanged = (d: { roomId: string; paused: boolean }) => {
-            if (d.roomId !== roomId) return;
-            if (!d.paused) setPositionMs(0);
-        };
-
-        socket.on('musicman:track-ended',   onTrackEnded);
-        socket.on('musicman:state-changed', onStateChanged);
-
+        socket.on('musicman:session-state', onSessionState);
         return () => {
-            socket.off('musicman:track-ended',   onTrackEnded);
-            socket.off('musicman:state-changed', onStateChanged);
+            socket.off('musicman:session-state', onSessionState);
         };
-    }, [socket, roomId]);
+    }, [applySessionStateEvent, roomId, socket]);
+
+    const handlePauseResume = async () => {
+        if (paused) {
+            await resume(roomId);
+        } else {
+            await pause(roomId);
+        }
+    };
+
+    const startSeekInteraction = () => {
+        if (!seekEnabled) return;
+        seekInteractionRef.current = true;
+        setIsSeeking(true);
+    };
+
+    const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const seconds = clampSeekSeconds(Number(e.target.value));
+        if (!seekInteractionRef.current) {
+            startSeekInteraction();
+        }
+        seekPreviewSecondsRef.current = seconds;
+        setSeekPreviewSeconds(seconds);
+        setPositionMs(seconds * 1000);
+    };
+
+    const commitSeek = async () => {
+        if (!seekInteractionRef.current || !seekEnabled) return;
+        const seconds = clampSeekSeconds(
+            seekPreviewSecondsRef.current ?? seekPreviewSeconds ?? Math.floor(positionMs / 1000),
+        );
+        setPositionMs(seconds * 1000);
+        try {
+            await seek(roomId, seconds);
+        } finally {
+            seekInteractionRef.current = false;
+            seekPreviewSecondsRef.current = null;
+            setIsSeeking(false);
+            setSeekPreviewSeconds(null);
+        }
+    };
+
+    const cancelSeekInteraction = () => {
+        seekInteractionRef.current = false;
+        seekPreviewSecondsRef.current = null;
+        setIsSeeking(false);
+        setSeekPreviewSeconds(null);
+        setPositionMs(roomState?.positionMs ?? 0);
+    };
+
+    const handleSeekKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+            startSeekInteraction();
+        }
+    };
+
+    const handleSeekKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+            void commitSeek();
+        }
+    };
+
+    const handleStop = async () => {
+        try {
+            await leave(roomId);
+            setPositionMs(0);
+        } catch {
+            // Hook exposes error state for UI feedback.
+        }
+    };
 
     const handleAdd = async () => {
         setInputError(null);
         const url = urlInput.trim();
-        if (!url) { setInputError('Paste a YouTube or SoundCloud URL'); return; }
-        if (!isSupportedUrl(url)) { setInputError('Must be a YouTube or SoundCloud URL'); return; }
+        if (!url) {
+            setInputError('Paste a YouTube or SoundCloud URL');
+            return;
+        }
+        if (!isSupportedUrl(url)) {
+            setInputError('Must be a YouTube or SoundCloud URL');
+            return;
+        }
 
         const available = MAX_QUEUE - queue.length;
         if (available <= 0) {
@@ -368,47 +289,20 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             return;
         }
 
-        if (isSingleTrack(url)) {
-            const stub     = stubFromUrl(url);
-            const wasEmpty = queue.length === 0;
-            addToQueue([stub]);
-            setUrlInput('');
-            if (!queueOpen) setQueueOpen(true);
-            if (!active && wasEmpty) {
-                setCurrentIndex(0);
-                await playItem(stub);
-            }
-            resolveAndUpdate(url, stub.id);
-            return;
-        }
-
         setResolving(true);
         try {
             const resolved = await resolve(url);
-            if (resolved.length === 0) { setInputError('No playable videos found'); return; }
-
-            const items: PlaylistItem[] = resolved.map(r => ({
-                id:         r.id,
-                url:        r.url,
-                title:      r.title,
-                channel:    r.channel,
-                duration:   r.duration,
-                durationMs: r.durationMs,
-                source:     r.url.includes('soundcloud.com') ? 'soundcloud' as const : 'youtube' as const,
-            }));
-
-            const toAdd    = items.slice(0, available);
-            const wasEmpty = queue.length === 0;
-            addToQueue(toAdd);
-            setUrlInput('');
-            if (!queueOpen) setQueueOpen(true);
-            if (toAdd.length < items.length) {
-                setInputError(`Added ${toAdd.length} of ${items.length} tracks - queue capped at ${MAX_QUEUE}`);
+            if (resolved.length === 0) {
+                setInputError('No playable videos found');
+                return;
             }
 
-            if (!active && wasEmpty) {
-                setCurrentIndex(0);
-                await playItem(items[0]);
+            const items = resolved.slice(0, available);
+            await addQueueItems(roomId, items, active ? activeVideoMode : videoMode);
+            setUrlInput('');
+            setQueueOpen(true);
+            if (items.length < resolved.length) {
+                setInputError(`Added ${items.length} of ${resolved.length} tracks - queue capped at ${MAX_QUEUE}`);
             }
         } catch {
             setInputError('Failed to resolve URL - check the bot is running');
@@ -418,36 +312,67 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleAdd();
+        if (e.key === 'Enter') void handleAdd();
         if (e.key === 'Escape') setUrlInput('');
     };
 
-    const isLoading = loading || resolving;
+    const handleRemoveFromQueue = async (id: string) => {
+        try {
+            const nextState = await removeQueueItem(roomId, id);
+            if (!nextState) setPositionMs(0);
+        } catch {
+            // Hook error state handles messaging.
+        }
+    };
 
-    const currentDurationMs = (active && queue[currentIndex]?.durationMs) || 0;
-    const seekMax = currentDurationMs > 0 ? Math.floor(currentDurationMs / 1000) : 3600;
+    const handlePlayFromQueue = async (id: string) => {
+        setPositionMs(0);
+        await playQueueItem(roomId, id);
+    };
+
+    const handlePlayNext = async () => {
+        const nextState = await playNext(roomId);
+        if (!nextState) setPositionMs(0);
+    };
+
+    const handleClearQueue = async () => {
+        try {
+            await clearQueue(roomId);
+            setPositionMs(0);
+        } catch {
+            // Hook error state handles messaging.
+        }
+    };
+
+    const handleShuffleQueue = async () => {
+        await shuffleQueue(roomId);
+    };
+
+    const handleReorderQueue = async (items: PlaylistItem[]) => {
+        await reorderQueue(roomId, items);
+    };
+
+    const isLoading = loading || resolving;
+    const displayedSeekSeconds = isSeeking
+        ? clampSeekSeconds(seekPreviewSeconds ?? Math.floor(positionMs / 1000))
+        : (seekEnabled ? Math.min(Math.floor(positionMs / 1000), seekMax) : 0);
 
     return (
         <div className="flex flex-col gap-0">
-
-
             <div className={`
                 rounded-lg border transition-all duration-200 overflow-hidden
                 ${active ? 'border-emerald-500/40 bg-emerald-950/20' : 'border-border bg-muted/30'}
             `}>
                 <div className="flex items-center gap-2 px-3 py-2">
-
-                    {/* Icon + state */}
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                         <Music2 className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-emerald-400' : 'text-muted-foreground'}`} />
 
                         {active ? (
                             <div className="flex items-center gap-2 min-w-0">
                                 <Waveform active={!paused} />
-                                <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={queue[currentIndex]?.title ?? playing ?? ''}>
-                                    {queue[currentIndex]?.title ?? (playing ? mediaLabel(playing) : 'Playing…')}
+                                <span className="text-xs text-emerald-400 truncate max-w-[140px]" title={currentTrack?.title ?? playing ?? ''}>
+                                    {currentTrack?.title ?? (playing ? mediaLabel(playing) : 'Playing...')}
                                 </span>
-                                {/* Video mode badge shown when session is running in screenshare mode */}
                                 {activeVideoMode && (
                                     <span
                                         className="shrink-0 flex items-center gap-0.5 text-[10px] font-medium text-sky-400 bg-sky-950/40 border border-sky-500/30 rounded px-1 py-0.5"
@@ -463,11 +388,9 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         )}
                     </div>
 
-                    {/* Controls */}
                     <div className="flex items-center gap-1 shrink-0">
                         {active && (
                             <>
-                                {/* Pause / Resume */}
                                 <Button
                                     data-testid="music-pause-resume"
                                     variant="ghost"
@@ -483,7 +406,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                     }
                                 </Button>
 
-                                {/* Skip to next */}
                                 {queue.length > 1 && (
                                     <Button
                                         data-testid="music-next"
@@ -498,7 +420,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                     </Button>
                                 )}
 
-                                {/* Stop */}
                                 <Button
                                     data-testid="music-stop"
                                     variant="ghost"
@@ -535,7 +456,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     </div>
                 </div>
 
-                {/* Seek bar - shown when active */}
                 {active && (
                     <div className="flex items-center gap-2 px-3 pb-2">
                         <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-10 text-right shrink-0">
@@ -546,9 +466,16 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             type="range"
                             min={0}
                             max={seekMax}
-                            value={Math.min(Math.floor(positionMs / 1000), seekMax)}
-                            onChange={handleSeek}
-                            className="flex-1 h-1 accent-emerald-400 cursor-pointer"
+                            value={displayedSeekSeconds}
+                            onChange={handleSeekChange}
+                            onPointerDown={startSeekInteraction}
+                            onPointerUp={() => { void commitSeek(); }}
+                            onPointerCancel={cancelSeekInteraction}
+                            onBlur={() => { void commitSeek(); }}
+                            onKeyDown={handleSeekKeyDown}
+                            onKeyUp={handleSeekKeyUp}
+                            disabled={!seekEnabled}
+                            className="flex-1 h-1 accent-emerald-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                             title="Seek"
                         />
                         {currentDurationMs > 0 && (
@@ -559,7 +486,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     </div>
                 )}
             </div>
-
 
             {botAvailable && (
                 <div className="flex flex-col gap-1.5 mt-3">
@@ -572,15 +498,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                 value={urlInput}
                                 onChange={e => { setUrlInput(e.target.value); setInputError(null); }}
                                 onKeyDown={handleKeyDown}
-                                placeholder="YouTube or SoundCloud URL…"
+                                placeholder="YouTube or SoundCloud URL..."
                                 className="h-8 text-xs pl-7 bg-background/50"
                             />
                         </div>
 
-                        {/*
-                         * Video mode toggle enabled before joining only.
-                         * Once the bot is active the mode is locked until /leave.
-                         */}
                         <button
                             data-testid="music-video-mode-toggle"
                             onClick={() => !active && setVideoMode(v => !v)}
@@ -619,7 +541,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         </Button>
                     </div>
 
-                    {/* Video mode hint when toggled on and bot not yet active */}
                     {videoMode && !active && (
                         <p className="text-[11px] text-sky-400/80 flex items-center gap-1 px-1">
                             <Cast className="h-3 w-3 shrink-0" />
@@ -637,7 +558,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                 <div className="mt-3">
                     <Separator className="mb-3" />
 
-                    {/* Queue toggle header */}
                     <div className="flex items-center gap-2 mb-2">
                         <button
                             data-testid="music-queue-toggle"
@@ -658,7 +578,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         </button>
                         <button
                             data-testid="music-clear-queue"
-                            onClick={clearQueue}
+                            onClick={handleClearQueue}
                             className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"
                             title="Clear queue"
                         >
@@ -670,11 +590,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         <Playlist
                             items={queue}
                             currentIndex={active ? currentIndex : -1}
-                            onReorder={updateQueue}
+                            onReorder={handleReorderQueue}
                             onRemove={handleRemoveFromQueue}
                             onPlay={handlePlayFromQueue}
-                            onShuffle={queue.length > 1 ? shuffleQueue : undefined}
-                            onClear={clearQueue}
+                            onShuffle={queue.length > 1 ? handleShuffleQueue : undefined}
+                            onClear={handleClearQueue}
                         />
                     )}
                 </div>

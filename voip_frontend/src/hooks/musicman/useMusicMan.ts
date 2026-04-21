@@ -1,42 +1,71 @@
+import axios from 'axios';
 import { useState, useCallback } from 'react';
-import { musicmanApi } from '@/axios/api';
+import { musicmanApi, ApiError } from '@/axios/api';
+import type { MusicQueueItem, MusicRoomState, MusicRoomStateEvent } from '@/components/music/types';
 
+interface ResolvedItem extends MusicQueueItem {}
 
-interface PlaybackStatus {
-  playing:      boolean;
-  paused:       boolean;
-  positionMs:   number;
-  url:          string;
-  videoMode:    boolean;
-  screenPeerId: string | null;
-}
-
-interface ResolvedItem {
-  id:         string;
-  url:        string;
-  title:      string;
-  channel:    string;
-  duration:   string;
-  durationMs: number;
+interface SessionResponse {
+  ok: boolean;
+  roomId: string;
+  session: MusicRoomState | null;
 }
 
 const useMusicman = () => {
-  const [activeRooms, setActiveRooms] = useState<Map<string, string>>(new Map());
-  const [pausedRooms, setPausedRooms] = useState<Set<string>>(new Set());
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
+  const [roomStates, setRoomStates] = useState<Map<string, MusicRoomState>>(new Map());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const request = useCallback(async (
-    path:    string,
+    path: string,
     options: { method?: string; data?: unknown } = {},
   ) => {
     const res = await musicmanApi.request({
-      url:    path,
+      url: path,
       method: options.method ?? 'GET',
-      data:   options.data,
+      data: options.data,
     });
+    if (res.status >= 400) {
+      throw new ApiError((res.data as { error?: string } | undefined)?.error ?? 'MusicMan request failed', res.status, res.data);
+    }
     return res.data ?? null;
   }, []);
+
+  const upsertRoomState = useCallback((state: MusicRoomState | null) => {
+    if (!state) return;
+    setRoomStates((prev) => {
+      const next = new Map(prev);
+      next.set(state.roomId, state);
+      return next;
+    });
+  }, []);
+
+  const clearRoomState = useCallback((roomId: string) => {
+    setRoomStates((prev) => {
+      if (!prev.has(roomId)) return prev;
+      const next = new Map(prev);
+      next.delete(roomId);
+      return next;
+    });
+  }, []);
+
+  const applySessionResponse = useCallback((payload: SessionResponse | null) => {
+    if (!payload) return null;
+    if (payload.session) {
+      upsertRoomState(payload.session);
+      return payload.session;
+    }
+    clearRoomState(payload.roomId);
+    return null;
+  }, [clearRoomState, upsertRoomState]);
+
+  const applySessionStateEvent = useCallback((event: MusicRoomStateEvent) => {
+    if (event.active && event.state) {
+      upsertRoomState(event.state);
+      return;
+    }
+    clearRoomState(event.roomId);
+  }, [clearRoomState, upsertRoomState]);
 
   const joinHub = useCallback(async (hubId: string): Promise<void> => {
     setLoading(true);
@@ -52,24 +81,16 @@ const useMusicman = () => {
     }
   }, [request]);
 
-  /**
-   * Play a YouTube/SoundCloud URL in a room. If the bot is not yet in the room
-   * it joins first, if it's already there the track is swapped.
-   *
-   * videoMode streams the video as a peer screenshare with audio.
-   * @TODO: to change the bot must be kicked and re-added to the room - make this smoother by allowing videoMode to be toggled without leaving the room
-   */
   const play = useCallback(async (
-    roomId:    string,
-    url:       string,
-    videoMode= false,
-  ): Promise<void> => {
+    roomId: string,
+    url: string,
+    videoMode = false,
+  ): Promise<MusicRoomState | null> => {
     setLoading(true);
     setError(null);
     try {
-      await request('/play', { method: 'POST', data: { roomId, url, videoMode } });
-      setActiveRooms(prev => new Map(prev).set(roomId, url));
-      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
+      const data = await request('/play', { method: 'POST', data: { roomId, url, videoMode } }) as SessionResponse;
+      return applySessionResponse(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -77,19 +98,126 @@ const useMusicman = () => {
     } finally {
       setLoading(false);
     }
-  }, [request]);
+  }, [applySessionResponse, request]);
+
+  const addQueueItems = useCallback(async (
+    roomId: string,
+    items: MusicQueueItem[],
+    videoMode = false,
+  ): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/add', { method: 'POST', data: { roomId, items, videoMode } }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
+
+  const playQueueItem = useCallback(async (roomId: string, itemId: string): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/play', { method: 'POST', data: { roomId, itemId } }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
+
+  const removeQueueItem = useCallback(async (roomId: string, itemId: string): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/remove', { method: 'POST', data: { roomId, itemId } }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
+
+  const clearQueue = useCallback(async (roomId: string): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      await request('/queue/clear', { method: 'POST', data: { roomId } });
+      clearRoomState(roomId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [clearRoomState, request]);
+
+  const reorderQueue = useCallback(async (roomId: string, items: MusicQueueItem[]): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/reorder', {
+        method: 'POST',
+        data: { roomId, itemIds: items.map((item) => item.id) },
+      }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
+
+  const shuffleQueue = useCallback(async (roomId: string): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/shuffle', { method: 'POST', data: { roomId } }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
+
+  const playNext = useCallback(async (roomId: string): Promise<MusicRoomState | null> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await request('/queue/next', { method: 'POST', data: { roomId } }) as SessionResponse;
+      return applySessionResponse(data);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [applySessionResponse, request]);
 
   const leave = useCallback(async (roomId: string): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
       await request('/leave', { method: 'POST', data: { roomId } });
-      setActiveRooms(prev => {
-        const next = new Map(prev);
-        next.delete(roomId);
-        return next;
-      });
-      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
+      clearRoomState(roomId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -97,14 +225,14 @@ const useMusicman = () => {
     } finally {
       setLoading(false);
     }
-  }, [request]);
+  }, [clearRoomState, request]);
 
-  const pause = useCallback(async (roomId: string): Promise<void> => {
+  const pause = useCallback(async (roomId: string): Promise<MusicRoomState | null> => {
     setLoading(true);
     setError(null);
     try {
-      await request('/pause', { method: 'POST', data: { roomId } });
-      setPausedRooms(prev => new Set(prev).add(roomId));
+      const data = await request('/pause', { method: 'POST', data: { roomId } }) as SessionResponse;
+      return applySessionResponse(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -112,14 +240,14 @@ const useMusicman = () => {
     } finally {
       setLoading(false);
     }
-  }, [request]);
+  }, [applySessionResponse, request]);
 
-  const resume = useCallback(async (roomId: string): Promise<void> => {
+  const resume = useCallback(async (roomId: string): Promise<MusicRoomState | null> => {
     setLoading(true);
     setError(null);
     try {
-      await request('/resume', { method: 'POST', data: { roomId } });
-      setPausedRooms(prev => { const s = new Set(prev); s.delete(roomId); return s; });
+      const data = await request('/resume', { method: 'POST', data: { roomId } }) as SessionResponse;
+      return applySessionResponse(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -127,28 +255,29 @@ const useMusicman = () => {
     } finally {
       setLoading(false);
     }
-  }, [request]);
+  }, [applySessionResponse, request]);
 
-  /** Seek to a position. No loading spinner - seek can be called frequently. */
-  const seek = useCallback(async (roomId: string, seconds: number): Promise<void> => {
+  const seek = useCallback(async (roomId: string, seconds: number): Promise<MusicRoomState | null> => {
     setError(null);
     try {
-      await request('/seek', { method: 'POST', data: { roomId, seconds } });
+      const data = await request('/seek', { method: 'POST', data: { roomId, seconds } }) as SessionResponse;
+      return applySessionResponse(data);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
+      return null;
     }
-  }, [request]);
+  }, [applySessionResponse, request]);
 
   const syncRooms = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
       const data: { rooms: string[] } = await request('/rooms');
-      setActiveRooms(prev => {
-        const next = new Map<string, string>();
-        for (const roomId of data.rooms) {
-          next.set(roomId, prev.get(roomId) ?? '');
+      setRoomStates((prev) => {
+        const next = new Map(prev);
+        for (const roomId of [...next.keys()]) {
+          if (!data.rooms.includes(roomId)) next.delete(roomId);
         }
         return next;
       });
@@ -160,40 +289,46 @@ const useMusicman = () => {
     }
   }, [request]);
 
-  /**
-   * Fetch current playback status for a room.
-   * Also syncs activeRooms so isActive() returns true for rooms where the bot is playing.
-   */
-  const getStatus = useCallback(async (roomId: string): Promise<PlaybackStatus | null> => {
+  const getStatus = useCallback(async (roomId: string): Promise<MusicRoomState | null> => {
     try {
-      const status = await request(`/status/${encodeURIComponent(roomId)}`);
-      if (status?.playing) {
-        setActiveRooms(prev => prev.has(roomId) ? prev : new Map(prev).set(roomId, status.url));
+      const status = await request(`/status/${encodeURIComponent(roomId)}`) as MusicRoomState | null;
+      if (!status) {
+        clearRoomState(roomId);
+        return null;
       }
+      upsertRoomState(status);
       return status;
-    } catch {
+    } catch (err: unknown) {
+      if ((err instanceof ApiError && err.status === 404) || (axios.isAxiosError(err) && err.response?.status === 404)) {
+        clearRoomState(roomId);
+      }
       return null;
     }
-  }, [request]);
+  }, [clearRoomState, request, upsertRoomState]);
 
-  /**
-   * Resolve a YouTube/SoundCloud URL to individual track items via yt-dlp on the server.
-   */
   const resolve = useCallback(async (url: string): Promise<ResolvedItem[]> => {
     const data: { items: ResolvedItem[] } = await request('/resolve', {
       method: 'POST',
-      data:   { url },
+      data: { url },
     });
     return data.items;
   }, [request]);
 
-  const isActive   = useCallback((roomId: string) => activeRooms.has(roomId), [activeRooms]);
-  const nowPlaying = useCallback((roomId: string) => activeRooms.get(roomId) ?? null, [activeRooms]);
-  const isPaused   = useCallback((roomId: string) => pausedRooms.has(roomId), [pausedRooms]);
+  const getRoomState = useCallback((roomId: string) => roomStates.get(roomId) ?? null, [roomStates]);
+  const isActive = useCallback((roomId: string) => roomStates.has(roomId), [roomStates]);
+  const nowPlaying = useCallback((roomId: string) => roomStates.get(roomId)?.currentTrack?.url ?? roomStates.get(roomId)?.url ?? null, [roomStates]);
+  const isPaused = useCallback((roomId: string) => roomStates.get(roomId)?.paused ?? false, [roomStates]);
 
   return {
     joinHub,
     play,
+    addQueueItems,
+    playQueueItem,
+    removeQueueItem,
+    clearQueue,
+    reorderQueue,
+    shuffleQueue,
+    playNext,
     leave,
     pause,
     resume,
@@ -201,13 +336,14 @@ const useMusicman = () => {
     syncRooms,
     getStatus,
     resolve,
-    activeRooms,
-    pausedRooms,
+    roomStates,
     loading,
     error,
     isActive,
     nowPlaying,
     isPaused,
+    getRoomState,
+    applySessionStateEvent,
   };
 };
 

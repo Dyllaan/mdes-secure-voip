@@ -1,11 +1,24 @@
+import { randomUUID, createVerify } from 'crypto';
+import { spawn } from 'child_process';
 import { type Request, type Response, type Router } from 'express';
 import express from 'express';
 import { getToken, getTurnCredentials } from '../Auth';
 import { BotInstance } from '../instances/BotInstance';
 import { AVBotInstance } from '../instances/AVBotInstance';
 import { HubHandler } from '../HubHandler';
+import { MusicSession } from '../music/MusicSession';
+import type { QueueItem } from '../music/types';
 import { config } from '../config';
-import { formatErrorForLog, truncateForLog } from '../logging';
+import {
+    appendStderrLines,
+    createLogger,
+    formatErrorForLog,
+    type Logger,
+    summarizeStderrLines,
+    truncateForLog,
+} from '../logging';
+
+const routesLog = createLogger('http.routes');
 
 const ALLOWED_AUDIO_ORIGINS = (config.ALLOWED_AUDIO_ORIGINS ?? 'youtube.com,youtu.be,soundcloud.com,spotify.com')
     .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -33,94 +46,161 @@ function resolveVideoMode(url: string, requested: boolean): boolean {
     if (!requested) return false;
     try {
         const h = new URL(url).hostname.toLowerCase();
-        return  ALLOWED_VIDEO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`));
+        return ALLOWED_VIDEO_ORIGINS.some((d) => h === d || h.endsWith(`.${d}`));
     } catch {
         return false;
     }
 }
 
-const USER_PLAY_LIMIT     = 5;
+const USER_PLAY_LIMIT = 5;
 const USER_PLAY_WINDOW_MS = 60_000;
-const userPlayLimits      = new Map<string, { count: number; resetAt: number }>();
-
-import { createVerify } from 'crypto';
+const userPlayLimits = new Map<string, { count: number; resetAt: number }>();
 
 const _jwtPublicKey = Buffer.from(config.JWT_PUBLIC_KEY_B64, 'base64').toString('utf8');
 
+interface RouteLocals {
+    requestId?: string;
+    requestLogger?: Logger;
+    requestMeta?: Record<string, unknown>;
+}
+
+interface AuthValidationResult {
+    userId: string | null;
+    reason?: string;
+    tokenLength?: number;
+}
+
+interface ResolvedItem {
+    id: string;
+    url: string;
+    title: string;
+    channel: string;
+    duration: string;
+    durationMs: number;
+}
+
+const MAX_URL_LENGTH = 2048;
+const MAX_ID_LENGTH = 128;
+
+function getRouteLocals(res: Response): RouteLocals {
+    return res.locals as RouteLocals;
+}
+
+function getRequestLogger(res: Response): Logger {
+    return getRouteLocals(res).requestLogger ?? routesLog.child('request');
+}
+
+function setRequestMeta(res: Response, meta: Record<string, unknown>): void {
+    const locals = getRouteLocals(res);
+    locals.requestMeta = {
+        ...(locals.requestMeta ?? {}),
+        ...meta,
+    };
+}
+
 function hasAudience(payload: Record<string, unknown>, audience: string): boolean {
     const aud = payload.aud;
-    if (typeof aud === 'string') {
-        return aud === audience;
-    }
-    if (Array.isArray(aud)) {
-        return aud.includes(audience);
-    }
+    if (typeof aud === 'string') return aud === audience;
+    if (Array.isArray(aud)) return aud.includes(audience);
     return false;
 }
 
-function extractUserId(authHeader: string | undefined): string {
-    if (!authHeader?.startsWith('Bearer ')) return 'anonymous';
+function validateAccessToken(authHeader: string | undefined): AuthValidationResult {
+    if (!authHeader?.startsWith('Bearer ')) return { userId: null, reason: 'missing_bearer' };
+
     const token = authHeader.slice(7);
     const parts = token.split('.');
-    if (parts.length !== 3) return 'anonymous';
+    if (parts.length !== 3) return { userId: null, reason: 'malformed_token', tokenLength: token.length };
+
     try {
-        const signingInput  = `${parts[0]}.${parts[1]}`;
+        const signingInput = `${parts[0]}.${parts[1]}`;
         const signature = Buffer.from(parts[2], 'base64url');
         const verified = createVerify('RSA-SHA256').update(signingInput).end().verify(_jwtPublicKey, signature);
-        if (!verified) {
-            return 'anonymous';
-        }
+        if (!verified) return { userId: null, reason: 'invalid_signature', tokenLength: token.length };
+
         const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>;
-        if (typeof payload.exp === 'number' && Date.now() / 1000 > payload.exp) return 'anonymous';
-        if (payload.iss !== config.JWT_ISSUER) return 'anonymous';
-        if (payload.token_use !== 'access') return 'anonymous';
-        if (!hasAudience(payload, config.JWT_ACCESS_AUDIENCE)) return 'anonymous';
-        return typeof payload.sub === 'string' && payload.sub ? payload.sub : 'anonymous';
+        if (typeof payload.exp === 'number' && Date.now() / 1000 > payload.exp) {
+            return { userId: null, reason: 'expired', tokenLength: token.length };
+        }
+        if (payload.iss !== config.JWT_ISSUER) return { userId: null, reason: 'invalid_issuer', tokenLength: token.length };
+        if (payload.token_use !== 'access') return { userId: null, reason: 'invalid_token_use', tokenLength: token.length };
+        if (!hasAudience(payload, config.JWT_ACCESS_AUDIENCE)) {
+            return { userId: null, reason: 'invalid_audience', tokenLength: token.length };
+        }
+        if (typeof payload.sub !== 'string' || !payload.sub) {
+            return { userId: null, reason: 'missing_subject', tokenLength: token.length };
+        }
+
+        return { userId: payload.sub, tokenLength: token.length };
     } catch {
-        return 'anonymous';
+        return { userId: null, reason: 'invalid_payload', tokenLength: token.length };
     }
 }
 
-async function checkRoomAccess(roomId: string, authHeader: string | undefined): Promise<boolean> {
-    if (!authHeader?.startsWith('Bearer ')) return false;
+function extractUserId(authHeader: string | undefined): string {
+    return validateAccessToken(authHeader).userId ?? 'anonymous';
+}
+
+async function checkRoomAccess(roomId: string, authHeader: string | undefined, logger: Logger): Promise<boolean> {
+    if (!authHeader?.startsWith('Bearer ')) {
+        logger.warn('room_access.rejected', { roomId, reason: 'missing_bearer' });
+        return false;
+    }
+
     try {
         const res = await fetch(`${config.HUB_SERVICE_URL}/channels/${roomId}/access`, {
             headers: { Authorization: authHeader },
         });
+        logger.info('room_access.checked', { roomId, status: res.status, allowed: res.ok });
         return res.ok;
-    } catch {
+    } catch (error) {
+        logger.error('room_access.error', {
+            roomId,
+            error: formatErrorForLog(error),
+        });
         return false;
     }
 }
 
 async function ensureRoomAccess(
-    roomId: string,
-    authHeader: string | undefined,
+    req: Request,
     res: Response,
+    route: string,
+    roomId: string,
 ): Promise<boolean> {
-    if (!await checkRoomAccess(roomId, authHeader)) {
+    const logger = getRequestLogger(res);
+    if (!await checkRoomAccess(roomId, req.headers.authorization, logger.child('roomAccess', { route, roomId }))) {
+        setRequestMeta(res, { roomId, rejectReason: 'room_access_denied' });
+        logger.warn('request.rejected', {
+            route,
+            roomId,
+            statusCode: 403,
+            rejectionReason: 'room_access_denied',
+        });
         res.status(403).json({ error: 'Not a member of this room' });
         return false;
     }
     return true;
 }
 
-function checkUserRateLimit(userId: string): boolean {
-    const now   = Date.now();
+function evaluateUserRateLimit(userId: string): { allowed: boolean; count: number; resetAt: number } {
+    const now = Date.now();
     const entry = userPlayLimits.get(userId) ?? { count: 0, resetAt: now + USER_PLAY_WINDOW_MS };
-    if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + USER_PLAY_WINDOW_MS; }
+    if (now > entry.resetAt) {
+        entry.count = 0;
+        entry.resetAt = now + USER_PLAY_WINDOW_MS;
+    }
     entry.count++;
     userPlayLimits.set(userId, entry);
-    return entry.count <= USER_PLAY_LIMIT;
+    return {
+        allowed: entry.count <= USER_PLAY_LIMIT,
+        count: entry.count,
+        resetAt: entry.resetAt,
+    };
 }
 
-interface ResolvedItem {
-    id:         string;
-    url:        string;
-    title:      string;
-    channel:    string;
-    duration:   string;
-    durationMs: number;
+function checkUserRateLimit(userId: string): boolean {
+    return evaluateUserRateLimit(userId).allowed;
 }
 
 function secondsToTimestamp(sec: number): string {
@@ -131,20 +211,18 @@ function secondsToTimestamp(sec: number): string {
     return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-import { spawn } from 'child_process';
-
-function resolveUrl(url: string): Promise<ResolvedItem[]> {
+function resolveUrl(url: string, logger: Logger): Promise<ResolvedItem[]> {
     return new Promise((resolve, reject) => {
         const potBaseUrl = process.env.YTDLP_POT_BASE_URL ?? 'http://bgutil-pot-provider:4416';
 
-        const isSoundCloud  = /soundcloud\.com/i.test(url);
-        const isSCSingle    = isSoundCloud && !/\/sets\//.test(url) && (() => {
+        const isSoundCloud = /soundcloud\.com/i.test(url);
+        const isSCSingle = isSoundCloud && !/\/sets\//.test(url) && (() => {
             try { return new URL(url).pathname.split('/').filter(Boolean).length === 2; } catch { return false; }
         })();
         const useFlatPlaylist = !isSCSingle;
 
         const maxMb = process.env.YTDLP_MAX_FILESIZE_MB ?? '50';
-        const args  = [
+        const args = [
             ...(useFlatPlaylist ? ['--flat-playlist'] : []),
             '-J',
             '--no-warnings',
@@ -159,41 +237,74 @@ function resolveUrl(url: string): Promise<ResolvedItem[]> {
 
         args.push(url);
 
+        const resolveLog = logger.child('resolveSubprocess', {
+            url: truncateForLog(url, 220),
+            command: 'yt-dlp',
+            args,
+            isSoundCloud,
+            useFlatPlaylist,
+        });
+        resolveLog.info('resolve.spawn.start');
+
         const ytdlp = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
         let stdout = '';
-        let stderr = '';
-        ytdlp.stdout!.on('data', (d: Buffer) => { stdout += d.toString(); });
-        ytdlp.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
+        const stderrLines: string[] = [];
 
+        ytdlp.stdout?.on('data', (d: Buffer) => {
+            stdout += d.toString();
+        });
+        ytdlp.stderr?.on('data', (d: Buffer) => {
+            appendStderrLines(stderrLines, d, 10);
+            resolveLog.debug('resolve.stderr', { chunk: truncateForLog(d.toString(), 300) });
+        });
+
+        const timeoutMs = isSCSingle ? 60_000 : 30_000;
         const timeout = setTimeout(() => {
             ytdlp.kill('SIGTERM');
+            resolveLog.warn('resolve.timeout', { timeoutMs });
             reject(new Error('yt-dlp resolve timed out'));
-        }, isSCSingle ? 60_000 : 30_000);
+        }, timeoutMs);
 
-        ytdlp.on('close', (code) => {
+        ytdlp.on('error', (error) => {
             clearTimeout(timeout);
-            if (code !== 0) return reject(new Error(stderr.trim() || `yt-dlp exited with code ${code}`));
+            resolveLog.error('resolve.spawn.error', { error: formatErrorForLog(error) });
+            reject(error);
+        });
+
+        ytdlp.on('close', (code, signal) => {
+            clearTimeout(timeout);
+            const stderrSummary = summarizeStderrLines(stderrLines);
+            resolveLog.info('resolve.spawn.close', { code, signal, stderrSummary });
+
+            if (code !== 0) {
+                reject(new Error(stderrSummary || `yt-dlp exited with code ${code}`));
+                return;
+            }
+
             try {
-                const data    = JSON.parse(stdout);
+                const data = JSON.parse(stdout);
                 const entries: Record<string, unknown>[] = data.entries ?? [data];
                 const items: ResolvedItem[] = entries
-                    .filter((e) => e && e.id)
-                    .map((e) => ({
-                        id:         String(e.id),
-                        url:        String(e.webpage_url ?? e.url ?? `https://www.youtube.com/watch?v=${e.id}`),
-                        title:      String(e.title ?? e.id),
-                        channel:    String(e.channel ?? e.uploader ?? 'Unknown'),
-                        duration:   typeof e.duration === 'number' ? secondsToTimestamp(e.duration) : '-',
-                        durationMs: typeof e.duration === 'number' ? Math.round(e.duration * 1000) : 0,
+                    .filter((entry) => entry && entry.id)
+                    .map((entry) => ({
+                        id: String(entry.id),
+                        url: String(entry.webpage_url ?? entry.url ?? `https://www.youtube.com/watch?v=${entry.id}`),
+                        title: String(entry.title ?? entry.id),
+                        channel: String(entry.channel ?? entry.uploader ?? 'Unknown'),
+                        duration: typeof entry.duration === 'number' ? secondsToTimestamp(entry.duration) : '-',
+                        durationMs: typeof entry.duration === 'number' ? Math.round(entry.duration * 1000) : 0,
                     }));
+                resolveLog.info('resolve.parse.success', { itemCount: items.length });
                 resolve(items);
-            } catch {
+            } catch (error) {
+                resolveLog.error('resolve.parse.failed', {
+                    error: formatErrorForLog(error),
+                    stdoutPreview: truncateForLog(stdout, 400),
+                });
                 reject(new Error('Failed to parse yt-dlp output'));
             }
         });
-
-        ytdlp.on('error', (err) => { clearTimeout(timeout); reject(err); });
     });
 }
 
@@ -205,9 +316,6 @@ function makeBotInstance(roomId: string, url: string, videoMode: boolean): BotIn
         : new BotInstance(roomId, url, token, creds);
 }
 
-const MAX_URL_LENGTH    = 2048;
-const MAX_ID_LENGTH     = 128;
-
 function isValidId(id: unknown): id is string {
     return typeof id === 'string' && id.length > 0 && id.length <= MAX_ID_LENGTH;
 }
@@ -216,270 +324,861 @@ function isValidUrl(url: unknown): url is string {
     return typeof url === 'string' && url.length > 0 && url.length <= MAX_URL_LENGTH;
 }
 
-function logRouteFailure(
-    route: '/join' | '/play' | '/resolve',
-    reason: string,
+function rejectRequest(
+    res: Response,
+    statusCode: number,
+    error: string,
+    rejectionReason: string,
+    details: Record<string, unknown> = {},
+): void {
+    setRequestMeta(res, { rejectReason: rejectionReason, ...details });
+    getRequestLogger(res).warn('request.rejected', {
+        statusCode,
+        rejectionReason,
+        ...details,
+    });
+    res.status(statusCode).json({ error });
+}
+
+function authorizeRequest(req: Request, res: Response, route: string): string | null {
+    const logger = getRequestLogger(res);
+    const authResult = validateAccessToken(req.headers.authorization);
+    setRequestMeta(res, {
+        route,
+        userId: authResult.userId ?? 'anonymous',
+    });
+
+    if (!authResult.userId) {
+        logger.warn('authorization.rejected', {
+            route,
+            reason: authResult.reason,
+            tokenLength: authResult.tokenLength,
+        });
+        rejectRequest(res, 401, 'Unauthorized', authResult.reason ?? 'unauthorized', { route });
+        return null;
+    }
+
+    logger.debug('authorization.accepted', {
+        route,
+        userId: authResult.userId,
+        tokenLength: authResult.tokenLength,
+    });
+    return authResult.userId;
+}
+
+function setRouteContext(
+    res: Response,
+    route: string,
     details: {
-        roomId?: unknown;
-        url?: unknown;
+        roomId?: string;
+        hubId?: string;
+        url?: string;
         requestedVideoMode?: unknown;
         resolvedVideoMode?: boolean;
-        error?: unknown;
-    },
+    } = {},
 ): void {
-    console.warn('[MusicmanRoute] Request rejected', {
+    setRequestMeta(res, {
         route,
-        reason,
-        roomId: typeof details.roomId === 'string' ? details.roomId : undefined,
-        url: typeof details.url === 'string' ? truncateForLog(details.url) : undefined,
+        roomId: details.roomId,
+        hubId: details.hubId,
+        url: typeof details.url === 'string' ? truncateForLog(details.url, 220) : undefined,
         requestedVideoMode: details.requestedVideoMode === true,
         resolvedVideoMode: details.resolvedVideoMode,
-        ...(details.error !== undefined ? { error: formatErrorForLog(details.error) } : {}),
     });
 }
 
-export function createRouter(bots: Map<string, BotInstance>): Router {
+function isValidQueueItemPayload(item: unknown): item is QueueItem {
+    if (!item || typeof item !== 'object') return false;
+    const candidate = item as Record<string, unknown>;
+    return isValidId(candidate.id)
+        && isValidUrl(candidate.url)
+        && typeof candidate.title === 'string'
+        && candidate.title.length > 0
+        && typeof candidate.channel === 'string'
+        && candidate.channel.length > 0
+        && typeof candidate.duration === 'string'
+        && typeof candidate.durationMs === 'number'
+        && isFinite(candidate.durationMs)
+        && candidate.durationMs >= 0
+        && (candidate.source === undefined
+            || candidate.source === 'youtube'
+            || candidate.source === 'spotify'
+            || candidate.source === 'soundcloud');
+}
+
+function normalizeQueueItems(items: unknown[]): QueueItem[] {
+    return items.map((item) => {
+        if (!isValidQueueItemPayload(item)) throw new Error('Invalid queue item payload');
+        const urlFailure = getUrlValidationFailure(item.url);
+        if (urlFailure) throw new Error('Queue item URL domain not permitted');
+        return {
+            id: item.id,
+            url: item.url,
+            title: item.title,
+            channel: item.channel,
+            duration: item.duration,
+            durationMs: Math.round(item.durationMs),
+            source: item.source,
+        };
+    });
+}
+
+function makeFallbackQueueItem(url: string): QueueItem {
+    let title = 'Loading...';
+    let channel = 'Unknown';
+    let source: QueueItem['source'];
+
+    try {
+        const parsed = new URL(url);
+        if (parsed.hostname.includes('soundcloud.com')) {
+            const parts = parsed.pathname.split('/').filter(Boolean);
+            title = parts.at(-1)?.replace(/-/g, ' ') || title;
+            channel = parts[0] ?? 'SoundCloud';
+            source = 'soundcloud';
+        } else if (parsed.hostname.includes('youtube.com') || parsed.hostname === 'youtu.be') {
+            source = 'youtube';
+            channel = 'YouTube';
+            const videoId = parsed.hostname === 'youtu.be'
+                ? parsed.pathname.slice(1).split('?')[0]
+                : parsed.searchParams.get('v');
+            if (videoId) title = `Video ${videoId.slice(-6)}`;
+        }
+    } catch {
+        // Keep fallback values.
+    }
+
+    return {
+        id: randomUUID(),
+        url,
+        title,
+        channel,
+        duration: '-',
+        durationMs: 0,
+        source,
+    };
+}
+
+function respondWithSession(res: Response, roomId: string, session: MusicSession, extras: Record<string, unknown> = {}): void {
+    res.json({
+        ok: true,
+        roomId,
+        session: session.getState(),
+        ...extras,
+    });
+}
+
+export function createRouter(sessions: Map<string, MusicSession>): Router {
     const router = express.Router();
 
-    router.post('/hub/join', async (req: Request, res: Response) => {
-        const userId = extractUserId(req.headers.authorization);
-        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-        if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
+    const createSession = (roomId: string, items: QueueItem[], videoMode: boolean): MusicSession => {
+        const bot = makeBotInstance(roomId, items[0].url, videoMode);
+        const session = new MusicSession(roomId, bot, items, (disposedRoomId) => {
+            sessions.delete(disposedRoomId);
+        });
+        sessions.set(roomId, session);
+        return session;
+    };
 
+    router.use((req, res, next) => {
+        const incomingRequestId = req.header('x-request-id')?.trim();
+        const requestId = incomingRequestId || randomUUID();
+        const startedAt = Date.now();
+        const requestLogger = routesLog.child('request', {
+            requestId,
+            method: req.method,
+            path: req.path,
+        });
+
+        const locals = getRouteLocals(res);
+        locals.requestId = requestId;
+        locals.requestLogger = requestLogger;
+        locals.requestMeta = {};
+
+        res.setHeader('x-request-id', requestId);
+        requestLogger.info('request.start');
+
+        res.on('finish', () => {
+            requestLogger.info('request.complete', {
+                statusCode: res.statusCode,
+                durationMs: Date.now() - startedAt,
+                ...(locals.requestMeta ?? {}),
+            });
+        });
+
+        next();
+    });
+
+    router.get('/health', (_req: Request, res: Response) => {
+        const route = '/health';
+        setRouteContext(res, route);
+        getRequestLogger(res).info('health.success', {
+            route,
+            roomCount: sessions.size,
+        });
+        res.json({
+            status: 'ok',
+            roomCount: sessions.size,
+            activeRoomIds: [...sessions.keys()],
+        });
+    });
+
+    router.post('/hub/join', async (req: Request, res: Response) => {
+        const route = '/hub/join';
         const { hubId } = req.body as { hubId?: string };
-        if (!isValidId(hubId)) return res.status(400).json({ error: 'hubId is required' });
+        setRouteContext(res, route, { hubId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        const rateLimit = evaluateUserRateLimit(userId);
+        if (!rateLimit.allowed) {
+            rejectRequest(res, 429, 'Too many requests, please slow down', 'rate_limited', {
+                route,
+                hubId,
+                userId,
+                requestCount: rateLimit.count,
+                resetAt: new Date(rateLimit.resetAt).toISOString(),
+            });
+            return;
+        }
+
+        if (!isValidId(hubId)) {
+            rejectRequest(res, 400, 'hubId is required', 'missing_hub_id', { route, userId });
+            return;
+        }
 
         let token: string;
         try {
             token = getToken();
-        } catch {
-            return res.status(503).json({ error: 'Bot is not authenticated yet - retry in a moment' });
+        } catch (error) {
+            getRequestLogger(res).error('hub.join.token_unavailable', { error: formatErrorForLog(error), hubId, userId });
+            rejectRequest(res, 503, 'Bot is not authenticated yet - retry in a moment', 'bot_token_unavailable', { route, hubId, userId });
+            return;
         }
 
         try {
+            getRequestLogger(res).info('hub.join.start', { hubId, userId });
             await HubHandler.joinHub(hubId, token);
-            return res.json({ ok: true });
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            return res.status(403).json({ error: msg });
+            getRequestLogger(res).info('hub.join.success', { hubId, userId });
+            res.json({ ok: true });
+        } catch (error) {
+            getRequestLogger(res).warn('hub.join.failed', {
+                hubId,
+                userId,
+                error: formatErrorForLog(error),
+            });
+            const msg = error instanceof Error ? error.message : String(error);
+            res.status(403).json({ error: msg });
         }
     });
 
     router.post('/join', async (req: Request, res: Response) => {
+        const route = '/join';
         const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
+        setRouteContext(res, route, { roomId, url, requestedVideoMode: videoMode });
 
-        if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route });
+            return;
+        }
         if (!isValidUrl(url)) {
-            logRouteFailure('/join', 'missing_url', { roomId, url, requestedVideoMode: videoMode });
-            return res.status(400).json({ error: 'url is required' });
+            rejectRequest(res, 400, 'url is required', 'missing_url', { route, roomId });
+            return;
         }
         const joinUrlFailure = getUrlValidationFailure(url);
         if (joinUrlFailure) {
-            logRouteFailure('/join', joinUrlFailure, { roomId, url, requestedVideoMode: videoMode });
-            return res.status(400).json({ error: 'URL domain not permitted' });
-        }
-
-        const userId = extractUserId(req.headers.authorization);
-        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-        if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
-
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) {
-            logRouteFailure('/join', 'room_access_denied', { roomId, url, requestedVideoMode: videoMode });
+            rejectRequest(res, 400, 'URL domain not permitted', joinUrlFailure, { route, roomId, url });
             return;
         }
 
-        if (bots.has(roomId)) {
-            return res.status(409).json({ error: `Bot is already in room "${roomId}"` });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        const rateLimit = evaluateUserRateLimit(userId);
+        if (!rateLimit.allowed) {
+            rejectRequest(res, 429, 'Too many requests, please slow down', 'rate_limited', {
+                route,
+                roomId,
+                userId,
+                requestCount: rateLimit.count,
+                resetAt: new Date(rateLimit.resetAt).toISOString(),
+            });
+            return;
+        }
+
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        if (sessions.has(roomId)) {
+            rejectRequest(res, 409, `Bot is already in room "${roomId}"`, 'bot_already_in_room', {
+                route,
+                roomId,
+                userId,
+            });
+            return;
         }
 
         const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
+        setRouteContext(res, route, {
+            roomId,
+            url,
+            requestedVideoMode: videoMode,
+            resolvedVideoMode,
+        });
 
-        const bot = makeBotInstance(roomId, url, resolvedVideoMode);
-        bot.setAutoLeaveCallback(() => { bot.destroy('auto_leave'); bots.delete(roomId); });
-        bots.set(roomId, bot);
+        const session = createSession(roomId, [makeFallbackQueueItem(url)], resolvedVideoMode);
 
         try {
-            await bot.start();
-            return res.json({ ok: true, roomId, videoMode: resolvedVideoMode });
-        } catch (err: unknown) {
-            bots.delete(roomId);
-            logRouteFailure('/join', 'bot_start_failed', {
+            getRequestLogger(res).info('bot.start.begin', { route, roomId, userId, resolvedVideoMode });
+            await session.start();
+            getRequestLogger(res).info('bot.start.success', { route, roomId, userId, resolvedVideoMode });
+            respondWithSession(res, roomId, session, { videoMode: resolvedVideoMode });
+        } catch (error) {
+            getRequestLogger(res).error('bot.start.failed', {
+                route,
                 roomId,
-                url,
-                requestedVideoMode: videoMode,
+                userId,
                 resolvedVideoMode,
-                error: err,
+                error: formatErrorForLog(error),
             });
-            bot.destroy('bot_start_failed');
-            const msg = err instanceof Error ? err.message : String(err);
-            return res.status(500).json({ error: msg });
+            session.destroy('bot_start_failed');
+            const msg = error instanceof Error ? error.message : String(error);
+            res.status(500).json({ error: msg });
         }
     });
 
     router.post('/play', async (req: Request, res: Response) => {
+        const route = '/play';
         const { roomId, url, videoMode } = req.body as { roomId?: string; url?: string; videoMode?: unknown };
+        setRouteContext(res, route, { roomId, url, requestedVideoMode: videoMode });
 
-        if (!isValidId(roomId))  return res.status(400).json({ error: 'roomId is required' });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route });
+            return;
+        }
         if (!isValidUrl(url)) {
-            logRouteFailure('/play', 'missing_url', { roomId, url, requestedVideoMode: videoMode });
-            return res.status(400).json({ error: 'url is required' });
+            rejectRequest(res, 400, 'url is required', 'missing_url', { route, roomId });
+            return;
         }
         const playUrlFailure = getUrlValidationFailure(url);
         if (playUrlFailure) {
-            logRouteFailure('/play', playUrlFailure, { roomId, url, requestedVideoMode: videoMode });
-            return res.status(400).json({ error: 'URL domain not permitted' });
-        }
-
-        const userId = extractUserId(req.headers.authorization);
-        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-        if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
-
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) {
-            logRouteFailure('/play', 'room_access_denied', { roomId, url, requestedVideoMode: videoMode });
+            rejectRequest(res, 400, 'URL domain not permitted', playUrlFailure, { route, roomId, url });
             return;
         }
 
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        const rateLimit = evaluateUserRateLimit(userId);
+        if (!rateLimit.allowed) {
+            rejectRequest(res, 429, 'Too many requests, please slow down', 'rate_limited', {
+                route,
+                roomId,
+                userId,
+                requestCount: rateLimit.count,
+                resetAt: new Date(rateLimit.resetAt).toISOString(),
+            });
+            return;
+        }
+
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
         const resolvedVideoMode = resolveVideoMode(url, videoMode === true);
+        setRouteContext(res, route, {
+            roomId,
+            url,
+            requestedVideoMode: videoMode,
+            resolvedVideoMode,
+        });
 
-        const existing = bots.get(roomId);
+        const existing = sessions.get(roomId);
         if (existing) {
-
             if (existing.videoMode !== resolvedVideoMode) {
+                getRequestLogger(res).info('bot.video_mode_switch', {
+                    route,
+                    roomId,
+                    previousVideoMode: existing.videoMode,
+                    nextVideoMode: resolvedVideoMode,
+                });
                 existing.destroy('video_mode_switch');
-                bots.delete(roomId);
-                // falls through to spawn the correct type below
             } else {
-                existing.changeTrack(url);
-                return res.json({ ok: true, roomId, action: 'changeTrack', videoMode: resolvedVideoMode });
+                existing.playNow(makeFallbackQueueItem(url));
+                getRequestLogger(res).info('bot.change_track', { route, roomId, userId, resolvedVideoMode });
+                respondWithSession(res, roomId, existing, { action: 'changeTrack', videoMode: resolvedVideoMode });
+                return;
             }
         }
 
-        const bot = makeBotInstance(roomId, url, resolvedVideoMode);
-        bot.setAutoLeaveCallback(() => { bot.destroy('auto_leave'); bots.delete(roomId); });
-        bots.set(roomId, bot);
+        const session = createSession(roomId, [makeFallbackQueueItem(url)], resolvedVideoMode);
 
         try {
-            await bot.start();
-            return res.json({ ok: true, roomId, action: 'join', videoMode: resolvedVideoMode });
-        } catch (err: unknown) {
-            bots.delete(roomId);
-            logRouteFailure('/play', 'bot_start_failed', {
+            getRequestLogger(res).info('bot.start.begin', { route, roomId, userId, resolvedVideoMode });
+            await session.start();
+            getRequestLogger(res).info('bot.start.success', { route, roomId, userId, resolvedVideoMode });
+            respondWithSession(res, roomId, session, { action: 'join', videoMode: resolvedVideoMode });
+        } catch (error) {
+            getRequestLogger(res).error('bot.start.failed', {
+                route,
                 roomId,
-                url,
-                requestedVideoMode: videoMode,
+                userId,
                 resolvedVideoMode,
-                error: err,
+                error: formatErrorForLog(error),
             });
-            bot.destroy('bot_start_failed');
-            const msg = err instanceof Error ? err.message : String(err);
-            return res.status(500).json({ error: msg });
+            session.destroy('bot_start_failed');
+            const msg = error instanceof Error ? error.message : String(error);
+            res.status(500).json({ error: msg });
         }
+    });
+
+    router.post('/queue/add', async (req: Request, res: Response) => {
+        const route = '/queue/add';
+        const { roomId, items, videoMode } = req.body as { roomId?: string; items?: unknown[]; videoMode?: unknown };
+        setRouteContext(res, route, { roomId, requestedVideoMode: videoMode });
+
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route });
+            return;
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+            rejectRequest(res, 400, 'items must be a non-empty array', 'invalid_items', { route, roomId });
+            return;
+        }
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        const rateLimit = evaluateUserRateLimit(userId);
+        if (!rateLimit.allowed) {
+            rejectRequest(res, 429, 'Too many requests, please slow down', 'rate_limited', {
+                route,
+                roomId,
+                userId,
+                requestCount: rateLimit.count,
+                resetAt: new Date(rateLimit.resetAt).toISOString(),
+            });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        let normalizedItems: QueueItem[];
+        try {
+            normalizedItems = normalizeQueueItems(items);
+        } catch (error) {
+            rejectRequest(res, 400, error instanceof Error ? error.message : 'Invalid queue items', 'invalid_items', { route, roomId, userId });
+            return;
+        }
+
+        const existing = sessions.get(roomId);
+        if (existing) {
+            if (videoMode === true && !existing.videoMode) {
+                rejectRequest(res, 409, 'Video mode is locked for the current session', 'video_mode_locked', {
+                    route,
+                    roomId,
+                    userId,
+                });
+                return;
+            }
+            existing.addItems(normalizedItems);
+            getRequestLogger(res).info('queue.add.success', { route, roomId, userId, addedCount: normalizedItems.length });
+            respondWithSession(res, roomId, existing);
+            return;
+        }
+
+        const resolvedVideoMode = resolveVideoMode(normalizedItems[0].url, videoMode === true);
+        const session = createSession(roomId, normalizedItems, resolvedVideoMode);
+        try {
+            getRequestLogger(res).info('bot.start.begin', { route, roomId, userId, resolvedVideoMode });
+            await session.start();
+            getRequestLogger(res).info('bot.start.success', { route, roomId, userId, resolvedVideoMode });
+            respondWithSession(res, roomId, session, { videoMode: resolvedVideoMode });
+        } catch (error) {
+            getRequestLogger(res).error('bot.start.failed', {
+                route,
+                roomId,
+                userId,
+                resolvedVideoMode,
+                error: formatErrorForLog(error),
+            });
+            session.destroy('bot_start_failed');
+            const msg = error instanceof Error ? error.message : String(error);
+            res.status(500).json({ error: msg });
+        }
+    });
+
+    router.post('/queue/play', async (req: Request, res: Response) => {
+        const route = '/queue/play';
+        const { roomId, itemId } = req.body as { roomId?: string; itemId?: string };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!isValidId(itemId)) {
+            rejectRequest(res, 400, 'itemId is required', 'missing_item_id', { route, roomId, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        try {
+            session.playItem(itemId);
+            getRequestLogger(res).info('queue.play.success', { route, roomId, userId, itemId });
+            respondWithSession(res, roomId, session);
+        } catch (error) {
+            rejectRequest(res, 404, error instanceof Error ? error.message : 'Queue item not found', 'queue_item_not_found', {
+                route,
+                roomId,
+                userId,
+                itemId,
+            });
+        }
+    });
+
+    router.post('/queue/remove', async (req: Request, res: Response) => {
+        const route = '/queue/remove';
+        const { roomId, itemId } = req.body as { roomId?: string; itemId?: string };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!isValidId(itemId)) {
+            rejectRequest(res, 400, 'itemId is required', 'missing_item_id', { route, roomId, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        try {
+            const nextState = session.removeItem(itemId);
+            getRequestLogger(res).info('queue.remove.success', { route, roomId, userId, itemId });
+            if (!nextState || !sessions.has(roomId)) {
+                res.json({ ok: true, roomId, session: null });
+                return;
+            }
+            respondWithSession(res, roomId, session);
+        } catch (error) {
+            rejectRequest(res, 404, error instanceof Error ? error.message : 'Queue item not found', 'queue_item_not_found', {
+                route,
+                roomId,
+                userId,
+                itemId,
+            });
+        }
+    });
+
+    router.post('/queue/clear', async (req: Request, res: Response) => {
+        const route = '/queue/clear';
+        const { roomId } = req.body as { roomId?: string };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.clear();
+        getRequestLogger(res).info('queue.clear.success', { route, roomId, userId });
+        res.json({ ok: true, roomId });
+    });
+
+    router.post('/queue/reorder', async (req: Request, res: Response) => {
+        const route = '/queue/reorder';
+        const { roomId, itemIds } = req.body as { roomId?: string; itemIds?: string[] };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!Array.isArray(itemIds) || itemIds.length === 0 || !itemIds.every((itemId) => isValidId(itemId))) {
+            rejectRequest(res, 400, 'itemIds must be a non-empty string array', 'invalid_item_ids', { route, roomId, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        try {
+            session.reorder(itemIds);
+            getRequestLogger(res).info('queue.reorder.success', { route, roomId, userId });
+            respondWithSession(res, roomId, session);
+        } catch (error) {
+            rejectRequest(res, 400, error instanceof Error ? error.message : 'Invalid queue reorder', 'invalid_item_ids', {
+                route,
+                roomId,
+                userId,
+            });
+        }
+    });
+
+    router.post('/queue/shuffle', async (req: Request, res: Response) => {
+        const route = '/queue/shuffle';
+        const { roomId } = req.body as { roomId?: string };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.shuffle();
+        getRequestLogger(res).info('queue.shuffle.success', { route, roomId, userId });
+        respondWithSession(res, roomId, session);
+    });
+
+    router.post('/queue/next', async (req: Request, res: Response) => {
+        const route = '/queue/next';
+        const { roomId } = req.body as { roomId?: string };
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        const nextState = session.next();
+        getRequestLogger(res).info('queue.next.success', { route, roomId, userId });
+        if (!nextState || !sessions.has(roomId)) {
+            res.json({ ok: true, roomId, session: null });
+            return;
+        }
+        respondWithSession(res, roomId, session);
     });
 
     router.post('/leave', async (req: Request, res: Response) => {
-        if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-
+        const route = '/leave';
         const { roomId } = req.body as { roomId?: string };
-        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
+        setRouteContext(res, route, { roomId });
 
-        const bot = bots.get(roomId);
-        if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
 
-        bot.destroy('manual');
-        bots.delete(roomId);
-        return res.json({ ok: true, roomId });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.destroy('manual');
+        getRequestLogger(res).info('bot.leave.success', { route, roomId, userId });
+        res.json({ ok: true, roomId });
     });
 
     router.post('/pause', async (req: Request, res: Response) => {
-        if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-
+        const route = '/pause';
         const { roomId } = req.body as { roomId?: string };
-        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
+        setRouteContext(res, route, { roomId });
 
-        const bot = bots.get(roomId);
-        if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
 
-        bot.pause();
-        return res.json({ ok: true, roomId });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.pause();
+        getRequestLogger(res).info('bot.pause.success', { route, roomId, userId });
+        respondWithSession(res, roomId, session);
     });
 
     router.post('/resume', async (req: Request, res: Response) => {
-        if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-
+        const route = '/resume';
         const { roomId } = req.body as { roomId?: string };
-        if (!isValidId(roomId)) return res.status(400).json({ error: 'roomId is required' });
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
+        setRouteContext(res, route, { roomId });
 
-        const bot = bots.get(roomId);
-        if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
 
-        bot.resume();
-        return res.json({ ok: true, roomId });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.resume();
+        getRequestLogger(res).info('bot.resume.success', { route, roomId, userId });
+        respondWithSession(res, roomId, session);
     });
 
     router.post('/seek', async (req: Request, res: Response) => {
-        if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-
+        const route = '/seek';
         const { roomId, seconds } = req.body as { roomId?: string; seconds?: unknown };
-        if (!isValidId(roomId))                                     return res.status(400).json({ error: 'roomId is required' });
-        if (typeof seconds !== 'number' || !isFinite(seconds))      return res.status(400).json({ error: 'seconds must be a finite number' });
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
+        setRouteContext(res, route, { roomId });
 
-        const bot = bots.get(roomId);
-        if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
 
-        bot.seek(Math.max(0, seconds) * 1000);
-        return res.json({ ok: true, roomId, seconds });
+        if (!isValidId(roomId)) {
+            rejectRequest(res, 400, 'roomId is required', 'missing_room_id', { route, userId });
+            return;
+        }
+        if (typeof seconds !== 'number' || !isFinite(seconds)) {
+            rejectRequest(res, 400, 'seconds must be a finite number', 'invalid_seconds', { route, roomId, userId });
+            return;
+        }
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        session.seek(Math.max(0, seconds) * 1000);
+        getRequestLogger(res).info('bot.seek.success', { route, roomId, userId, seconds });
+        respondWithSession(res, roomId, session, { seconds });
     });
 
     router.post('/resolve', async (req: Request, res: Response) => {
+        const route = '/resolve';
         const { url } = req.body as { url?: string };
+        setRouteContext(res, route, { url });
+
         if (!isValidUrl(url)) {
-            logRouteFailure('/resolve', 'missing_url', { url });
-            return res.status(400).json({ error: 'url is required' });
+            rejectRequest(res, 400, 'url is required', 'missing_url', { route });
+            return;
         }
         const resolveUrlFailure = getUrlValidationFailure(url);
         if (resolveUrlFailure) {
-            logRouteFailure('/resolve', resolveUrlFailure, { url });
-            return res.status(400).json({ error: 'URL domain not permitted' });
+            rejectRequest(res, 400, 'URL domain not permitted', resolveUrlFailure, { route, url });
+            return;
         }
 
-        const userId = extractUserId(req.headers.authorization);
-        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-        if (!checkUserRateLimit(userId)) return res.status(429).json({ error: 'Too many requests, please slow down' });
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        const rateLimit = evaluateUserRateLimit(userId);
+        if (!rateLimit.allowed) {
+            rejectRequest(res, 429, 'Too many requests, please slow down', 'rate_limited', {
+                route,
+                userId,
+                requestCount: rateLimit.count,
+                resetAt: new Date(rateLimit.resetAt).toISOString(),
+            });
+            return;
+        }
 
         try {
-            const items = await resolveUrl(url);
-            return res.json({ items });
-        } catch (err: unknown) {
-            logRouteFailure('/resolve', 'resolve_failed', { url, error: err });
-            const msg = err instanceof Error ? err.message : String(err);
-            return res.status(500).json({ error: msg });
+            const items = await resolveUrl(url, getRequestLogger(res).child('resolve', { route, userId }));
+            res.json({ items });
+        } catch (error) {
+            getRequestLogger(res).error('resolve.failed', {
+                route,
+                userId,
+                error: formatErrorForLog(error),
+            });
+            const msg = error instanceof Error ? error.message : String(error);
+            res.status(500).json({ error: msg });
         }
     });
 
     router.get('/rooms', async (req: Request, res: Response) => {
-        if (extractUserId(req.headers.authorization) === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
+        const route = '/rooms';
+        setRouteContext(res, route);
 
-        const roomIds = [...bots.keys()];
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        const roomIds = [...sessions.keys()];
         const accessibleRooms = await Promise.all(roomIds.map(async (roomId) => (
-            await checkRoomAccess(roomId, req.headers.authorization) ? roomId : null
+            await checkRoomAccess(roomId, req.headers.authorization, getRequestLogger(res).child('roomList', { route, roomId, userId }))
+                ? roomId
+                : null
         )));
 
-        return res.json({ rooms: accessibleRooms.filter((roomId): roomId is string => roomId !== null) });
+        getRequestLogger(res).info('rooms.list.success', {
+            route,
+            userId,
+            roomCount: accessibleRooms.filter((room): room is string => room !== null).length,
+        });
+        res.json({ rooms: accessibleRooms.filter((roomId): roomId is string => roomId !== null) });
     });
 
     router.get('/status/:roomId', async (req: Request, res: Response) => {
-        const userId = extractUserId(req.headers.authorization);
-        if (userId === 'anonymous') return res.status(401).json({ error: 'Unauthorized' });
-
+        const route = '/status/:roomId';
         const { roomId } = req.params;
-        if (!await ensureRoomAccess(roomId, req.headers.authorization, res)) return;
-        const bot = bots.get(roomId);
-        if (!bot) return res.status(404).json({ error: `No bot in room "${roomId}"` });
-        return res.json(bot.getStatus());
+        setRouteContext(res, route, { roomId });
+
+        const userId = authorizeRequest(req, res, route);
+        if (!userId) return;
+
+        if (!await ensureRoomAccess(req, res, route, roomId)) return;
+        const session = sessions.get(roomId);
+        if (!session) {
+            rejectRequest(res, 404, `No bot in room "${roomId}"`, 'bot_not_found', { route, roomId, userId });
+            return;
+        }
+
+        getRequestLogger(res).info('bot.status.success', { route, roomId, userId });
+        res.json(session.getState());
     });
 
     return router;

@@ -6,6 +6,22 @@ import { spawn, createMockProcess } from '../__mocks__/child_process';
 const realSetImmediate = jest.requireActual<typeof import('timers')>('timers').setImmediate;
 const tick = () => new Promise<void>((r) => realSetImmediate(r));
 
+function captureStderrLogs() {
+    const writes: string[] = [];
+    const spy = jest.spyOn(process.stderr, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+        writes.push(chunk.toString());
+        return true;
+    }) as typeof process.stderr.write);
+
+    return {
+        spy,
+        entries: () => writes
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as Record<string, unknown>),
+    };
+}
+
 beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
@@ -56,6 +72,15 @@ describe('AudioPipeline', () => {
             const calls = (spawn as jest.Mock).mock.calls;
             expect(calls[0][0]).toBe('yt-dlp');
             expect(calls[1][0]).toBe('ffmpeg');
+            pipeline.stop();
+        });
+
+        it('should direct yt-dlp temp fragment files into /tmp', () => {
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test');
+            pipeline.start();
+            const ytdlpArgs = (spawn as jest.Mock).mock.calls[0][1] as string[];
+            expect(ytdlpArgs).toContain('--paths');
+            expect(ytdlpArgs).toContain('temp:/tmp');
             pipeline.stop();
         });
 
@@ -338,6 +363,67 @@ describe('AudioPipeline', () => {
             jest.advanceTimersByTime(OPUS_FRAME_MS * 2);
             expect(endedSpy).toHaveBeenCalledWith(0);
         });
+
+        it('emits "ended" only once for a single run', () => {
+            const mockProcs = [createMockProcess(), createMockProcess()];
+            let procIdx = 0;
+            (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
+
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test');
+            const endedSpy = jest.fn();
+            pipeline.on('ended', endedSpy);
+            pipeline.start();
+
+            mockProcs[1].emit('close', 0);
+            jest.advanceTimersByTime(OPUS_FRAME_MS * 4);
+            mockProcs[1].emit('close', 0);
+            jest.advanceTimersByTime(OPUS_FRAME_MS * 4);
+
+            expect(endedSpy).toHaveBeenCalledTimes(1);
+            expect(endedSpy).toHaveBeenCalledWith(0);
+        });
+
+        it('can resume buffered audio after ffmpeg closes while paused', () => {
+            const mockProcs = [createMockProcess(), createMockProcess()];
+            let procIdx = 0;
+            (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
+
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test');
+            const frameSpy = jest.fn();
+            pipeline.on('frame', frameSpy);
+            pipeline.start();
+
+            pipeline.pause();
+            pipeline['queue'].push(Buffer.from('buffered-frame'));
+            mockProcs[1].emit('close', 0);
+
+            expect(pipeline.running).toBe(true);
+            pipeline.resume();
+            jest.advanceTimersByTime(OPUS_FRAME_MS);
+
+            expect(frameSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores stale close events from a previous run after seek restarts the pipeline', () => {
+            const mockProcs = [
+                createMockProcess(), createMockProcess(),
+                createMockProcess(), createMockProcess(),
+            ];
+            let procIdx = 0;
+            (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
+
+            const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test');
+            const endedSpy = jest.fn();
+            pipeline.on('ended', endedSpy);
+            pipeline.start();
+
+            pipeline.seek(30_000);
+            mockProcs[1].emit('close', 0);
+            jest.advanceTimersByTime(OPUS_FRAME_MS * 4);
+
+            expect(endedSpy).not.toHaveBeenCalled();
+            expect(pipeline.running).toBe(true);
+        });
     });
 
     describe('diagnostic logging', () => {
@@ -345,7 +431,7 @@ describe('AudioPipeline', () => {
             const mockProcs = [createMockProcess(), createMockProcess()];
             let procIdx = 0;
             (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
-            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+            const logCapture = captureStderrLogs();
 
             const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test', 'test-room');
             pipeline.on('error', () => {});
@@ -355,12 +441,15 @@ describe('AudioPipeline', () => {
             await tick();
             mockProcs[0].emit('exit', 1, null);
 
-            expect(errorSpy).toHaveBeenCalledWith('[AudioPipeline test-room] yt-dlp exited unexpectedly', expect.objectContaining({
+            const entry = logCapture.entries().find((log) => log.message === 'ytdlp.exit.unexpected');
+            expect(entry).toMatchObject({
+                context: 'audioPipeline',
+                logContext: 'test-room',
                 code: 1,
                 stderrSummary: expect.stringContaining('unsupported url'),
-            }));
+            });
 
-            errorSpy.mockRestore();
+            logCapture.spy.mockRestore();
             pipeline.stop();
         });
 
@@ -368,7 +457,7 @@ describe('AudioPipeline', () => {
             const mockProcs = [createMockProcess(), createMockProcess()];
             let procIdx = 0;
             (spawn as jest.Mock).mockImplementation(() => mockProcs[procIdx++]);
-            const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+            const logCapture = captureStderrLogs();
 
             const pipeline = new AudioPipeline('https://www.youtube.com/watch?v=test', 'test-room');
             pipeline.on('error', () => {});
@@ -378,12 +467,15 @@ describe('AudioPipeline', () => {
             await tick();
             mockProcs[1].emit('close', 1);
 
-            expect(errorSpy).toHaveBeenCalledWith('[AudioPipeline test-room] ffmpeg closed unexpectedly', expect.objectContaining({
+            const entry = logCapture.entries().find((log) => log.message === 'ffmpeg.close.unexpected');
+            expect(entry).toMatchObject({
+                context: 'audioPipeline',
+                logContext: 'test-room',
                 code: 1,
                 stderrSummary: expect.stringContaining('Invalid data found when processing input'),
-            }));
+            });
 
-            errorSpy.mockRestore();
+            logCapture.spy.mockRestore();
             pipeline.stop();
         });
     });

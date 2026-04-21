@@ -16,6 +16,9 @@ function setAllEnvVars() {
   process.env.BOT_SECRET      = 'botsecret';
   process.env.JWT_PUBLIC_KEY_B64 = Buffer.from(TEST_PUBLIC_KEY).toString('base64');
   process.env.TURN_HOST       = 'turn.test';
+  delete process.env.DEBUG;
+  delete process.env.DEBUG_AV;
+  delete process.env.DEBUG_AV_VERBOSE;
 }
 
 afterEach(() => {
@@ -90,6 +93,30 @@ describe('config module', () => {
       jest.resetModules();
       const { config } = require('../config');
       expect(config.PORT).toBe(4000);
+    });
+
+    it('should default DEBUG to false when not set', () => {
+      setAllEnvVars();
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.DEBUG).toBe(false);
+    });
+
+    it('should parse DEBUG as true for boolean-ish values', () => {
+      setAllEnvVars();
+      process.env.DEBUG = 'true';
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.DEBUG).toBe(true);
+    });
+
+    it('should ignore legacy AV debug env vars', () => {
+      setAllEnvVars();
+      process.env.DEBUG_AV = '1';
+      process.env.DEBUG_AV_VERBOSE = '1';
+      jest.resetModules();
+      const { config } = require('../config');
+      expect(config.DEBUG).toBe(false);
     });
   });
 });
