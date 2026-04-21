@@ -32,8 +32,6 @@ jobs:
               - '.github/workflows/deploy.yml'
             frontend:
               - 'voip_frontend/**'
-              - '.dockerignore'
-              - 'docker/frontend/**'
               - '.github/workflows/deploy.yml'
             hub:
               - 'services/hub-service/**'
@@ -50,13 +48,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        
+
       - name: Generate test JWT key fixtures
         run: |
           mkdir -p test-fixtures/jwt
           openssl genrsa -out test-fixtures/jwt/private.pem 2048
           openssl rsa -in test-fixtures/jwt/private.pem -pubout -out test-fixtures/jwt/public.pem
-          
+
       - name: Set up Node.js
         if: >
           needs.detect-changes.outputs.gateway == 'true' ||
@@ -161,7 +159,6 @@ jobs:
         run: |
           docker build \
             --build-arg PORT=3000 \
-            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-voip-gateway:latest \
             ./services/gateway
           docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
@@ -170,25 +167,22 @@ jobs:
         if: needs.detect-changes.outputs.realtime == 'true'
         run: |
           docker build \
-            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
-            .
+            ./services/realtime
           docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
 
       - name: Build and Push Hub Service
         if: needs.detect-changes.outputs.hub == 'true'
         run: |
           docker build \
-            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-hub-service:latest \
-            .
+            ./services/hub-service
           docker push ${{ env.REGISTRY }}/p2p-hub-service:latest
 
       - name: Build and Push Musicman Service
         if: needs.detect-changes.outputs.musicman == 'true'
         run: |
           docker build \
-            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-musicman-service:latest \
             ./services/musicman-service
           docker push ${{ env.REGISTRY }}/p2p-musicman-service:latest
@@ -197,7 +191,6 @@ jobs:
         if: needs.detect-changes.outputs.auth == 'true'
         run: |
           docker build \
-            -f Dockerfile \
             -t ${{ env.REGISTRY }}/p2p-auth-service:latest \
             ./services/auth-service
           docker push ${{ env.REGISTRY }}/p2p-auth-service:latest
