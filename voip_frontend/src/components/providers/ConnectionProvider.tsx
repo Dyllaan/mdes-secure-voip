@@ -93,14 +93,12 @@ export default function ConnectionProvider({ children }: { children: React.React
 
         voipSocket.on('peer-assigned', ({ peerId }: { peerId: string }) => {
             if (!cancelled) {
-                console.log('Peer ID assigned by server:', peerId);
                 setAssignedPeerId(peerId);
             }
         });
 
         voipSocket.on('connect', async () => {
             if (cancelled) return;
-            console.log('Socket.IO connected:', voipSocket.id);
             setIsConnected(true);
 
             if (!username) return;
@@ -147,7 +145,6 @@ export default function ConnectionProvider({ children }: { children: React.React
         });
 
         voipSocket.on('disconnect', (reason) => {
-            console.log('Socket.IO disconnected:', reason);
             if (!cancelled) setIsConnected(false);
         });
 

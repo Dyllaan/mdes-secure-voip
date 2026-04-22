@@ -1,5 +1,6 @@
 package com.louisfiges.auth.http;
 
+import com.louisfiges.auth.dto.response.LoginResult;
 import com.louisfiges.auth.http.exceptions.MfaValidationException;
 import com.louisfiges.common.dto.StringErrorResponse;
 import org.springframework.http.HttpHeaders;
@@ -31,9 +32,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler(MfaValidationException.class)
-    public ResponseEntity<StringErrorResponse> handleMfaValidationException(MfaValidationException ex) {
-        StringErrorResponse errorDTO = new StringErrorResponse(ex.getMessage());
-        return new ResponseEntity<>(errorDTO, HttpStatus.UNAUTHORIZED);
+    public ResponseEntity<LoginResult> handleMfaValidationException(MfaValidationException ex) {
+        return new ResponseEntity<>(new LoginResult.Failure("Invalid MFA Code"), HttpStatus.UNAUTHORIZED);
     }
 
     /**

@@ -64,6 +64,14 @@ public class UserService {
         this.demoSessionService = demoSessionService;
     }
 
+    private boolean checkMfaCode(String code, UserDAO user) {
+        boolean authenticated = totpService.verifyCode(user.getMfaSecret(), code);
+        if (!authenticated) {
+            authenticated = backupCodeService.verifyAndUseBackupCode(user, code);
+        }
+        return authenticated;
+    }
+
     public LoginResult login(String username, String password, String mfaCode,
                              String deviceToken, String deviceFingerprint, boolean trustDevice) {
         Optional<UserDAO> userOpt = userRepository.findByUsername(username);
@@ -90,10 +98,7 @@ public class UserService {
                 return new LoginResult.MfaRequired(mfaToken, "MFA code required");
             }
 
-            boolean authenticated = totpService.verifyCode(user.getMfaSecret(), mfaCode);
-            if (!authenticated) {
-                authenticated = backupCodeService.verifyAndUseBackupCode(user, mfaCode);
-            }
+            boolean authenticated = checkMfaCode(mfaCode, user);
 
             if (!authenticated) {
                 return new LoginResult.Failure("Invalid MFA code");
@@ -149,7 +154,7 @@ public class UserService {
                             newDeviceToken = trustedDeviceService.createTrustedDevice(user, deviceFingerprint, "Browser");
                         }
 
-                        return (LoginResult) createAuthenticatedResponse(user, newDeviceToken);
+                        return createAuthenticatedResponse(user, newDeviceToken);
                     } catch (Exception e) {
                         return new LoginResult.Failure(e.getMessage() == null || e.getMessage().isBlank()
                                 ? "Failed to verify MFA code"
@@ -204,11 +209,11 @@ public class UserService {
                 )));
 
         LoginResult result = createAuthenticatedResponse(user, null);
-        if (result instanceof LoginResult.Success success) {
-            return success.response();
+        if (result instanceof LoginResult.Success(AuthSuccessResponse response)) {
+            return response;
         }
-        if (result instanceof LoginResult.DemoRateLimited demoRateLimited) {
-            throw new IllegalStateException("Service user unexpectedly demo rate limited: " + demoRateLimited.demoToken());
+        if (result instanceof LoginResult.DemoRateLimited(String demoToken)) {
+            throw new IllegalStateException("Service user unexpectedly demo rate limited: " + demoToken);
         }
         throw new IllegalStateException("Unexpected service-user authentication state");
     }
@@ -224,7 +229,7 @@ public class UserService {
                         }
 
                         if (demoSessionService.isDemoExpired(user.getId())) {
-                            return (LoginResult) new LoginResult.DemoRateLimited(demoTokenProvider.generateToken(user.getId()));
+                            return new LoginResult.DemoRateLimited(demoTokenProvider.generateToken(user.getId()));
                         }
                     }
                     return ResponseFactory.loginResponse(
