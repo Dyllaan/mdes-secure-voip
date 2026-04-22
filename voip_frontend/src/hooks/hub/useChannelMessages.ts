@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from "@/hooks/auth/useAuth";
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import type { EncryptedMessage } from '@/types/hub.types';
 import useHubApi from './useHubApi';
 import { toast } from 'sonner';
 import Validator from '@/utils/validation/Validator';
+import type { CryptKeyManager } from '@/utils/crypto/CryptKeyManager';
 
 interface UseChannelMessagesReturn {
     messages: EncryptedMessage[];
@@ -26,6 +27,26 @@ export function useChannelMessages(
     const [messages, setMessages] = useState<EncryptedMessage[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const validator = new Validator();
+    const channelKeyManagerRef = useRef(channelKeyManager);
+
+    useEffect(() => {
+        channelKeyManagerRef.current = channelKeyManager;
+    }, [channelKeyManager]);
+
+    const waitForChannelKeyManager = useCallback(async (): Promise<CryptKeyManager | null> => {
+        if (channelKeyManagerRef.current) {
+            return channelKeyManagerRef.current;
+        }
+
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            if (channelKeyManagerRef.current) {
+                return channelKeyManagerRef.current;
+            }
+        }
+
+        return null;
+    }, []);
 
     useEffect(() => {
         if (!hubId || !channelId) {
@@ -89,13 +110,14 @@ export function useChannelMessages(
         }
         if (!hubId || !channelId) return;
         
-        if (!channelKeyManager || !user?.sub) {
+        const manager = await waitForChannelKeyManager();
+        if (!manager || !user?.sub) {
             toast.error('Encryption is not ready yet');
             return;
         }
 
         try {
-            const payload = await channelKeyManager.encrypt(
+            const payload = await manager.encrypt(
                 channelId,
                 hubId,
                 user.sub,
