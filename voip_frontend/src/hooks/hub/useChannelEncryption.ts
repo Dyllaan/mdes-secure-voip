@@ -22,7 +22,7 @@ export function useChannelEncryption(
         if (!hubId || !channelId || !channelKeyManager) return;
         channelKeyManager
             .syncKeyBundles(hubId, channelId, hubApi)
-            .catch(err => console.warn('[useChannelEncryption] Key bundle sync failed:', err));
+            .catch(() => {});
     }, [hubId, channelId, channelKeyManager, hubApi]);
 
     useEffect(() => {
@@ -58,7 +58,7 @@ export function useChannelEncryption(
             if (data.hubId !== hubId) return;
             await channelKeyManager
                 .syncKeyBundles(data.hubId, data.channelId, hubApi)
-                .catch(err => console.warn('[useChannelEncryption] Key bundle sync on rotation failed:', err));
+                .catch(() => {});
 
             if (data.channelId === channelId) {
                 await onKeyRotated?.();

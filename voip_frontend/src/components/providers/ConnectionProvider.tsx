@@ -107,8 +107,7 @@ export default function ConnectionProvider({ children }: { children: React.React
                 roomClientRef.current = client;
                 await client.initialize();
                 if (!cancelled) setRoomClient(client);
-            } catch (error) {
-                console.error('Failed to initialize RoomClient:', error);
+            } catch {
             }
 
             try {
@@ -121,18 +120,14 @@ export default function ConnectionProvider({ children }: { children: React.React
                 if (!cancelled) {
                     setChannelKeyManager(manager);
                     for (const sid of hubIds) {
-                        manager.syncKeyBundles(sid, undefined, client).catch((err) =>
-                            console.warn(`[CryptKeyManager] Background bundle sync failed for hub ${sid}:`, err)
-                        );
+                        manager.syncKeyBundles(sid, undefined, client).catch(() => {});
                     }
                 }
-            } catch (error) {
-                console.error('Failed to initialize CryptKeyManager:', error);
+            } catch {
             }
         });
 
         voipSocket.on('connect_error', (error) => {
-            console.error('Socket.IO connection error:', error.message);
             if (!cancelled) setIsConnected(false);
             if (error.message === 'Invalid or expired token' || error.message === 'Authentication required') {
                 void recoverSocketAuth();
@@ -144,7 +139,7 @@ export default function ConnectionProvider({ children }: { children: React.React
             void recoverSocketAuth();
         });
 
-        voipSocket.on('disconnect', (reason) => {
+        voipSocket.on('disconnect', () => {
             if (!cancelled) setIsConnected(false);
         });
 

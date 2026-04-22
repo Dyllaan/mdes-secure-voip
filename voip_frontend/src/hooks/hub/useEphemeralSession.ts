@@ -102,8 +102,8 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
             const data = await startEphemeral(hubId, `ephemeral-${hubId}`);
             setRoomId(data.roomId);
             setActive(true);
-        } catch (err) {
-            console.error('[useEphemeralSession] Failed to start:', err);
+        } catch {
+            toast.error('Failed to start ephemeral room');
         }
     };
 
@@ -128,8 +128,8 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
 
             await roomClient.joinRoom(roomId, existingUsers);
             setJoined(true);
-        } catch (err) {
-            console.error('[useEphemeralSession] Failed to join:', err);
+        } catch {
+            toast.error('Failed to join ephemeral room');
         }
     };
 
@@ -147,8 +147,8 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
             await endEphemeral(hubId);
             setActive(false);
             setRoomId(null);
-        } catch (err) {
-            console.error('[useEphemeralSession] Failed to end:', err);
+        } catch {
+            toast.error('Failed to end ephemeral room');
         }
     };
 
@@ -176,8 +176,8 @@ export function useEphemeralSession(hubId: string | undefined): EphemeralSession
                 message: value,
                 alias: user?.username ?? 'Me',
             }]);
-        } catch (err) {
-            console.error('[useEphemeralSession] Failed to send:', err);
+        } catch {
+            toast.error('Failed to send ephemeral message');
         }
     };
 

@@ -24,6 +24,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
   const [accessToken, _setAccessToken] = useState<string | null>(null);
   const isLoggingOutRef = useRef(false);
   const logoutRef = useRef<() => void | Promise<void>>(() => {});
+  const hasShownTurnCredentialsErrorRef = useRef(false);
 
   const user: User | null = persistedUser && accessToken
     ? { ...persistedUser, accessToken }
@@ -214,13 +215,17 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     try {
       const response = await gateway.get('/turn-credentials');
       const data = response.data as { username: string; password: string; ttl: number };
+      hasShownTurnCredentialsErrorRef.current = false;
       setTurnCredentials(prev =>
         prev?.username === data.username && prev?.password === data.password
           ? prev
           : data
       );
     } catch {
-      console.error('Failed to fetch TURN credentials');
+      if (!hasShownTurnCredentialsErrorRef.current) {
+        hasShownTurnCredentialsErrorRef.current = true;
+        toast.error('Voice setup is unavailable right now');
+      }
     }
   };
 
@@ -275,7 +280,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       toast.error(errorData.cause || 'Registration failed');
       return { success: false, error: errorData.cause };
     } catch (error) {
-      console.error('Registration failed:', error);
+      void error;
       toast.error('An unexpected error occurred');
       return { success: false, error: 'Registration failed' };
     }
@@ -362,7 +367,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
       return { success: false, error: errorData.cause };
 
     } catch (error) {
-      console.error('MFA verification failed:', error);
+      void error;
       setSignedIn(false);
       setMfaRequired(true);
       toast.error('An unexpected error occurred');
@@ -384,7 +389,7 @@ export default function AuthProvider({ children }: AuthProviderProps) {
         logout();
       }
     } catch (error) {
-      console.error('Delete error:', error);
+      void error;
       toast.error('An unexpected error occurred');
     }
   };

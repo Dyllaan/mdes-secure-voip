@@ -75,7 +75,7 @@ export default function VoicePanel() {
             }
             if (audio.srcObject !== stream) {
                 audio.srcObject = stream;
-                audio.play().catch(err => console.warn('Audio autoplay blocked:', err));
+                audio.play().catch(() => {});
             }
         });
     }, [remoteStreams]);

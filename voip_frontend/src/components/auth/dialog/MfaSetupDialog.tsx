@@ -60,8 +60,6 @@ export default function MfaSetupDialog({
       setStep('verify');
       toast.success('MFA setup initiated');
     } catch (error) {
-      console.error('MFA setup failed:', error);
-
       if (axios.isAxiosError(error) && error.response?.data?.cause) {
         toast.error(error.response.data.cause);
       } else {
@@ -87,8 +85,6 @@ export default function MfaSetupDialog({
 
       return { success: true };
     } catch (error) {
-      console.error('MFA verification failed:', error);
-
       if (axios.isAxiosError(error) && error.response?.data?.cause) {
         return { success: false, error: error.response.data.cause };
       }

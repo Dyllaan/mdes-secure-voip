@@ -26,9 +26,7 @@ export async function getDeviceFingerprint(): Promise<string> {
     ]);
 
     return result.visitorId;
-  } catch (error) {
-    console.warn('Device fingerprinting failed or timed out, using fallback.', error);
-    
+  } catch {
     fpPromise = null; 
     return '';
   }

@@ -5,6 +5,7 @@ import { useHubLayout } from "@/contexts/HubLayoutContext";
 import { useMemo, useState } from "react";
 import Validator from "@/utils/validation/Validator";
 import useHubApi from "@/hooks/hub/useHubApi";
+import { toast } from "sonner";
 
 export default function CreateChannel() {
     const [newChannelName, setNewChannelName] = useState('');
@@ -35,8 +36,8 @@ export default function CreateChannel() {
             if (created.id) {
                 socket?.emit('channel-created', { hubId: hub.id, channelId: created.id });
             }
-        } catch (err) {
-            console.error('Failed to create channel:', err);
+        } catch {
+            toast.error('Failed to create channel');
         }
     };
 

@@ -64,12 +64,12 @@ export default function ChangePasswordPage() {
                 setMfaCode('');
                 setShowMfaInput(false);
                 setOpen(false);
-            } else if (result.mfaRequired) {
-                setShowMfaInput(true);
-            }
-        } catch (error) {
+        } else if (result.mfaRequired) {
+            setShowMfaInput(true);
+        }
+    } catch (error) {
+            void error;
             toast.error("Failed to update password");
-            console.error('Password update failed:', error);
         } finally {
             setIsLoadingPassword(false);
         }

@@ -12,6 +12,7 @@ import useRoomSession from "./useRoomSession";
 import useScreenshare from "./useScreenshare";
 import usePeerVolumes from "./usePeerVolumes";
 import useRemoteAudio from "./useRemoteAudio";
+import { toast } from "sonner";
 
 const PEER_CONFIG = {
   host: config.PEER_HOST,
@@ -79,11 +80,11 @@ const useVoIP = () => {
     };
 
     const handleRateLimit = ({ action, retryAfter }: { action: string; retryAfter: number }) => {
-      console.warn("Rate limited:", action, "retry after:", retryAfter);
+      toast.warning(`${action} is temporarily rate limited. Try again in ${retryAfter}s.`);
     };
 
     const handleJoinError = ({ message: msg }: { message: string }) => {
-      console.error("Join room error:", msg);
+      toast.error(msg || "Failed to join room");
     };
 
     socket.on("room-list", handleRoomList);
@@ -150,7 +151,7 @@ const useVoIP = () => {
       ]);
       setMessage("");
     } catch {
-      console.error("Failed to send encrypted message");
+      toast.error("Failed to send message");
     }
   }, [roomClient, message, username]);
 

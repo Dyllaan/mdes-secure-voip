@@ -43,7 +43,8 @@ let onTokenUpdate: TokenUpdateCallback | null = null;
 let onDemoLimited: DemoLimitedCallback | null = null;
 
 function authDebug(event: string, details?: Record<string, unknown>) {
-  console.info('[AuthDebug][api]', event, details ?? {});
+  void event;
+  void details;
 }
 
 export const setupInterceptors = (

@@ -58,9 +58,7 @@ export class RoomClient {
                     ['encrypt']
                 );
                 this.userPublicKeys.set(userId, key);
-                console.log('[RoomClient] RSA public key updated for', userId);
-            } catch (err) {
-                console.error('[RoomClient] Failed to import RSA public key:', err);
+            } catch {
             }
         });
 
@@ -82,7 +80,6 @@ export class RoomClient {
                 { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
             );
             this.roomKeys.set(roomId, { key, keyId: crypto.randomUUID() });
-            console.log('Room key generated');
         } else {
             await this.requestRoomKey(roomId, existingUsers[0]);
         }
@@ -113,7 +110,6 @@ export class RoomClient {
                         'jwk', jwk, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
                     );
                     this.roomKeys.set(roomId, { key, keyId: data.keyId });
-                    console.log('Room key received and decrypted');
                     resolve();
                 } catch (err) {
                     reject(err);
@@ -131,7 +127,6 @@ export class RoomClient {
     private async handleRoomKeyRequest(data: { roomId: string; requesterId: string }): Promise<void> {
         const roomKey = this.roomKeys.get(data.roomId);
         if (!roomKey) {
-            console.error('[RoomClient] No room key to share for', data.roomId);
             return;
         }
 
@@ -143,7 +138,6 @@ export class RoomClient {
             attempts++;
         }
         if (!requesterKey) {
-            console.error('[RoomClient] Timeout waiting for RSA key from', data.requesterId);
             return;
         }
 
@@ -162,9 +156,7 @@ export class RoomClient {
                 keyId: roomKey.keyId,
             });
 
-            console.log('[RoomClient] Room key sent to', data.requesterId);
-        } catch (err) {
-            console.error('[RoomClient] Failed to send room key:', err);
+        } catch {
         }
     }
 
@@ -212,8 +204,7 @@ export class RoomClient {
                 senderAlias: data.senderAlias,
                 timestamp: data.timestamp,
             });
-        } catch (err) {
-            console.error('[RoomClient] Failed to decrypt message:', err);
+        } catch {
         }
     }
 

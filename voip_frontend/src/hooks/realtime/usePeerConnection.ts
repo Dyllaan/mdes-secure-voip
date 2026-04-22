@@ -137,7 +137,7 @@ const usePeerConnection = ({
     peerRef.current = p;
 
     p.on("open", () => { isOpenRef.current = true; });
-    p.on("error", err => console.error("PeerJS error:", err));
+    p.on("error", () => {});
 
     p.on("call", (incoming: MediaConnection) => {
       connectionsRef.current.set(incoming.peer, incoming);

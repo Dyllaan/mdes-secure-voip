@@ -87,7 +87,7 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
             if (data.hubId !== hubId) return;
             listChannels(hubId)
                 .then(setChannels)
-                .catch(err => console.warn('Failed to refresh channels:', err));
+                .catch(() => {});
         };
 
         socket.on('channel-created', onChannelChanged);
@@ -105,15 +105,13 @@ export default function useHubState(hubId: string | undefined): UseHubStateRetur
             if (data.hubId !== hubId) return;
             listMembers(hubId)
                 .then(setMembers)
-                .catch(() => toast.error('Failed to refresh members after join event:'));
+                .catch(() => toast.error('Failed to refresh members'));
 
             if (channelKeyManager) {
                 for (const ch of channels) {
                     channelKeyManager.topUpChannelKey(ch.id, hubId, hubApi, (event) => {
                         socket?.emit('channel-key-rotated', event);
-                    }).catch(err =>
-                        console.warn('Key top-up failed for channel', ch.id, ':', err)
-                    );
+                    }).catch(() => {});
                 }
             }
         };
