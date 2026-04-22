@@ -13,3 +13,5 @@ process.env.BOT_PASSWORD    = 'testpass';
 process.env.BOT_SECRET      = 'botsecret';
 process.env.JWT_PUBLIC_KEY_B64 = Buffer.from(testPublicKey).toString('base64');
 process.env.TURN_HOST       = 'turn.test';
+process.env.ALLOWED_AUDIO_ORIGINS = 'soundcloud.com,youtube.com,youtu.be';
+process.env.ALLOWED_VIDEO_ORIGINS = 'youtube.com,youtu.be';

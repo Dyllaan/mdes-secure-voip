@@ -150,35 +150,17 @@ For local Docker usage, these are the most important settings to review.
 - Frontend TURN values
   The Docker frontend uses `VITE_TURN_*` values from `docker-compose.yml`, so review those too if you need browser TURN connectivity to match your environment
 
-#### Optional or situational values
+#### Optional
 
-- `cookies.txt`
-  Optional. Only needed if you want MusicMan to access sources that require cookies.
-- `ALLOWED_VIDEO_ORIGINS` and `ALLOWED_AUDIO_ORIGINS`
-  Media allowlists for MusicMan
+- `cookies.txt` file enables MusicMan to access age-restricted or private media supported by yt-dlp. In Video Mode, the media is screenshared to channel peers with integrated audio.
+- `ALLOWED_VIDEO_ORIGINS` and `ALLOWED_AUDIO_ORIGINS` defaults to Soundcloud
 - `DEMO_MODE` and related token expiry settings
   Useful for demo environments, not required for a normal local boot
-
-### 4. Pre-flight checklist
-
-Before starting the stack, confirm:
-
-- `.env.local` exists and the required values above are filled in
-- `ALLOWED_ORIGINS` matches the frontend mode you are using
-- `cookies.txt` is present only if you need protected media access
-- Docker is running
 
 ### 5. Start the stack
 
 ```bash
 docker compose --env-file .env.local up -d --build
-```
-
-Useful follow-up commands:
-
-```bash
-docker compose --env-file .env.local ps
-docker compose --env-file .env.local logs -f p2p-voip-gateway
 ```
 
 ### 6. Verify the stack
@@ -191,12 +173,6 @@ Host-facing endpoints:
 
 `/health` on the gateway checks the downstream auth, realtime, hub, and musicman services. Auth, hub, and gateway should all be healthy before MusicMan-related features will work reliably.
 
-Expected first checks:
-
-- `http://localhost:8080` loads the app
-- `http://localhost:3000/health` returns overall status plus service states
-- `docker compose ps` shows the main containers up
-
 ### 7. First use
 
 Once the stack is up:
@@ -205,13 +181,8 @@ Once the stack is up:
 2. Register a user account
 3. Create a hub
 4. Create or join a room
-5. Only test MusicMan after `BOT_SECRET` and `BOT_PASSWORD` are configured
 
 ## Local Development
-
-Docker Compose is the recommended way to run the full system. If you want to work on services individually, use the commands below from separate terminals.
-
-You will still need matching environment variables for each service. In practice, many teams keep shared secrets in `.env.local` and export only the values needed for the service they are running.
 
 ### Frontend
 
@@ -220,8 +191,6 @@ cd voip_frontend
 npm install
 npx vite
 ```
-
-Vite dev server runs on `http://localhost:5173`.
 
 For Electron:
 
@@ -271,20 +240,14 @@ npm run dev
 
 ## Testing
 
-This repo has automated tests for every service. The commands below match the tooling currently defined in each service.
-
 ### All services checklist
 
 - Backend unit and integration tests:
   `gateway`, `realtime`, `musicman-service`, `hub-service`, `auth-service`
 - Frontend E2E tests:
   `voip_frontend` via Playwright
-- Optional manual smoke test:
-  bring up the Docker stack and test end-to-end flows in the browser
 
 ### Gateway
-
-Prerequisite: run `npm install` in `services/gateway`.
 
 ```bash
 cd services/gateway
@@ -293,16 +256,12 @@ npm test
 
 ### Realtime service
 
-Prerequisite: run `npm install` in `services/realtime`.
-
 ```bash
 cd services/realtime
 npm test
 ```
 
 ### MusicMan service
-
-Prerequisite: run `npm install` in `services/musicman-service`.
 
 ```bash
 cd services/musicman-service
@@ -311,7 +270,7 @@ npm test
 
 ### Hub service
 
-Prerequisite: Go installed locally.
+Prerequisite: Go
 
 ```bash
 cd services/hub-service
@@ -323,7 +282,6 @@ go test ./...
 Prerequisites:
 
 - Java 21
-- Docker running locally, because the Gradle test suite uses Testcontainers
 
 ```bash
 cd services/auth-service
@@ -334,30 +292,12 @@ cd services/auth-service
 
 Prerequisites:
 
-- Run `npm install` in `voip_frontend`
-- Run `npx playwright install chromium` at least once
-
-The Playwright suite starts Vite automatically on `http://localhost:5173` and mocks most backend dependencies, so you do not need the full backend stack running just to execute frontend tests.
-
 ```bash
 cd voip_frontend
+npm install
+npx playwright install chromium # only needed once
 npm test
 ```
-
-## Manual Smoke Test
-
-After automated tests pass, a quick full-stack smoke test is:
-
-1. Start the Docker stack with `docker compose --env-file .env.local up -d --build`
-2. Open `http://localhost:8080`
-3. Register a new user
-4. Create a hub
-5. Create a text or voice channel
-6. Join a room and confirm the UI reaches the active room state
-7. Check `http://localhost:3000/health` and confirm the main services report healthy or up
-8. Verify auth flows such as login and refresh work
-9. Verify hub operations such as creating channels and loading members work
-10. Test MusicMan only after `BOT_SECRET` and `BOT_PASSWORD` are configured
 
 ## Electron Build (Windows)
 
@@ -368,9 +308,9 @@ npm run build
 npm run package
 ```
 
-Artifacts are written to `voip_frontend/release/`.
+Portable and setup builds are found in: `voip_frontend/release/`.
 
-## Port Reference
+## Ports
 
 | Service | Port | Notes |
 | --- | --- | --- |
@@ -383,3 +323,7 @@ Artifacts are written to `voip_frontend/release/`.
 | Hub Service | 8080 | Internal service port in Compose |
 | Auth Service | 8010 | Internal service port in Compose |
 | COTURN | 3478 | TURN port inside the container, mapped to host `13478` in Compose |
+
+# Roadmap
+1. Fork `werift` and `werift-ice` to remove its dependency on a vulnerable version of `ip`.
+2. Move away from `PeerJS` for VoIP and screenshares to webrtc.

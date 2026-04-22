@@ -20,10 +20,10 @@ import {
 
 const routesLog = createLogger('http.routes');
 
-const ALLOWED_AUDIO_ORIGINS = (config.ALLOWED_AUDIO_ORIGINS ?? 'youtube.com,youtu.be,soundcloud.com,spotify.com')
+const ALLOWED_AUDIO_ORIGINS = (config.ALLOWED_AUDIO_ORIGINS ?? 'soundcloud.com')
     .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 
-const ALLOWED_VIDEO_ORIGINS = (config.ALLOWED_VIDEO_ORIGINS ?? 'youtube.com,youtu.be')
+const ALLOWED_VIDEO_ORIGINS = (config.ALLOWED_VIDEO_ORIGINS ?? '')
     .split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 
 function getUrlValidationFailure(url: string): 'malformed_url' | 'disallowed_domain' | null {
@@ -401,8 +401,6 @@ function isValidQueueItemPayload(item: unknown): item is QueueItem {
         && isFinite(candidate.durationMs)
         && candidate.durationMs >= 0
         && (candidate.source === undefined
-            || candidate.source === 'youtube'
-            || candidate.source === 'spotify'
             || candidate.source === 'soundcloud');
 }
 

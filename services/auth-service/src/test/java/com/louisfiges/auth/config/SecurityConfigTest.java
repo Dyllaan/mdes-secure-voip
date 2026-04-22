@@ -1,5 +1,6 @@
 package com.louisfiges.auth.config;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.cors.CorsConfiguration;
@@ -28,9 +29,12 @@ class SecurityConfigTest {
         CorsConfiguration allowedConfig = source.getCorsConfiguration(allowedRequest);
         CorsConfiguration deniedConfig = source.getCorsConfiguration(deniedRequest);
 
+        Assertions.assertNotNull(allowedConfig);
         assertEquals("http://localhost:3000", allowedConfig.checkOrigin("http://localhost:3000"));
+        Assertions.assertNotNull(deniedConfig);
         assertNull(deniedConfig.checkOrigin("https://evil.example"));
-        assertTrue(Boolean.TRUE.equals(allowedConfig.getAllowCredentials()));
+        assertEquals(Boolean.TRUE, allowedConfig.getAllowCredentials());
+        Assertions.assertNotNull(allowedConfig.getAllowedOrigins());
         assertFalse(allowedConfig.getAllowedOrigins().contains("*"));
     }
 }

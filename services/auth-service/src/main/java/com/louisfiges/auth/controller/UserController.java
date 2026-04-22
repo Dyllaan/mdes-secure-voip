@@ -102,7 +102,7 @@ public class UserController {
         }
 
         return userService.refreshToken(refreshToken)
-                .<ResponseEntity<?>>map(result -> switch (result) {
+                .map(result -> switch (result) {
                     case LoginResult.Success success -> ResponseEntity.ok()
                             .header(HttpHeaders.SET_COOKIE, RefreshTokenCookieFactory.build(success.response().refreshToken(), isSecureRequest(request)).toString())
                             .body(success.response());
@@ -153,7 +153,7 @@ public class UserController {
         String token = authHeader.substring(7);
 
         return userService.updatePassword(token, request)
-                .<ResponseEntity<?>>map(result -> switch (result) {
+                .map(result -> switch (result) {
                     case UpdatePasswordResult.Success success ->
                             ResponseEntity.ok(Map.of("message", success.message()));
                     case UpdatePasswordResult.MfaRequired mfaRequired -> ResponseEntity.status(HttpStatus.BAD_REQUEST)

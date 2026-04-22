@@ -8,7 +8,6 @@ function makeJwt(sub: string, exp?: number): string {
     });
 }
 
-// ── extractUserId ──────────────────────────────────────────────────────────────
 
 describe('extractUserId', () => {
     it('returns anonymous for undefined header', () => {
@@ -40,7 +39,6 @@ describe('extractUserId', () => {
     });
 });
 
-// ── isAllowedUrl ───────────────────────────────────────────────────────────────
 
 describe('isAllowedUrl', () => {
     it.each([
@@ -64,7 +62,6 @@ describe('isAllowedUrl', () => {
     });
 });
 
-// ── secondsToTimestamp ─────────────────────────────────────────────────────────
 
 describe('secondsToTimestamp', () => {
     it.each([
@@ -81,7 +78,6 @@ describe('secondsToTimestamp', () => {
     });
 });
 
-// ── checkUserRateLimit ─────────────────────────────────────────────────────────
 
 describe('checkUserRateLimit', () => {
     beforeEach(() => {

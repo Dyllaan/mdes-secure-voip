@@ -1,6 +1,6 @@
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.5.0'
+    id 'org.springframework.boot' version '3.5.13'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'org.owasp.dependencycheck' version '12.1.1'
 }
@@ -39,10 +39,10 @@ dependencies {
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
     runtimeOnly 'org.xerial:sqlite-jdbc:3.45.0.0'
-    runtimeOnly 'org.postgresql:postgresql:42.7.6'
+    runtimeOnly 'org.postgresql:postgresql:42.7.7'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
+    testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
     testImplementation 'org.testcontainers:postgresql:1.20.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -50,8 +50,4 @@ dependencies {
 dependencyCheck {
     analyzers.ossIndex.enabled = false
     failOnError = false
-}
-
-tasks.named('test') {
-    useJUnitPlatform()
 }

@@ -1,21 +1,31 @@
-/**
- * Derives a stable device identity (P-256 ECDH keypair + UUID) from a BIP-39 mnemonic.
- *
- * Derivation: mnemonic -> BIP-39 seed -> HKDF-SHA256 -> P-256 scalar + device UUID.
- * Uses @noble/curves/p256 to compute public point (x,y) from the scalar because
- * Chrome's WebCrypto importKey('jwk') requires all JWK fields for ECDH.
- */
-
 import { generateMnemonic as bip39Generate, mnemonicToSeed, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
-import { p256 } from '@noble/curves/nist.js';
 import { hkdfSha256 } from '@/crypto/hkdfSha256';
-import { bufToBase64, toBase64url } from '@/crypto/base64';
+import { bufToBase64 } from '@/crypto/base64';
 
 interface DeviceIdentity {
     keyPair: CryptoKeyPair;
     publicKeySpki: string;
     deviceId: string;
+}
+
+// Minimal PKCS8 wrapper for a P-256 scalar - lets WebCrypto compute (x,y) for us
+function scalarToPkcs8(scalar: Uint8Array): ArrayBuffer {
+    const header = new Uint8Array([
+        0x30, 0x41,
+        0x02, 0x01, 0x00,
+        0x30, 0x13,
+          0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
+          0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
+        0x04, 0x27,
+          0x30, 0x25,
+            0x02, 0x01, 0x01,
+            0x04, 0x20,
+    ]);
+    const buf = new Uint8Array(header.length + scalar.length);
+    buf.set(header);
+    buf.set(scalar, header.length);
+    return buf.buffer;
 }
 
 function bytesToUuid(bytes: Uint8Array): string {
@@ -33,7 +43,6 @@ export function isMnemonicValid(mnemonic: string): boolean {
 
 export async function deriveDeviceIdentity(mnemonic: string): Promise<DeviceIdentity> {
     const normalised = mnemonic.trim();
-
     if (!isMnemonicValid(normalised)) {
         throw new Error('Invalid mnemonic: check that all 24 words are correct and try again.');
     }
@@ -46,33 +55,29 @@ export async function deriveDeviceIdentity(mnemonic: string): Promise<DeviceIden
         hkdfSha256(seedBuf, 'voip-device-id-v1', 16),
     ]);
 
-    const scalar = new Uint8Array(scalarBuf);
     const deviceId = bytesToUuid(new Uint8Array(uuidBuf));
 
-    // Compute (x, y) = scalar·G on P-256 (65-byte uncompressed point: 0x04 ‖ x ‖ y)
-    const pubPoint = p256.getPublicKey(scalar, false);
-    const xBytes = pubPoint.slice(1, 33);
-    const yBytes = pubPoint.slice(33, 65);
+    const extractablePrivateKey = await crypto.subtle.importKey(
+        'pkcs8',
+        scalarToPkcs8(new Uint8Array(scalarBuf)),
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveKey', 'deriveBits'],
+    );
 
-    const fullJwk: JsonWebKey = {
-        kty: 'EC',
-        crv: 'P-256',
-        d: toBase64url(scalar),
-        x: toBase64url(xBytes),
-        y: toBase64url(yBytes),
-    };
+    const jwk = await crypto.subtle.exportKey('jwk', extractablePrivateKey);
 
     const [publicKey, privateKey] = await Promise.all([
         crypto.subtle.importKey(
             'jwk',
-            { kty: 'EC', crv: 'P-256', x: fullJwk.x, y: fullJwk.y },
+            { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y },
             { name: 'ECDH', namedCurve: 'P-256' },
             true,
             [],
         ),
         crypto.subtle.importKey(
             'jwk',
-            fullJwk,
+            jwk,
             { name: 'ECDH', namedCurve: 'P-256' },
             false,
             ['deriveKey', 'deriveBits'],

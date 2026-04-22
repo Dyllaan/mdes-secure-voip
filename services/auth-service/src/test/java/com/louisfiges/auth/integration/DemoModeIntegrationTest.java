@@ -8,13 +8,14 @@ import com.louisfiges.auth.token.DemoTokenProvider;
 import com.louisfiges.auth.token.MfaTokenProvider;
 import com.louisfiges.auth.token.RefreshTokenProvider;
 import com.louisfiges.auth.token.UserTokenProvider;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.core.ParameterizedTypeReference;
@@ -77,19 +78,19 @@ class DemoModeIntegrationTest {
     @Autowired
     private RedisTemplate<String, String> redisTemplate;
 
-    @MockBean
+    @MockitoBean
     private DemoLimiter demoLimiter;
 
-    @MockBean
+    @MockitoBean
     private UserTokenProvider userTokenProvider;
 
-    @MockBean
+    @MockitoBean
     private RefreshTokenProvider refreshTokenProvider;
 
-    @MockBean
+    @MockitoBean
     private MfaTokenProvider mfaTokenProvider;
 
-    @MockBean
+    @MockitoBean
     private DemoTokenProvider demoTokenProvider;
 
     @BeforeEach
@@ -127,9 +128,9 @@ class DemoModeIntegrationTest {
                 .thenAnswer(invocation -> parseToken(invocation.getArgument(0, String.class), "mfa:"));
     }
 
-    // -------------------------------------------------------------------------
+    
     // Full lifecycle test (existing)
-    // -------------------------------------------------------------------------
+    
 
     @Test
     @DisplayName("Full demo lifecycle: register → login → expire → refresh blocked → delete via demo token")
@@ -146,6 +147,7 @@ class DemoModeIntegrationTest {
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
         assertThat(registerResponse.getBody()).containsKeys("accessToken", "username");
         assertThat(registerResponse.getBody()).doesNotContainKey("refreshToken");
+        Assertions.assertNotNull(registerResponse.getBody());
         assertThat(registerResponse.getBody().get("username")).isEqualTo(username);
 
         HttpHeaders refreshHeaders = withRefreshCookie(extractRefreshCookie(registerResponse));
@@ -170,6 +172,7 @@ class DemoModeIntegrationTest {
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(refreshResponse.getBody()).containsKeys("demoToken", "message");
 
+        Assertions.assertNotNull(refreshResponse.getBody());
         String demoToken = (String) refreshResponse.getBody().get("demoToken");
         assertThat(demoToken).isEqualTo("demo:" + user.getId());
 
@@ -185,9 +188,9 @@ class DemoModeIntegrationTest {
         assertThat(userRepository.findByUsername(username)).isEmpty();
     }
 
-    // -------------------------------------------------------------------------
+    
     // Filter-level enforcement (new — this is the core fix)
-    // -------------------------------------------------------------------------
+    
 
     @Test
     @DisplayName("Filter must return 403 with demoToken when an active session's demo has expired")
@@ -201,6 +204,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
@@ -216,6 +220,7 @@ class DemoModeIntegrationTest {
 
         assertThat(meResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(meResponse.getBody()).containsKeys("demoToken", "message");
+        Assertions.assertNotNull(meResponse.getBody());
         assertThat(meResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
         assertThat((String) meResponse.getBody().get("message")).contains("expired");
     }
@@ -232,6 +237,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
 
         // 1 hour old, default limit is 3 hours — not expired
@@ -266,6 +272,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
 
         // Set Redis as expired — should have zero effect because DEMO_MODE is off
@@ -297,6 +304,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
@@ -314,9 +322,9 @@ class DemoModeIntegrationTest {
         assertThat(meResponse.getBody()).containsEntry("username", username);
     }
 
-    // -------------------------------------------------------------------------
+    
     // Logout must work even with an expired demo (tokens should be revocable)
-    // -------------------------------------------------------------------------
+    
 
     @Test
     @DisplayName("Logout must succeed even when the demo session has expired")
@@ -330,6 +338,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
         assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
         String refreshCookie = extractRefreshCookie(registerResponse);
 
@@ -348,9 +357,9 @@ class DemoModeIntegrationTest {
         assertThat(logoutResponse.getBody()).containsEntry("message", "Logged out successfully");
     }
 
-    // -------------------------------------------------------------------------
+    
     // Login and refresh blocking
-    // -------------------------------------------------------------------------
+    
 
     @Test
     @DisplayName("Login must return 403 with demoToken when demo is expired")
@@ -372,6 +381,7 @@ class DemoModeIntegrationTest {
 
         assertThat(loginResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(loginResponse.getBody()).containsKeys("demoToken", "message");
+        Assertions.assertNotNull(loginResponse.getBody());
         assertThat(loginResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
     }
 
@@ -397,13 +407,11 @@ class DemoModeIntegrationTest {
 
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
         assertThat(refreshResponse.getBody()).containsKeys("demoToken", "message");
+        Assertions.assertNotNull(refreshResponse.getBody());
         assertThat(refreshResponse.getBody().get("demoToken")).isEqualTo("demo:" + user.getId());
     }
 
-    // -------------------------------------------------------------------------
     // Demo timer starts at registration, not first login
-    // -------------------------------------------------------------------------
-
     @Test
     @DisplayName("Demo timer must start at registration, not at first login")
     void demoTimerShouldStartAtRegistration() {
@@ -454,9 +462,9 @@ class DemoModeIntegrationTest {
         assertThat(afterLoginsValue).isEqualTo(firstLoginValue);
     }
 
-    // -------------------------------------------------------------------------
+    
     // Demo token allows account deletion, normal tokens do not
-    // -------------------------------------------------------------------------
+    
 
     @Test
     @DisplayName("Demo token must allow account deletion without MFA")
@@ -477,6 +485,7 @@ class DemoModeIntegrationTest {
                 new HttpEntity<>(withRefreshCookie(refreshToken))
         );
         assertThat(refreshResponse.getStatusCode().value()).isEqualTo(403);
+        Assertions.assertNotNull(refreshResponse.getBody());
         String demoToken = (String) refreshResponse.getBody().get("demoToken");
 
         // Delete with demo token — must succeed
@@ -501,6 +510,7 @@ class DemoModeIntegrationTest {
                 "/user/register", HttpMethod.POST,
                 new HttpEntity<>(Map.of("username", username, "password", password))
         );
+        Assertions.assertNotNull(registerResponse.getBody());
         String accessToken = (String) registerResponse.getBody().get("accessToken");
 
         UserDAO user = userRepository.findByUsername(username).orElseThrow();
@@ -521,9 +531,9 @@ class DemoModeIntegrationTest {
         assertThat(userRepository.findByUsername(username)).isPresent();
     }
 
-    // -------------------------------------------------------------------------
+    
     // Helpers
-    // -------------------------------------------------------------------------
+    
 
     private void expireDemoSession(UUID userId) {
         long expiredStart = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(4);
