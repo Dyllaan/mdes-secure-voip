@@ -1,7 +1,7 @@
 name: Build and Deploy
 on:
   push:
-    branches: [ main, feature/** ]
+    branches: [ main, feature/**, Feature/**, bugfix/**, Bugfix/** ]
   pull_request:
     branches: [ main ]
 env:
