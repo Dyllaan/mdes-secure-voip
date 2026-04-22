@@ -1,6 +1,3 @@
-/**
- * Core HTTP and WebSocket server setup for the Realtime service.
- */
 import express, { Application } from 'express';
 import http from 'http';
 import https from 'https';

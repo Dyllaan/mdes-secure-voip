@@ -1,11 +1,5 @@
 /**
- * useRoomSession
- *
- * Owns socket signalling for room membership and encryption setup.
- * Listens for all-users, user-connected, and user-disconnected socket events,
- * delegates audio call management to the callPeer and removeRemoteStream
- * functions provided by usePeerConnection, and initialises encryption via
- * roomClient. Nothing in this hook manages WebRTC connections directly.
+ * Owns socket signalling for room membership and encryption setup
  */
 
 import { useState, useEffect } from "react";

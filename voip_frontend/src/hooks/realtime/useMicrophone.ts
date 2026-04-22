@@ -1,10 +1,5 @@
 /**
- * useMicrophone
- *
- * Owns the local microphone stream lifecycle.
- * Acquires getUserMedia on demand, manages mute state by toggling track.enabled,
- * and releases all tracks cleanly. Nothing in this hook knows about peers,
- * rooms, or WebRTC connections.
+ * Owns the local microphone stream
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";

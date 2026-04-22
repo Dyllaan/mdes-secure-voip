@@ -11,6 +11,7 @@ import useMusicMan from '@/hooks/musicman/useMusicMan';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import Playlist, { type PlaylistItem } from './Playlist';
 import type { MusicRoomStateEvent } from './types';
+import { toast } from 'sonner';
 
 interface MusicmanPanelProps {
     roomId: string;
@@ -65,7 +66,7 @@ function mediaLabel(url: string): string {
         const pid = u.searchParams.get('list');
         if (pid) return `Playlist ...${pid.slice(-6)}`;
     } catch {
-        // Ignore malformed URLs for display fallback.
+        toast.error('Invalid URL');
     }
     return url;
 }
@@ -122,11 +123,6 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
     const [isSeeking, setIsSeeking] = useState(false);
     const [seekPreviewSeconds, setSeekPreviewSeconds] = useState<number | null>(null);
 
-    /**
-     * Video screenshare mode streams the YouTube video as a peer screenshare.
-     * Locked at the moment the bot first joins a room to change it the bot
-     * must leave and rejoin.
-     */
     const [videoMode, setVideoMode] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
@@ -267,7 +263,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             await leave(roomId);
             setPositionMs(0);
         } catch {
-            // Hook exposes error state for UI feedback.
+            toast.error('Failed to stop playback');
         }
     };
 
@@ -321,7 +317,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             const nextState = await removeQueueItem(roomId, id);
             if (!nextState) setPositionMs(0);
         } catch {
-            // Hook error state handles messaging.
+            toast.error('Failed to remove track from queue');
         }
     };
 
@@ -340,7 +336,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
             await clearQueue(roomId);
             setPositionMs(0);
         } catch {
-            // Hook error state handles messaging.
+            toast.error('Failed to clear queue');
         }
     };
 

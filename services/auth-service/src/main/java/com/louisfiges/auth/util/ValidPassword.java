@@ -3,12 +3,10 @@ package com.louisfiges.auth.util;
 public class ValidPassword {
 
     /**
-     * Check if the password is valid
-     * requirements:
-     * - at least 8 characters
-     * - at least one uppercase letter
-     * - at least one lowercase letter
-     * - at least one digit
+     * at least 8 characters
+     * at least one uppercase letter
+     * at least one lowercase letter
+     * at least one digit
      * @param password
      * @return
      */

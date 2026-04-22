@@ -295,7 +295,7 @@ export class CryptKeyManager {
                 .map(b => `${b.recipientUserId}:${b.recipientDeviceId}`)
         );
 
-        // Filter to only devices missing a bundle
+        // only devices missing a bundle
         const missingDevices = deviceKeys.filter(
             dk => !coveredDeviceIds.has(`${dk.userId}:${dk.deviceId}`)
         );

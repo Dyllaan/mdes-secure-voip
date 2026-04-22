@@ -1,7 +1,3 @@
-/**
- * Ensures all required environment variables are set and exported
- */
-
 const { createPublicKey } = require('crypto');
 const pino = require('pino');
 require('dotenv').config();

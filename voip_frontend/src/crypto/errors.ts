@@ -10,17 +10,6 @@ export class ChannelKeyNotFoundError extends Error {
     }
 }
 
-export class KeyDistributionError extends Error {
-    readonly channelId: string;
-
-    constructor(channelId: string, cause?: unknown) {
-        super(`Key distribution failed for channel "${channelId}"`);
-        this.name = 'KeyDistributionError';
-        this.channelId = channelId;
-        if (cause) this.cause = cause;
-    }
-}
-
 export class KeyDecryptionError extends Error {
     readonly channelId: string;
     readonly keyVersion: number;

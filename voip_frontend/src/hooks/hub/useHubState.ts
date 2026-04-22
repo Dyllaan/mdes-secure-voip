@@ -19,9 +19,7 @@ interface UseHubStateReturn {
 }
 
 /**
- * Performs only GET operations related to hub state (hub info, channels, members) and listens for relevant socket events to keep data up-to-date.
- * Does not include any action functions (create channel, kick member, etc) - those are handled separately in useHubActions to keep this hook focused on state management.
- * This separation allows components to use hub state without being forced to also include action logic, and helps avoid unnecessary re-renders when actions are performed.
+ * Performs only GET operations related to hub state (hub info, channels, members) and listens for relevant socket events to keep data up-to-date
  */
 
 export default function useHubState(hubId: string | undefined): UseHubStateReturn {

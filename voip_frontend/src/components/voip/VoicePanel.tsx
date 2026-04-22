@@ -36,7 +36,6 @@ export default function VoicePanel() {
         connectedPeers.find(p => p.peerId === peerId)?.alias ?? peerId.split('-')[0],
     [connectedPeers]);
 
-    // Restore saved volumes when peers connect
     useEffect(() => {
         const saved = loadSavedVolumes();
         connectedPeers.forEach(({ peerId, alias }) => {
@@ -46,7 +45,6 @@ export default function VoicePanel() {
         });
     }, [connectedPeers]);
 
-    // Apply volume changes to the live audio elements
     useEffect(() => {
         audioElementsRef.current.forEach((audio, peerId) => {
             const vol = peerVolumes[peerId];
@@ -54,7 +52,6 @@ export default function VoicePanel() {
         });
     }, [peerVolumes]);
 
-    // Create/remove audio elements for remote streams
     useEffect(() => {
         const currentPeerIds = new Set(remoteStreams.map(rs => rs.peerId));
 
@@ -112,7 +109,6 @@ export default function VoicePanel() {
                 </div>
             </div>
 
-            {/* Per-user volume sliders */}
             {remoteStreams.length > 0 && (
                 <div className="space-y-1.5 pt-1">
                     {remoteStreams.map(({ peerId }) => {

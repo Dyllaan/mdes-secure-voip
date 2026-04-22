@@ -1,9 +1,5 @@
 /**
- * useRemoteAudio
- *
- * Manages HTMLAudioElement lifecycle for all remote peer streams. Creates,
- * updates, and destroys audio elements as streams arrive and leave. Applies
- * volume changes reactively via the element's volume property.
+ * Manages HTMLAudioElement lifecycle for all remote peer streams
  */
 
 import { useEffect, useRef } from "react";

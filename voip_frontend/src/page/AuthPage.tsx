@@ -5,10 +5,6 @@ import LoginForm from "@/components/auth/forms/LoginForm";
 import RegisterForm from "@/components/auth/forms/RegisterForm";
 import MfaForm from "@/components/auth/forms/MfaForm";
 
-export interface AuthFormProps {
-  onSuccess: () => void;
-}
-
 function AuthSwitcher({
   isLogin,
   onToggle,

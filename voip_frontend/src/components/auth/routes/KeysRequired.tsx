@@ -3,23 +3,7 @@
  *
  * Route guard that sits between ProtectedRoute (authentication) and
  * ConnectionProvider (crypto initialisation).
- *
- * On mount it opens IndexedDB and checks whether a P-256 ECDH keypair already
- * exists.  If none is found the user is redirected to /keys (KeySetupPage) to
- * generate or import their recovery phrase.  Once setup is complete the user
- * navigates back to /, this component re-mounts, finds the keypair, and
- * renders the protected children as normal.
- *
- * Routing position:
- *   <ProtectedRoute />
- *     <Route path="/keys" element={<KeySetupPage />} />   ← outside this guard
- *     <Route element={<KeysRequired />}>                  ← this component
- *       <Route element={<ConnectionProvider>…</ConnectionProvider>}>
- *         <Route path="/" … />
- *       </Route>
- *     </Route>
- */
-
+*/
 import { useEffect, useState } from 'react';
 import { CryptKeyStorage } from '@/utils/crypto/CryptKeyStorage';
 import { useAuth } from '@/hooks/auth/useAuth';
@@ -48,7 +32,6 @@ export default function KeysRequired() {
                 if (!cancelled) setState(has ? 'ready' : 'needed');
             })
             .catch(() => {
-                // If IDB is unavailable treat it as needing setup
                 if (!cancelled) setState('needed');
             });
 

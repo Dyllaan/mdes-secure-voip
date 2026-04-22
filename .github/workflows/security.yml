@@ -68,8 +68,9 @@ jobs:
       - name: Go vulnerability check
         uses: golang/govulncheck-action@v1
         with:
+          work-dir: services/hub-service
           go-version-file: services/hub-service/go.mod
-          go-package: ./services/hub-service/...
+          go-package: ./...
         continue-on-error: true
 
   sast:

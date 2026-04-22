@@ -1,13 +1,6 @@
 /**
- * usePeerVolumes
- *
- * Owns per-peer volume state and localStorage persistence. Volumes are stored
- * as 0–1 floats. Provides muteVolume and restoreVolume for the screenshare
- * dismiss/restore flow, replacing the _predismiss_ key hack that previously
- * lived in useVoIP. volumeRef exposes sync access to current values for
- * callbacks that run outside the React render cycle.
+ * Owns per-peer volume state and localStorage persistence
  */
-
 import { useState, useRef, useCallback } from "react";
 
 const VOLUME_KEY = "talk:peer-volumes";

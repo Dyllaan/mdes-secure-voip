@@ -20,9 +20,7 @@ import {
 import { turnCredentials } from './config/turnCredentials';
 import { requireAuth } from './middleware/authMiddleware';
 import { requirePeerAuth } from './middleware/peerAuth';
-/**
- * Gateway service that proxies requests to the appropriate backend services, handles authentication, and provides a unified API for the frontend. It also includes health checks and rate limiting to ensure reliability and security.
- */
+
 const app = express();
 
 app.set('trust proxy', 1);
