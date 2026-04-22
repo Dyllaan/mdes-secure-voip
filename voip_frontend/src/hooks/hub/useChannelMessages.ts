@@ -1,0 +1,142 @@
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useAuth } from "@/hooks/auth/useAuth";
+import { useConnection } from '@/components/providers/ConnectionProvider';
+import type { EncryptedMessage } from '@/types/hub.types';
+import useHubApi from './useHubApi';
+import { toast } from 'sonner';
+import Validator from '@/utils/validation/Validator';
+import type { CryptKeyManager } from '@/utils/crypto/CryptKeyManager';
+
+interface UseChannelMessagesReturn {
+    messages: EncryptedMessage[];
+    hasMore: boolean;
+    refreshMessages: () => Promise<void>;
+    loadOlderMessages: () => Promise<void>;
+    sendMessage: (text: string) => Promise<void>;
+}
+
+export function useChannelMessages(
+    hubId: string | undefined,
+    channelId: string | undefined,
+): UseChannelMessagesReturn {
+    const { user } = useAuth();
+    const { socket, channelKeyManager } = useConnection();
+    const hubApi = useHubApi();
+    const { getMessages, sendMessage: apiSendMessage } = hubApi;
+
+    const [messages, setMessages] = useState<EncryptedMessage[]>([]);
+    const [hasMore, setHasMore] = useState(false);
+    const validator = new Validator();
+    const channelKeyManagerRef = useRef(channelKeyManager);
+
+    useEffect(() => {
+        channelKeyManagerRef.current = channelKeyManager;
+    }, [channelKeyManager]);
+
+    const waitForChannelKeyManager = useCallback(async (): Promise<CryptKeyManager | null> => {
+        if (channelKeyManagerRef.current) {
+            return channelKeyManagerRef.current;
+        }
+
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            if (channelKeyManagerRef.current) {
+                return channelKeyManagerRef.current;
+            }
+        }
+
+        return null;
+    }, []);
+
+    useEffect(() => {
+        if (!hubId || !channelId) {
+            setMessages([]);
+            return;
+        }
+
+        getMessages(hubId, channelId)
+            .then(data => {
+                setMessages(data.messages || []);
+                setHasMore(data.hasMore || false);
+            })
+            .catch(() => toast.error('Failed to load messages'));
+    }, [hubId, channelId, getMessages]);
+
+    const refreshMessages = useCallback(async () => {
+        if (!hubId || !channelId) return;
+        try {
+            const data = await getMessages(hubId, channelId);
+            setMessages(data.messages || []);
+            setHasMore(data.hasMore || false);
+        } catch {
+            toast.error('Failed to refresh messages');
+        }
+    }, [hubId, channelId, getMessages]);
+
+    useEffect(() => {
+        if (!socket || !hubId) return;
+
+        const onNewMessage = async (data: { hubId: string; channelId: string }) => {
+            if (data.hubId !== hubId || data.channelId !== channelId) return;
+            try {
+                const result = await getMessages(hubId, data.channelId);
+                setMessages(result.messages || []);
+                setHasMore(result.hasMore || false);
+            } catch {
+            }
+        };
+
+        socket.on('channel-message-sent', onNewMessage);
+        return () => { socket.off('channel-message-sent', onNewMessage); };
+    }, [socket, hubId, channelId, getMessages]);
+
+    const loadOlderMessages = async () => {
+        if (!hubId || !channelId || messages.length === 0) return;
+        const oldest = messages[0].timestamp;
+        try {
+            const data = await getMessages(hubId, channelId, oldest);
+            setMessages(prev => [...(data.messages || []), ...prev]);
+            setHasMore(data.hasMore || false);
+        } catch {
+            toast.error('Failed to load older messages');
+        }
+    };
+
+    const sendMessage = async (text: string) => {
+        const validation = validator.validate("Message", text);
+        if (!validation.valid || !validation.value) {
+            toast.error('Message validation failed: ' + validation.errors.join(', '));
+            return;
+        }
+        if (!hubId || !channelId) return;
+        
+        const manager = await waitForChannelKeyManager();
+        if (!manager || !user?.sub) {
+            toast.error('Encryption is not ready yet');
+            return;
+        }
+
+        try {
+            const payload = await manager.encrypt(
+                channelId,
+                hubId,
+                user.sub,
+                validation.value,
+                hubApi,
+                (event) => { socket?.emit('channel-key-rotated', event); },
+            );
+
+            await apiSendMessage(hubId, channelId, payload);
+
+            const data = await getMessages(hubId, channelId);
+            setMessages(data.messages || []);
+            setHasMore(data.hasMore || false);
+
+            socket?.emit('channel-message-sent', { hubId, channelId });
+        } catch {
+            toast.error('Failed to send message');
+        }
+    };
+
+    return { messages, hasMore, refreshMessages, loadOlderMessages, sendMessage };
+}

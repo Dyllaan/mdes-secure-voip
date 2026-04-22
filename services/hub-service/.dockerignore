@@ -1,0 +1,6 @@
+.env
+.env.*
+.idea/
+ArchSummary
+docker-compose.yml
+*.md

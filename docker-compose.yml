@@ -1,0 +1,382 @@
+x-logging-default: &logging-default
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "5"
+    
+services:
+  p2p-voip-frontend:
+    build:
+      context: ./voip_frontend
+      args:
+        NGINX_CONF: nginx.dev.conf
+    container_name: p2p-voip-frontend
+    user: "101:101" # Standard Nginx UID/GID
+    ports:
+      - "8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+      - /var/cache/nginx
+      - /usr/share/nginx/html/config:uid=101,gid=101
+    environment:
+      - VITE_AUTH_URL=http://localhost:3000/auth
+      - VITE_SOCKET_URL=http://localhost:3000
+      - VITE_HUB_SERVICE_URL=http://localhost:3000/hub
+      - VITE_MUSICMAN_URL=http://localhost:3000/musicman
+      - VITE_GATEWAY_URL=http://localhost:3000
+      - VITE_PEER_HOST=localhost
+      - VITE_PEER_PORT=3000
+      - VITE_PEER_PATH=/peerjs
+      - VITE_PEER_SECURE=false
+      - VITE_TURN_HOST=192.168.1.245
+      - VITE_TURN_PORT=3478
+      - VITE_TURN_SECURE=false
+      - VITE_GITHUB_URL=https://github.com/Dyllaan/mdes-secure-voip
+      - VITE_MAX_MESSAGE_LENGTH=500
+      - VITE_MAX_CHANNEL_NAME_LENGTH=25
+      - VITE_MAX_ALIAS_LENGTH=50
+      - VITE_MAX_ROOM_NAME_LENGTH=25
+      - VITE_MAX_USERNAME_LENGTH=25
+      - VITE_MIN_USERNAME_LENGTH=3
+      - VITE_MAX_PASSWORD_LENGTH=128
+      - VITE_MIN_PASSWORD_LENGTH=8
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: *logging-default
+  p2p-voip-gateway:
+    build:
+      context: ./services/gateway
+    container_name: voip-gateway
+    user: "1000:1000"
+    ports:
+      - "3000:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL}
+      - AUTH_SERVICE_URL=http://voip-auth-service:8010
+      - REALTIME_SERVICE_URL=http://voip-realtime:9001
+      - PEER_SERVICE_URL=http://voip-realtime:9000
+      - HUB_SERVICE_URL=http://hub-service:8080
+      - MUSICMAN_URL=http://musicman-service:4000
+      - CORS_ORIGIN=${ALLOWED_ORIGINS}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - TURN_SECRET=${TURN_SECRET}
+      - BOT_SECRET=${BOT_SECRET}
+      - BOT_USERNAME=musicman
+    depends_on:
+      p2p-auth-service:
+        condition: service_healthy
+      p2p-hub-service:
+        condition: service_healthy
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: *logging-default
+
+  p2p-auth-service:
+    build:
+      context: ./services/auth-service
+    container_name: voip-auth-service
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://auth-db:5432/postgres?sslmode=disable
+      - SPRING_DATASOURCE_USERNAME=auth-db-user
+      - SPRING_DATASOURCE_PASSWORD=${AUTH_DB_PASSWORD}
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+      - JWT_PRIVATE_KEY_B64=${JWT_PRIVATE_KEY_B64}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - DEMO_MODE=${DEMO_MODE}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - BOT_SECRET=${BOT_SECRET}
+      - BOT_USERNAME=musicman
+      - BOT_PASSWORD=${BOT_PASSWORD}
+    depends_on:
+      p2p-auth-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    networks:
+      - voip-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8010/actuator/health || exit 1"]
+      interval: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging-default
+
+  p2p-voip-realtime-service:
+    build:
+      context: ./services/realtime
+    container_name: voip-realtime
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - REALTIME_PORT=9001
+      - PEER_PORT=9000
+      - HUB_SERVICE_URL=http://voip-gateway:3000/hub
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: *logging-default
+
+  p2p-hub-service:
+    build:
+      context: ./services/hub-service
+    container_name: hub-service
+    user: "1000:1000"
+    environment:
+      - DATABASE_URL=postgres://postgres:${HUB_DB_PASSWORD}@hub-service-db:5432/hub-service?sslmode=disable
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - PORT=8080
+      - BOT_SECRET=${BOT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - INVITE_TTL_HOURS=12
+    depends_on:
+      p2p-hub-service-db:
+        condition: service_healthy
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging-default
+  p2p-hub-service-db:
+    image: postgres:16-alpine
+    container_name: hub-service-db
+    user: "70:70" # Postgres standard UID
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${HUB_DB_PASSWORD}
+      - POSTGRES_DB=hub-service
+    volumes:
+      - hub-service-db-data:/var/lib/postgresql/data
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hub-service"]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging-default
+
+  p2p-auth-db:
+    image: postgres:latest
+    container_name: auth-db
+    user: "70:70"
+    environment:
+      - POSTGRES_USER=auth-db-user
+      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
+      - POSTGRES_DB=postgres
+    volumes:
+      - auth-db-data:/var/lib/postgresql
+    restart: always
+    networks:
+      - voip-network
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth-db-user -d postgres"]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging: *logging-default
+
+  p2p-musicman-cookie-init:
+    image: alpine
+    volumes:
+      - ./cookies.txt:/src/cookies.txt:ro
+      - musicman-cookies:/dst
+    command: cp /src/cookies.txt /dst/cookies.txt
+    restart: "no"
+
+  p2p-musicman-service:
+    build:
+      context: ./services/musicman-service
+    container_name: musicman-service
+    user: "1000:1000"
+    tmpfs:
+      - /tmp
+    volumes:
+      - musicman-cookies:/app/cookies
+    environment:
+      - GATEWAY_URL=http://voip-gateway:3000
+      - SIGNALING_URL=http://voip-gateway:3000
+      - AUTH_URL=http://voip-gateway:3000/auth
+      - HUB_SERVICE_URL=http://voip-gateway:3000/hub
+      - BOT_SECRET=${BOT_SECRET}
+      - JWT_PUBLIC_KEY_B64=${JWT_PUBLIC_KEY_B64}
+      - PEER_HOST=voip-gateway
+      - PEER_PORT=3000
+      - PEER_PATH=/peerjs
+      - PEER_SECURE=false
+      - BOT_USERNAME=musicman
+      - BOT_PASSWORD=${BOT_PASSWORD}
+      - PORT=4000
+      - PEER_ID_EVENT=peer-assigned
+      - PEER_ID_KEY=peerId
+      - DEBUG=${MUSICMAN_DEBUG}
+      - YTDLP_MAX_FILESIZE_MB=${YTDLP_MAX_FILESIZE_MB}
+      - TURN_HOST=${TURN_HOST}
+      - TURN_PORT=${TURN_PORT}
+      - TURN_SECURE=${TURN_SECURE}
+      - ALLOWED_VIDEO_ORIGINS:=${ALLOWED_VIDEO_ORIGINS}
+      - ALLOWED_AUDIO_ORIGINS:=${ALLOWED_AUDIO_ORIGINS}
+      - YTDLP_POT_BASE_URL=http://bgutil-pot-provider:4416
+    depends_on:
+      p2p-voip-gateway:
+        condition: service_healthy
+      p2p-auth-service:
+        condition: service_healthy
+      p2p-voip-realtime-service:
+        condition: service_started
+      p2p-bgutil-pot-provider:
+        condition: service_started
+    networks:
+      - voip-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+  
+  p2p-bgutil-pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: bgutil-pot-provider
+    user: "1000:1000"
+    networks:
+      - voip-network
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    logging: *logging-default
+
+  p2p-coturn:
+    image: coturn/coturn:latest
+    container_name: coturn
+    ports:
+      - "13478:3478/tcp"
+      - "13478:3478/udp"
+    command: >
+      -n
+      --log-file=stdout
+      --fingerprint
+      --no-multicast-peers
+      --no-cli
+      --no-tls
+      --no-dtls
+      --realm=${COTURN_REALM}
+      --static-auth-secret=${TURN_SECRET}
+      --allow-loopback-peers
+      --external-ip=${COTURN_EXTERNAL_IP}
+    networks:
+      voip-network:
+        ipv4_address: 10.10.10.10
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    user: "999"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    networks:
+      - voip-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging: *logging-default
+volumes:
+  auth-db-data:
+  hub-service-db-data:
+  redis-data:
+  musicman-cookies:
+
+networks:
+  voip-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.10.0/24
