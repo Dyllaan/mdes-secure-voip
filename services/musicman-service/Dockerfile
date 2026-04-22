@@ -1,0 +1,36 @@
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache python3 curl ca-certificates \
+    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+       -o /usr/local/bin/yt-dlp \
+    && chmod +x /usr/local/bin/yt-dlp
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# Runtime stage
+FROM node:20-alpine
+
+RUN apk add --no-cache ffmpeg python3 py3-pip ca-certificates quickjs
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/bin/yt-dlp /usr/local/bin/yt-dlp
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+RUN pip3 install -U bgutil-ytdlp-pot-provider --break-system-packages
+
+COPY --from=builder /app/dist ./dist
+RUN chown -R 1000:1000 /app
+
+EXPOSE 4000
+
+CMD ["node", "dist/index.js"]

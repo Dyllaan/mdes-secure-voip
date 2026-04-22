@@ -1,0 +1,239 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+env:
+  REGISTRY: dflouis
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      gateway: ${{ steps.changes.outputs.gateway }}
+      realtime: ${{ steps.changes.outputs.realtime }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      hub: ${{ steps.changes.outputs.hub }}
+      musicman: ${{ steps.changes.outputs.musicman }}
+      auth: ${{ steps.changes.outputs.auth }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            gateway:
+              - 'services/gateway/**'
+              - '.github/workflows/deploy.yml'
+            realtime:
+              - 'services/realtime/**'
+              - '.github/workflows/deploy.yml'
+            frontend:
+              - 'voip_frontend/**'
+              - '.github/workflows/deploy.yml'
+            hub:
+              - 'services/hub-service/**'
+              - '.github/workflows/deploy.yml'
+            musicman:
+              - 'services/musicman-service/**'
+              - '.github/workflows/deploy.yml'
+            auth:
+              - 'services/auth-service/**'
+              - '.github/workflows/deploy.yml'
+  test:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Generate test JWT key fixtures
+        run: |
+          mkdir -p test-fixtures/jwt
+          openssl genrsa -out test-fixtures/jwt/private.pem 2048
+          openssl rsa -in test-fixtures/jwt/private.pem -pubout -out test-fixtures/jwt/public.pem
+
+      - name: Set up Node.js
+        if: >
+          needs.detect-changes.outputs.gateway == 'true' ||
+          needs.detect-changes.outputs.realtime == 'true' ||
+          needs.detect-changes.outputs.musicman == 'true' ||
+          needs.detect-changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Test Gateway
+        if: needs.detect-changes.outputs.gateway == 'true'
+        working-directory: ./services/gateway
+        run: |
+          npm ci
+          npm test
+
+      - name: Test Realtime Service
+        if: needs.detect-changes.outputs.realtime == 'true'
+        working-directory: ./services/realtime
+        run: |
+          npm ci
+          npm test
+
+      - name: Test Musicman Service
+        if: needs.detect-changes.outputs.musicman == 'true'
+        working-directory: ./services/musicman-service
+        run: |
+          npm ci
+          npm test
+
+      - name: Install frontend deps
+        if: needs.detect-changes.outputs.frontend == 'true'
+        working-directory: ./voip_frontend
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        if: needs.detect-changes.outputs.frontend == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('voip_frontend/package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: needs.detect-changes.outputs.frontend == 'true'
+        working-directory: ./voip_frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Test Frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
+        working-directory: ./voip_frontend
+        run: npm test
+
+      - name: Upload Playwright report
+        if: needs.detect-changes.outputs.frontend == 'true' && failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: voip_frontend/playwright-report/
+          retention-days: 7
+
+      - name: Set up Go
+        if: needs.detect-changes.outputs.hub == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/hub-service/go.mod
+
+      - name: Test Hub Service
+        if: needs.detect-changes.outputs.hub == 'true'
+        working-directory: ./services/hub-service
+        run: go test ./...
+
+      - name: Set up JDK
+        if: needs.detect-changes.outputs.auth == 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'corretto'
+
+      - name: Test Auth Service
+        if: needs.detect-changes.outputs.auth == 'true'
+        working-directory: ./services/auth-service
+        run: |
+          chmod +x gradlew
+          ./gradlew test --no-daemon
+
+  build-and-push:
+    needs: [ detect-changes, test ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and Push Gateway
+        if: needs.detect-changes.outputs.gateway == 'true'
+        run: |
+          docker build \
+            --build-arg PORT=3000 \
+            -t ${{ env.REGISTRY }}/p2p-voip-gateway:latest \
+            ./services/gateway
+          docker push ${{ env.REGISTRY }}/p2p-voip-gateway:latest
+
+      - name: Build and Push Realtime Service
+        if: needs.detect-changes.outputs.realtime == 'true'
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/p2p-voip-realtime:latest \
+            ./services/realtime
+          docker push ${{ env.REGISTRY }}/p2p-voip-realtime:latest
+
+      - name: Build and Push Hub Service
+        if: needs.detect-changes.outputs.hub == 'true'
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/p2p-hub-service:latest \
+            ./services/hub-service
+          docker push ${{ env.REGISTRY }}/p2p-hub-service:latest
+
+      - name: Build and Push Musicman Service
+        if: needs.detect-changes.outputs.musicman == 'true'
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/p2p-musicman-service:latest \
+            ./services/musicman-service
+          docker push ${{ env.REGISTRY }}/p2p-musicman-service:latest
+
+      - name: Build and Push Auth Service
+        if: needs.detect-changes.outputs.auth == 'true'
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/p2p-auth-service:latest \
+            ./services/auth-service
+          docker push ${{ env.REGISTRY }}/p2p-auth-service:latest
+
+      - name: Build and Push Frontend
+        if: needs.detect-changes.outputs.frontend == 'true'
+        run: |
+          docker build \
+            -t ${{ env.REGISTRY }}/p2p-voip-frontend:latest \
+            ./voip_frontend
+          docker push ${{ env.REGISTRY }}/p2p-voip-frontend:latest
+
+  build-electron:
+    needs: [ detect-changes, test ]
+    if: needs.detect-changes.outputs.frontend == 'true' && github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./voip_frontend
+        run: npm ci
+
+      - name: Build and package Electron app
+        working-directory: ./voip_frontend
+        run: npm run package
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            voip_frontend/release/*.exe
+          tag_name: v${{ github.run_number }}
+          name: Mdes v${{ github.run_number }}
+          body: |
+            Windows desktop release built from commit ${{ github.sha }}.
+          draft: false
+          prerelease: false
