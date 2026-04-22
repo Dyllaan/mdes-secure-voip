@@ -5,6 +5,7 @@ import type { Socket } from "socket.io-client";
 import useIceServers from "./useIceServers";
 import { getAccessToken } from "@/axios/api";
 import { getAppE2EHarness } from "@/testing/e2eHarness";
+import { toast } from "sonner";
 
 interface RemoteScreenStream {
   peerId: string;
@@ -128,9 +129,7 @@ const useScreenshare = ({
     if (!screenPeer) return;
     const call = screenPeer.call(screenPeerIdOfTarget, stream);
     screenCallsRef.current.set(screenPeerIdOfTarget, call);
-    call.on("error", err =>
-      console.error("Screenshare call error to", screenPeerIdOfTarget, err)
-    );
+    call.on("error", () => {});
   }, []);
 
   const answerCall = useCallback((incomingCall: MediaConnection) => {
@@ -144,7 +143,7 @@ const useScreenshare = ({
         const audioEl = new Audio();
         audioEl.srcObject = remoteStream;
         audioEl.autoplay = true;
-        audioEl.play().catch(e => console.warn("Screen audio autoplay blocked:", e));
+        audioEl.play().catch(() => {});
         screenAudioElsRef.current.set(incomingCall.peer, audioEl);
       }
       setRemoteScreenStreams(prev =>
@@ -194,7 +193,7 @@ const useScreenshare = ({
       screenStream.getVideoTracks()[0].onended = () => stopScreenShare();
     } catch (err: any) {
       if (err.name !== "NotAllowedError") {
-        console.error("Failed to start screen share:", err);
+        toast.error("Failed to start screen share");
       }
     }
   }, [socket, stopScreenShare, e2eHarness]);
@@ -223,7 +222,6 @@ const useScreenshare = ({
     let retryTid: ReturnType<typeof setTimeout> | null = null;
 
     const handleScreenPeerAssigned = ({ peerId }: { peerId: string }) => {
-      console.log("[screenshare] screen-peer-assigned received, peerId:", peerId);
       const tryInit = () => {
         if (!iceServersRef.current) {
           retryTid = setTimeout(tryInit, 100);
@@ -241,21 +239,18 @@ const useScreenshare = ({
         });
 
         screenPeer.on("open", id => {
-          console.log("[screenshare] screen Peer open, registered id:", id);
           screenPeerIdRef.current = id;
         });
 
         screenPeer.on("call", (incomingCall: MediaConnection) => {
-          console.log("[screenshare] incoming call from:", incomingCall.peer, "allowed:", allowedScreenPeerIds.current.has(incomingCall.peer));
           if (!allowedScreenPeerIds.current.has(incomingCall.peer)) {
-            console.warn("[screenshare] call queued - peer not yet in allowlist:", incomingCall.peer);
             pendingCallsRef.current.set(incomingCall.peer, incomingCall);
             return;
           }
           answerCall(incomingCall);
         });
 
-        screenPeer.on("error", err => console.error("[screenshare] screen Peer error:", err));
+        screenPeer.on("error", () => {});
         screenPeerRef.current = screenPeer;
       };
       tryInit();
@@ -266,7 +261,6 @@ const useScreenshare = ({
     }: {
       peers: Array<{ screenPeerId: string; alias: string }>;
     }) => {
-      console.log("[screenshare] room-screen-peers received:", peers);
       peers.forEach(({ screenPeerId, alias }) => {
         allowedScreenPeerIds.current.add(screenPeerId);
         pendingAliasRef.current.set(screenPeerId, alias);
@@ -286,15 +280,12 @@ const useScreenshare = ({
       alias: string;
       screenPeerId: string;
     }) => {
-      console.log("[screenshare] peer-screenshare-started - peerId:", peerId, "alias:", alias, "screenPeerId:", screenPeerId);
       pendingAliasRef.current.set(screenPeerId, alias);
       peerScreenPeerIds.current.set(peerId, screenPeerId);
       allowedScreenPeerIds.current.add(screenPeerId);
-      console.log("[screenshare] allowlist now:", [...allowedScreenPeerIds.current]);
 
       const pending = pendingCallsRef.current.get(screenPeerId);
       if (pending) {
-        console.log("[screenshare] draining pending call from:", screenPeerId);
         pendingCallsRef.current.delete(screenPeerId);
         answerCall(pending);
       }

@@ -56,8 +56,7 @@ export default function useMfaCode(
                 toast.error(result?.error || 'Invalid authentication code');
                 setMfaCode('');
             }
-        } catch (error) {
-            console.error('MFA verification failed:', error);
+        } catch {
             toast.error('An unexpected error occurred');
         } finally {
             setIsLoading(false);

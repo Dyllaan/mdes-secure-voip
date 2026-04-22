@@ -75,12 +75,10 @@
     "react-router-dom": "^7.9.5",
     "socket.io-client": "^4.8.1",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.4.0",
-    "zod": "^4.3.6"
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
-    "@hookform/resolvers": "^5.2.2",
     "@playwright/test": "^1.58.2",
     "@types/node": "^22.19.17",
     "@types/react": "^19.1.2",

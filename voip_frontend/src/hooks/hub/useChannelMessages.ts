@@ -38,7 +38,7 @@ export function useChannelMessages(
                 setMessages(data.messages || []);
                 setHasMore(data.hasMore || false);
             })
-            .catch(() => toast.error('Failed to load messages:'));
+            .catch(() => toast.error('Failed to load messages'));
     }, [hubId, channelId, getMessages]);
 
     const refreshMessages = useCallback(async () => {
@@ -47,8 +47,8 @@ export function useChannelMessages(
             const data = await getMessages(hubId, channelId);
             setMessages(data.messages || []);
             setHasMore(data.hasMore || false);
-        } catch (err) {
-            console.error('[useChannelMessages] Failed to refresh messages:', err);
+        } catch {
+            toast.error('Failed to refresh messages');
         }
     }, [hubId, channelId, getMessages]);
 
@@ -61,8 +61,7 @@ export function useChannelMessages(
                 const result = await getMessages(hubId, data.channelId);
                 setMessages(result.messages || []);
                 setHasMore(result.hasMore || false);
-            } catch (err) {
-                console.error('[useChannelMessages] Failed to fetch new messages:', err);
+            } catch {
             }
         };
 
@@ -77,8 +76,8 @@ export function useChannelMessages(
             const data = await getMessages(hubId, channelId, oldest);
             setMessages(prev => [...(data.messages || []), ...prev]);
             setHasMore(data.hasMore || false);
-        } catch (err) {
-            console.error('[useChannelMessages] Failed to load older messages:', err);
+        } catch {
+            toast.error('Failed to load older messages');
         }
     };
 
@@ -91,25 +90,30 @@ export function useChannelMessages(
         if (!hubId || !channelId) return;
         
         if (!channelKeyManager || !user?.sub) {
-            throw new Error('Encryption not ready');
+            toast.error('Encryption is not ready yet');
+            return;
         }
 
-        const payload = await channelKeyManager.encrypt(
-            channelId,
-            hubId,
-            user.sub,
-            validation.value,
-            hubApi,
-            (event) => { socket?.emit('channel-key-rotated', event); },
-        );
+        try {
+            const payload = await channelKeyManager.encrypt(
+                channelId,
+                hubId,
+                user.sub,
+                validation.value,
+                hubApi,
+                (event) => { socket?.emit('channel-key-rotated', event); },
+            );
 
-        await apiSendMessage(hubId, channelId, payload);
+            await apiSendMessage(hubId, channelId, payload);
 
-        const data = await getMessages(hubId, channelId);
-        setMessages(data.messages || []);
-        setHasMore(data.hasMore || false);
+            const data = await getMessages(hubId, channelId);
+            setMessages(data.messages || []);
+            setHasMore(data.hasMore || false);
 
-        socket?.emit('channel-message-sent', { hubId, channelId });
+            socket?.emit('channel-message-sent', { hubId, channelId });
+        } catch {
+            toast.error('Failed to send message');
+        }
     };
 
     return { messages, hasMore, refreshMessages, loadOlderMessages, sendMessage };

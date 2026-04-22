@@ -59,9 +59,7 @@ export class CryptKeyManager {
 
         await Promise.all(
             hubIds.map(hubId =>
-                hubAPI.registerDeviceKey(hubId, deviceId, publicKeySpki).catch(err =>
-                    console.warn(`[CryptKeyManager] Failed to register device key for hub ${hubId}:`, err)
-                )
+                hubAPI.registerDeviceKey(hubId, deviceId, publicKeySpki).catch(() => {})
             )
         );
 
@@ -170,11 +168,7 @@ export class CryptKeyManager {
                 if (currentVer === null || bundle.keyVersion > currentVer) {
                     await this.storage.setCurrentVersion(bundle.channelId, bundle.keyVersion);
                 }
-            } catch (err) {
-                console.warn(
-                    `[CryptKeyManager] Failed to unwrap bundle for ${bundle.channelId} v${bundle.keyVersion}:`,
-                    err
-                );
+            } catch {
             }
         }
     }
@@ -233,8 +227,7 @@ export class CryptKeyManager {
                         ciphertext: bundle.ciphertext,
                         iv: bundle.iv,
                     };
-                } catch (err) {
-                    console.warn(`[CryptKeyManager] Failed to wrap key for device ${dk.deviceId}:`, err);
+                } catch {
                     return null;
                 }
             })
@@ -302,7 +295,6 @@ export class CryptKeyManager {
 
         if (missingDevices.length === 0) return false;
 
-        console.log(`[CryptKeyManager] Top-up: distributing key to ${missingDevices.length} new device(s) for channel ${channelId}`);
         await this.distributeKey(channelId, hubId, version, channelKey, missingDevices, hubAPI);
         return true;
     }
