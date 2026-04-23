@@ -67,7 +67,6 @@ export type {
     Room,
     UserInfo,
     RoomUser,
-    ScreenShare,
     SocketHandlers,
     AuthenticatedSocket,
     RateLimitEntry,

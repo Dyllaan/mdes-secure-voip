@@ -137,7 +137,7 @@ class RoomManager {
     }
 
     public get rooms(): Map<string, Room> {
-        return this._rooms;  // rename private field to _rooms
+        return this._rooms;
     }
 
     public get users(): Map<string, RoomUser> {

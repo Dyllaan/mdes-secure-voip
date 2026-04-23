@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "knip": "knip"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -23,11 +24,11 @@
     "@types/express": "^4.17.21",
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.2",
-    "@types/node": "^20.11.1",
+    "@types/node": "^20.19.39",
     "jest": "^30.3.0",
-    "nodemon": "^3.0.2",
+    "knip": "^6.6.2",
     "ts-jest": "^29.4.9",
     "tsx": "^4.19.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.9.3"
   }
 }

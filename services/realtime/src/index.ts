@@ -3,7 +3,7 @@ import SecureRealtimeService from './SecureRealtimeService';
 
 async function start(): Promise<void> {
     try {
-        console.log('Starting Secure Realtime Service...');
+        console.log('Starting Realtime Service...');
         const service = new SecureRealtimeService();
         await service.start();
 
