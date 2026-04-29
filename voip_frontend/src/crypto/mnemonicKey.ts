@@ -2,30 +2,15 @@ import { generateMnemonic as bip39Generate, mnemonicToSeed, validateMnemonic } f
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { hkdfSha256 } from '@/crypto/hkdfSha256';
 import { bufToBase64 } from '@/crypto/base64';
+import { deriveP256JwkPair } from '@/crypto/p256';
+import { DeviceIdentityDerivationError } from '@/crypto/errors';
 
 interface DeviceIdentity {
     keyPair: CryptoKeyPair;
+    privateKeyJwk: JsonWebKey;
+    publicKeyJwk: JsonWebKey;
     publicKeySpki: string;
     deviceId: string;
-}
-
-// Minimal PKCS8 wrapper for a P-256 scalar - lets WebCrypto compute (x,y) for us
-function scalarToPkcs8(scalar: Uint8Array): ArrayBuffer {
-    const header = new Uint8Array([
-        0x30, 0x41,
-        0x02, 0x01, 0x00,
-        0x30, 0x13,
-          0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
-          0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
-        0x04, 0x27,
-          0x30, 0x25,
-            0x02, 0x01, 0x01,
-            0x04, 0x20,
-    ]);
-    const buf = new Uint8Array(header.length + scalar.length);
-    buf.set(header);
-    buf.set(scalar, header.length);
-    return buf.buffer;
 }
 
 function bytesToUuid(bytes: Uint8Array): string {
@@ -47,8 +32,13 @@ export async function deriveDeviceIdentity(mnemonic: string): Promise<DeviceIden
         throw new Error('Invalid mnemonic: check that all 24 words are correct and try again.');
     }
 
-    const seed = await mnemonicToSeed(normalised);
-    const seedBuf = seed.buffer.slice(seed.byteOffset, seed.byteOffset + seed.byteLength) as ArrayBuffer;
+    let seedBuf: ArrayBuffer;
+    try {
+        const seed = await mnemonicToSeed(normalised);
+        seedBuf = seed.buffer.slice(seed.byteOffset, seed.byteOffset + seed.byteLength) as ArrayBuffer;
+    } catch (error) {
+        throw new DeviceIdentityDerivationError('seed', error);
+    }
 
     const [scalarBuf, uuidBuf] = await Promise.all([
         hkdfSha256(seedBuf, 'voip-ecdh-v1', 32),
@@ -56,38 +46,42 @@ export async function deriveDeviceIdentity(mnemonic: string): Promise<DeviceIden
     ]);
 
     const deviceId = bytesToUuid(new Uint8Array(uuidBuf));
+    const { privateJwk, publicJwk } = deriveP256JwkPair(new Uint8Array(scalarBuf));
 
-    const extractablePrivateKey = await crypto.subtle.importKey(
-        'pkcs8',
-        scalarToPkcs8(new Uint8Array(scalarBuf)),
-        { name: 'ECDH', namedCurve: 'P-256' },
-        true,
-        ['deriveKey', 'deriveBits'],
-    );
+    let publicKey: CryptoKey;
+    let privateKey: CryptoKey;
+    try {
+        [publicKey, privateKey] = await Promise.all([
+            crypto.subtle.importKey(
+                'jwk',
+                publicJwk,
+                { name: 'ECDH', namedCurve: 'P-256' },
+                true,
+                [],
+            ),
+            crypto.subtle.importKey(
+                'jwk',
+                privateJwk,
+                { name: 'ECDH', namedCurve: 'P-256' },
+                false,
+                ['deriveKey', 'deriveBits'],
+            ),
+        ]);
+    } catch (error) {
+        throw new DeviceIdentityDerivationError('key-import', error);
+    }
 
-    const jwk = await crypto.subtle.exportKey('jwk', extractablePrivateKey);
-
-    const [publicKey, privateKey] = await Promise.all([
-        crypto.subtle.importKey(
-            'jwk',
-            { kty: 'EC', crv: 'P-256', x: jwk.x, y: jwk.y },
-            { name: 'ECDH', namedCurve: 'P-256' },
-            true,
-            [],
-        ),
-        crypto.subtle.importKey(
-            'jwk',
-            jwk,
-            { name: 'ECDH', namedCurve: 'P-256' },
-            false,
-            ['deriveKey', 'deriveBits'],
-        ),
-    ]);
-
-    const spkiBuf = await crypto.subtle.exportKey('spki', publicKey);
+    let spkiBuf: ArrayBuffer;
+    try {
+        spkiBuf = await crypto.subtle.exportKey('spki', publicKey);
+    } catch (error) {
+        throw new DeviceIdentityDerivationError('public-export', error);
+    }
 
     return {
         keyPair: { privateKey, publicKey },
+        privateKeyJwk: privateJwk,
+        publicKeyJwk: publicJwk,
         publicKeySpki: bufToBase64(spkiBuf),
         deviceId,
     };

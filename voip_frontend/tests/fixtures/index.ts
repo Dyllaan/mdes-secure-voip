@@ -219,10 +219,16 @@ export async function enableAppE2EHarness(page: Page) {
     const mediaDevices = navigator.mediaDevices ?? ({} as MediaDevices);
     const getUserMedia = async () => createMediaStream({ audio: true });
     const getDisplayMedia = async () => createMediaStream({ audio: true, video: true });
+    const enumerateDevices = mediaDevices.enumerateDevices?.bind(mediaDevices) ?? (async () => []);
+    const getSupportedConstraints = mediaDevices.getSupportedConstraints?.bind(mediaDevices) ?? (() => ({
+      audio: true,
+      video: true,
+    }));
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: {
-        ...mediaDevices,
+        enumerateDevices,
+        getSupportedConstraints,
         getUserMedia,
         getDisplayMedia,
       },
@@ -343,9 +349,15 @@ export async function setupIDB(page: Page, userId = MOCK_USER.sub) {
   await page.evaluate(async (idbUserId) => {
     const keyPair = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },
-      false,
+      true,
       ['deriveKey', 'deriveBits'],
     );
+    const [privateKeyJwk, publicKeyJwk, publicKeySpki] = await Promise.all([
+      crypto.subtle.exportKey('jwk', keyPair.privateKey),
+      crypto.subtle.exportKey('jwk', keyPair.publicKey),
+      crypto.subtle.exportKey('spki', keyPair.publicKey),
+    ]);
+    const spkiBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKeySpki)));
 
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open(`channel-keys-v1-${idbUserId}`, 2);
@@ -357,7 +369,10 @@ export async function setupIDB(page: Page, userId = MOCK_USER.sub) {
       req.onsuccess = () => {
         const db = req.result;
         const tx = db.transaction('meta', 'readwrite');
-        tx.objectStore('meta').put(keyPair, 'ecdhKeyPair');
+        tx.objectStore('meta').put(privateKeyJwk, 'ecdhPrivateJwk');
+        tx.objectStore('meta').put(publicKeyJwk, 'ecdhPublicJwk');
+        tx.objectStore('meta').put(spkiBase64, 'publicKeySpki');
+        tx.objectStore('meta').put(crypto.randomUUID(), 'deviceId');
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(new Error('IDB write failed'));
       };

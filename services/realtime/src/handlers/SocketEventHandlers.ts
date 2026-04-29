@@ -33,7 +33,7 @@ class SocketEventHandlers {
         const lim = this.config.security;
 
         const tamper = (event: string, socket: AuthenticatedSocket, reason: string) =>
-            console.error(`[TAMPER] event=${event} userId=${socket.userId} socketId=${socket.id} reason=${reason}`);
+            console.error(`[TAMPER] event=${event} reason=${reason}`);
 
         this.io.use((socket, next) => {
             const token = socket.handshake.auth.token as string | undefined;

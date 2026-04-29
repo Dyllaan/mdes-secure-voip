@@ -72,8 +72,10 @@ export default function MfaSetupDialog({
 
   const handleVerifyCode = async (
     code: string,
-    _trustDevice: boolean
+    trustDevice: boolean
   ): Promise<{ success: boolean; error?: string }> => {
+    void trustDevice;
+
     if (!accessToken) {
       return { success: false, error: 'Please login first' };
     }
@@ -239,6 +241,7 @@ Keep these codes safe. Each code can only be used once.`;
                     size="icon"
                     onClick={handleCopySecret}
                     type="button"
+                    aria-label={secretCopied ? 'Secret copied' : 'Copy MFA secret'}
                   >
                     {secretCopied ? (
                       <Check className="w-4 h-4 text-green-500" />

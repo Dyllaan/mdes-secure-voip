@@ -17,7 +17,6 @@ export default function MfaCodeInput({verificationCode, setVerificationCode, isL
             maxLength={6}
             disabled={isLoading}
             className="text-center text-2xl tracking-widest font-mono"
-            autoFocus
             />
         </div>
     );

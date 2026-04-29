@@ -6,15 +6,17 @@ import { useEffect, useRef, useCallback } from 'react';
 const VOLUME_STORAGE_KEY = 'talk:peer-volumes';
 
 function loadSavedVolumes(): Record<string, number> {
-    try { return JSON.parse(localStorage.getItem(VOLUME_STORAGE_KEY) ?? '{}'); } catch { return {}; }
+    try { return JSON.parse(sessionStorage.getItem(VOLUME_STORAGE_KEY) ?? '{}'); } catch { return {}; }
 }
 
 function saveVolume(alias: string, volume: number) {
     try {
         const all = loadSavedVolumes();
         all[alias] = volume;
-        localStorage.setItem(VOLUME_STORAGE_KEY, JSON.stringify(all));
-    } catch {}
+        sessionStorage.setItem(VOLUME_STORAGE_KEY, JSON.stringify(all));
+    } catch {
+        // Ignore storage write failures so voice controls remain usable.
+    }
 }
 
 export default function VoicePanel() {
@@ -43,7 +45,7 @@ export default function VoicePanel() {
                 setPeerVolume(peerId, saved[alias]);
             }
         });
-    }, [connectedPeers]);
+    }, [connectedPeers, peerVolumes, setPeerVolume]);
 
     useEffect(() => {
         audioElementsRef.current.forEach((audio, peerId) => {
@@ -78,15 +80,16 @@ export default function VoicePanel() {
                 audio.play().catch(() => {});
             }
         });
-    }, [remoteStreams]);
+    }, [remoteStreams, peerVolumes]);
 
     useEffect(() => {
+        const audioElements = audioElementsRef.current;
         return () => {
-            audioElementsRef.current.forEach((audio) => {
+            audioElements.forEach((audio) => {
                 audio.srcObject = null;
                 audio.remove();
             });
-            audioElementsRef.current.clear();
+            audioElements.clear();
         };
     }, []);
 
@@ -100,9 +103,9 @@ export default function VoicePanel() {
     return (
         <div className="p-3 border-t space-y-2" data-testid="voice-panel">
             <div className="flex items-center gap-2">
-                <Volume2 className="h-4 w-4 text-green-400" />
+                <Volume2 className="h-4 w-4 text-emerald-800 dark:text-emerald-400" />
                 <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-green-400">Voice Connected</p>
+                    <p role="status" aria-live="polite" className="text-xs font-medium text-emerald-800 dark:text-emerald-400">Voice Connected</p>
                     <p className="text-[11px] text-muted-foreground truncate">
                         {voiceChannel.channelName}
                     </p>
@@ -126,6 +129,7 @@ export default function VoicePanel() {
                                     onChange={e => handleVolumeChange(peerId, parseFloat(e.target.value))}
                                     className="w-20 h-1 accent-primary cursor-pointer shrink-0"
                                     title={`${alias} volume: ${Math.round(vol * 100)}%`}
+                                    aria-label={`Volume for ${alias}`}
                                 />
                             </div>
                         );

@@ -1,3 +1,5 @@
+/* eslint-disable jsx-a11y/media-has-caption */
+
 import { useState, useRef, useEffect } from "react";
 import { Monitor, Maximize2, Crown, ChevronDown, EyeOff, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,23 +55,36 @@ function ThumbnailCard({ entry, onPrioritise, onDismiss }: ThumbnailCardProps) {
     <div
       className="relative w-full rounded-md overflow-hidden cursor-pointer group ring-1 ring-white/10 hover:ring-[#7ee8a2]/40 transition-all shrink-0"
       style={{ aspectRatio: "16 / 9" }}
-      onClick={onPrioritise}
     >
+      <button
+        type="button"
+        className="absolute inset-0 z-[1] rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ee8a2] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+        onClick={onPrioritise}
+        aria-label={`Make ${entry.isLocal ? 'your screen' : entry.label} the primary screenshare`}
+      >
+        <span className="sr-only">
+          Make {entry.isLocal ? 'your screen' : entry.label} the primary screenshare
+        </span>
+      </button>
       <ScreenshareVideo alias={entry.label} stream={entry.stream} />
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors pointer-events-none rounded-md" />
-      <div className="absolute top-1.5 right-1.5 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-1.5 right-1.5 z-10 flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
         <button
-          className="p-1 rounded bg-black/70 hover:bg-[#7ee8a2]/30 text-white/70 hover:text-[#7ee8a2] transition-colors"
+          type="button"
+          className="p-1 rounded bg-black/70 hover:bg-[#7ee8a2]/30 text-white/70 hover:text-[#7ee8a2] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ee8a2] focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           title="Make primary"
           onClick={e => { e.stopPropagation(); onPrioritise(); }}
+          aria-label={`Make ${entry.isLocal ? 'your screen' : entry.label} primary`}
         >
           <Maximize2 className="h-2.5 w-2.5" />
         </button>
         {onDismiss && (
           <button
-            className="p-1 rounded bg-black/70 hover:bg-black/90 text-white/70 hover:text-white transition-colors"
+            type="button"
+            className="p-1 rounded bg-black/70 hover:bg-black/90 text-white/70 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             title="Dismiss"
             onClick={e => { e.stopPropagation(); onDismiss(); }}
+            aria-label={`Dismiss ${entry.label}`}
           >
             <EyeOff className="h-2.5 w-2.5" />
           </button>
@@ -111,7 +126,7 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
     if (!visibleScreens.find(s => s.id === prioritised)) {
       setPrioritised(visibleScreens[0].id);
     }
-  }, [visibleScreens.map(s => s.id).join(",")]);
+  }, [prioritised, visibleScreens]);
 
   if (allScreens.length === 0) return null;
 
@@ -130,9 +145,11 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
           <span className="text-[10px] text-white/20">· {dismissedScreens.length} hidden</span>
         )}
         <button
-          className="ml-auto text-white/30 hover:text-white/60 transition-colors"
+          className="ml-auto text-white/30 hover:text-white/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           onClick={onHide}
           title="Collapse"
+          type="button"
+          aria-label="Collapse screenshare manager"
         >
           <ChevronDown className="h-3.5 w-3.5" />
         </button>
@@ -140,7 +157,7 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
 
       {visibleScreens.length > 0 && primary && (
         <div className="flex gap-2 p-3 items-start">
-          <div className="relative mx-auto flex-1 min-w-0" style={{ aspectRatio: "16 / 9", maxWidth: "min(100%, calc(45vh * 16 / 9))" }}>
+          <div className="relative mx-auto flex-1 min-w-0 group" style={{ aspectRatio: "16 / 9", maxWidth: "min(100%, calc(45vh * 16 / 9))" }}>
             <div className="absolute inset-0 rounded-lg overflow-hidden bg-black ring-1 ring-[#7ee8a2]/20">
               <PrimaryVideo stream={primary.stream} muted={primary.isLocal} />
 
@@ -158,6 +175,7 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
                     size="sm"
                     className="h-7 gap-1 bg-black/70 hover:bg-black/90 text-white border-0 text-[10px] tracking-wide rounded"
                     onClick={() => dismissScreenShare(primary.id)}
+                    aria-label={`Dismiss ${primary.label}`}
                   >
                     <EyeOff className="h-3 w-3" /> Dismiss
                   </Button>
@@ -189,9 +207,10 @@ export function ScreenshareManager({ onHide }: ScreenshareManagerProps) {
             {dismissedScreens.map(entry => (
               <button
                 key={entry.id}
-                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors text-[10px]"
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 transition-colors text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 onClick={() => restoreScreenShare(entry.id)}
                 title={`Tune back in to ${entry.isLocal ? "your screen" : entry.label}`}
+                type="button"
               >
                 <Eye className="h-2.5 w-2.5" />
                 {entry.isLocal ? "You" : entry.label}

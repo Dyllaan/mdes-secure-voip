@@ -45,27 +45,27 @@ func SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Ciphertext) > config.C.MaxCiphertextLen {
-		log.Printf("validation: message ciphertext too long (%d bytes) from %s user=%s", len(req.Ciphertext), clientIP(r), userID)
+		log.Printf("validation: message ciphertext too long (%d bytes)", len(req.Ciphertext))
 		writeError(w, http.StatusBadRequest, "Ciphertext too long")
 		return
 	}
 	if len(req.IV) > config.C.MaxIVLen {
-		log.Printf("validation: message IV too long (%d bytes) from %s user=%s", len(req.IV), clientIP(r), userID)
+		log.Printf("validation: message IV too long (%d bytes)", len(req.IV))
 		writeError(w, http.StatusBadRequest, "IV too long")
 		return
 	}
 	if len(req.KeyVersion) > config.C.MaxKeyVersionLen {
-		log.Printf("validation: message key version too long (%d bytes) from %s user=%s", len(req.KeyVersion), clientIP(r), userID)
+		log.Printf("validation: message key version too long (%d bytes)", len(req.KeyVersion))
 		writeError(w, http.StatusBadRequest, "Key version too long")
 		return
 	}
 	if _, err := base64.StdEncoding.DecodeString(req.Ciphertext); err != nil {
-		log.Printf("validation: message ciphertext invalid base64 from %s user=%s", clientIP(r), userID)
+		log.Println("validation: message ciphertext invalid base64")
 		writeError(w, http.StatusBadRequest, "Ciphertext must be valid base64")
 		return
 	}
 	if _, err := base64.StdEncoding.DecodeString(req.IV); err != nil {
-		log.Printf("validation: message IV invalid base64 from %s user=%s", clientIP(r), userID)
+		log.Println("validation: message IV invalid base64")
 		writeError(w, http.StatusBadRequest, "IV must be valid base64")
 		return
 	}

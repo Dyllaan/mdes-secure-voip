@@ -97,14 +97,21 @@ export default function HubView() {
             restoreScreenShare,
         }}>
             <div className="h-screen flex relative">
+                <button
+                    type="button"
+                    onClick={() => document.getElementById('hub-main')?.focus()}
+                    className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
+                >
+                    Skip to main content
+                </button>
                 <HubSidebar />
-                <div className="flex flex-col w-full">
+                <main id="hub-main" aria-labelledby="hub-title" tabIndex={-1} className="flex flex-col w-full">
                     {hasScreens && screenshareVisible && (
                         <ScreenshareManager onHide={() => setScreenshareVisible(false)} />
                     )}
                     <ChannelMessageArea />
                     <EphemeralChatPanel hubId={hubId} ephemOpen={ephemOpen} setEphemOpen={setEphemOpen} />
-                </div>
+                </main>
                 <ActionsSidebar
                     screenshareVisible={screenshareVisible}
                     onShowScreenshare={() => setScreenshareVisible(true)}

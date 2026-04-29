@@ -23,8 +23,8 @@ export default function HubSidebar() {
     <div className="w-60 border-r flex flex-col bg-muted/30">
       <div className="p-4 border-b">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold truncate">{hub?.name}</h2>
-          <Button variant="ghost" size="icon" onClick={onNavigateBack}>
+          <h1 id="hub-title" className="font-semibold truncate">{hub?.name}</h1>
+          <Button variant="ghost" size="icon" onClick={onNavigateBack} aria-label="Back to hub list">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </div>

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import useLocalStorage from '@/hooks/useLocalStorage';
 import { authApi, gateway, parseDemoLimitResponse, setAccessToken as setModuleAccessToken, setSessionRecoveryEnabled, setupInterceptors } from '@/axios/api';
 import { decodeJwt } from '@/utils/auth/jwt';
-import { getDeviceFingerprint } from '@/utils/auth/deviceFingerprint';
+import { getDeviceFingerprint, getDeviceNameHash } from '@/utils/auth/deviceFingerprint';
 import type { User, MfaStatus, LoginResult, MeResponse, DemoLimitResponse } from '@/types/User';
 import type { AuthContextType } from '@/types/AuthContextType';
 import { AuthContext } from '@/contexts/AuthContext';
@@ -288,12 +288,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
 
   const login = async (username: string, password: string, mfaCode?: string): Promise<LoginResult> => {
     try {
-      const deviceFingerprint = await getDeviceFingerprint();
+      const [deviceFingerprint, deviceName] = await Promise.all([getDeviceFingerprint(), getDeviceNameHash()]);
 
       const response = await authApi.post('/user/login', {
         username,
         password,
         deviceFingerprint,
+        deviceName,
         ...(mfaCode && { mfaCode }),
       }, { validateStatus: () => true });
 
@@ -337,12 +338,13 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     }
 
     try {
-      const deviceFingerprint = await getDeviceFingerprint();
+      const [deviceFingerprint, deviceName] = await Promise.all([getDeviceFingerprint(), getDeviceNameHash()]);
 
       const response = await authApi.post('/user/verify-mfa', {
         mfaToken: pendingMfaToken,
         code: mfaCode,
         deviceFingerprint,
+        deviceName,
         trustDevice
       }, { validateStatus: () => true });
 

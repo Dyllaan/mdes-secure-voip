@@ -35,7 +35,10 @@ export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId:
             <button
                 data-testid="ephemeral-chat-toggle"
                 onClick={() => setEphemOpen(!ephemOpen)}
-                className="absolute -left-6 top-1/2 -translate-y-1/2 h-12 w-6 bg-amber-600 hover:bg-amber-700 rounded-l-md flex items-center justify-center transition-colors z-20"
+                className="absolute -left-6 top-1/2 -translate-y-1/2 h-12 w-6 bg-amber-600 hover:bg-amber-700 rounded-l-md flex items-center justify-center transition-colors z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2"
+                aria-controls="ephemeral-chat-content"
+                aria-expanded={visible}
+                aria-label={visible ? 'Collapse ephemeral chat' : 'Expand ephemeral chat'}
             >
                 <svg
                     className={`h-4 w-4 text-white transition-transform duration-300 ${visible ? 'rotate-0' : 'rotate-180'}`}
@@ -50,10 +53,10 @@ export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId:
 
             {visible && (
                 <>
-                    <div className="p-4 border-b flex items-center justify-between">
+                    <div id="ephemeral-chat-content" className="p-4 border-b flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <MessageSquare className="h-4 w-4 text-amber-400" />
-                            <span className="font-medium text-sm">Ephemeral Chat</span>
+                            <h2 className="font-medium text-sm">Ephemeral Chat</h2>
                             <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
                         </div>
                         <div className="group relative">
@@ -63,6 +66,7 @@ export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId:
                                 size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                 onClick={leave}
+                                aria-label="Leave ephemeral chat"
                             >
                                 <LogOut className="h-4 w-4" />
                             </Button>
@@ -117,7 +121,11 @@ export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId:
                     </div>
 
                     <div className="p-3 border-t flex gap-2">
+                        <label htmlFor="ephemeral-chat-input" className="sr-only">
+                            Send an ephemeral message
+                        </label>
                         <Input
+                            id="ephemeral-chat-input"
                             data-testid="ephemeral-chat-input"
                             placeholder="Ephemeral message..."
                             value={input}
@@ -131,6 +139,7 @@ export default function EphemeralChatPanel({ ephemOpen, setEphemOpen }: { hubId:
                             size="icon"
                             className="rounded-full h-9 w-9 bg-amber-600 hover:bg-amber-700"
                             disabled={!input.trim()}
+                            aria-label="Send ephemeral message"
                         >
                             <Send className="h-4 w-4" />
                         </Button>

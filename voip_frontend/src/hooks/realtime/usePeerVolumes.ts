@@ -27,16 +27,16 @@ const usePeerVolumes = (): UsePeerVolumesReturn => {
 
   const saveForAlias = useCallback((alias: string, volume: number) => {
     try {
-      const saved = JSON.parse(localStorage.getItem(VOLUME_KEY) ?? "{}");
+      const saved = JSON.parse(sessionStorage.getItem(VOLUME_KEY) ?? "{}");
       saved[alias] = volume;
-      localStorage.setItem(VOLUME_KEY, JSON.stringify(saved));
+      sessionStorage.setItem(VOLUME_KEY, JSON.stringify(saved));
     } catch {}
   }, []);
 
   const loadSavedForPeer = useCallback((peerId: string, alias: string) => {
     if (volumeRef.current[peerId] !== undefined) return;
     try {
-      const saved = JSON.parse(localStorage.getItem(VOLUME_KEY) ?? "{}");
+      const saved = JSON.parse(sessionStorage.getItem(VOLUME_KEY) ?? "{}");
       if (saved[alias] !== undefined) setVolume(peerId, saved[alias]);
     } catch {}
   }, [setVolume]);

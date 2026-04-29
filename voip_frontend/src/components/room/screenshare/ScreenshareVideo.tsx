@@ -1,3 +1,5 @@
+/* eslint-disable jsx-a11y/media-has-caption */
+
 import { useEffect, useRef } from "react";
 import { Monitor } from "lucide-react";
 import { toast } from "sonner";

@@ -1,8 +1,19 @@
 import { bufToBase64 } from '@/crypto/base64';
+import { KeyStorageError } from '@/crypto/errors';
 
 const DB_VERSION = 2;
 const STORE_META = 'meta';
 const STORE_CHANNEL_KEYS = 'channelKeys';
+const META_PRIVATE_JWK = 'ecdhPrivateJwk';
+const META_PUBLIC_JWK = 'ecdhPublicJwk';
+const META_PUBLIC_SPKI = 'publicKeySpki';
+const META_LEGACY_KEYPAIR = 'ecdhKeyPair';
+
+interface StoredKeyMaterial {
+    privateKeyJwk: JsonWebKey;
+    publicKeyJwk: JsonWebKey;
+    publicKeySpki: string;
+}
 
 function openIDB(userId: string): Promise<IDBDatabase> {
     const dbName = `channel-keys-v1-${userId}`;
@@ -38,6 +49,35 @@ function idbSet(db: IDBDatabase, store: string, key: string, value: unknown): Pr
     });
 }
 
+function idbDelete(db: IDBDatabase, store: string, key: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const req = db.transaction(store, 'readwrite').objectStore(store).delete(key);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function importStoredKeyMaterial(keyMaterial: StoredKeyMaterial): Promise<CryptoKeyPair> {
+    const [publicKey, privateKey] = await Promise.all([
+        crypto.subtle.importKey(
+            'jwk',
+            keyMaterial.publicKeyJwk,
+            { name: 'ECDH', namedCurve: 'P-256' },
+            true,
+            [],
+        ),
+        crypto.subtle.importKey(
+            'jwk',
+            keyMaterial.privateKeyJwk,
+            { name: 'ECDH', namedCurve: 'P-256' },
+            false,
+            ['deriveKey', 'deriveBits'],
+        ),
+    ]);
+
+    return { publicKey, privateKey };
+}
+
 export class CryptKeyStorage {
     private db: IDBDatabase;
     private keyCache = new Map<string, CryptoKey>();
@@ -60,17 +100,57 @@ export class CryptKeyStorage {
     }
 
     async getOrCreateEcdhKeyPair(): Promise<{ keyPair: CryptoKeyPair; publicKeySpki: string }> {
-        let keyPair = await idbGet<CryptoKeyPair>(this.db, STORE_META, 'ecdhKeyPair');
-        if (!keyPair) {
-            keyPair = await crypto.subtle.generateKey(
+        const stored = await this.loadStoredKeyMaterial();
+        if (stored) {
+            try {
+                return {
+                    keyPair: await importStoredKeyMaterial(stored),
+                    publicKeySpki: stored.publicKeySpki,
+                };
+            } catch (error) {
+                throw new KeyStorageError('Stored encryption keys could not be imported. Recover them using your mnemonic.', error);
+            }
+        }
+
+        const legacyKeyPair = await idbGet<CryptoKeyPair>(this.db, STORE_META, META_LEGACY_KEYPAIR);
+        if (legacyKeyPair) {
+            try {
+                const spkiBuf = await crypto.subtle.exportKey('spki', legacyKeyPair.publicKey);
+                return {
+                    keyPair: legacyKeyPair,
+                    publicKeySpki: bufToBase64(spkiBuf),
+                };
+            } catch (error) {
+                throw new KeyStorageError('Existing encryption keys use an older format that could not be loaded. Recover them using your mnemonic.', error);
+            }
+        }
+
+        try {
+            const generated = await crypto.subtle.generateKey(
                 { name: 'ECDH', namedCurve: 'P-256' },
-                false,
+                true,
                 ['deriveKey', 'deriveBits'],
             );
-            await idbSet(this.db, STORE_META, 'ecdhKeyPair', keyPair);
+            const [privateKeyJwk, publicKeyJwk, spkiBuf] = await Promise.all([
+                crypto.subtle.exportKey('jwk', generated.privateKey),
+                crypto.subtle.exportKey('jwk', generated.publicKey),
+                crypto.subtle.exportKey('spki', generated.publicKey),
+            ]);
+            const keyMaterial = {
+                privateKeyJwk,
+                publicKeyJwk,
+                publicKeySpki: bufToBase64(spkiBuf),
+            };
+
+            await this.storeKeyMaterial(keyMaterial);
+
+            return {
+                keyPair: await importStoredKeyMaterial(keyMaterial),
+                publicKeySpki: keyMaterial.publicKeySpki,
+            };
+        } catch (error) {
+            throw new KeyStorageError('Failed to generate and persist a new device keypair.', error);
         }
-        const spkiBuf = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-        return { keyPair, publicKeySpki: bufToBase64(spkiBuf) };
     }
 
     async loadChannelKey(channelId: string, version: number): Promise<CryptoKey | undefined> {
@@ -98,17 +178,56 @@ export class CryptKeyStorage {
     }
 
     async hasKeypair(): Promise<boolean> {
-        const stored = await idbGet<CryptoKeyPair>(this.db, STORE_META, 'ecdhKeyPair');
-        return stored !== undefined;
+        const [privateKeyJwk, publicKeyJwk, legacyKeyPair] = await Promise.all([
+            idbGet<JsonWebKey>(this.db, STORE_META, META_PRIVATE_JWK),
+            idbGet<JsonWebKey>(this.db, STORE_META, META_PUBLIC_JWK),
+            idbGet<CryptoKeyPair>(this.db, STORE_META, META_LEGACY_KEYPAIR),
+        ]);
+        return (privateKeyJwk !== undefined && publicKeyJwk !== undefined) || legacyKeyPair !== undefined;
     }
 
     async initFromDerived(
-        keyPair: CryptoKeyPair,
-        publicKeySpki: string,
-        deviceId: string,
+        identity: {
+            privateKeyJwk: JsonWebKey;
+            publicKeyJwk: JsonWebKey;
+            publicKeySpki: string;
+            deviceId: string;
+        },
     ): Promise<void> {
-        await idbSet(this.db, STORE_META, 'ecdhKeyPair', keyPair);
-        await idbSet(this.db, STORE_META, 'publicKeySpki', publicKeySpki);
-        await idbSet(this.db, STORE_META, 'deviceId', deviceId);
+        try {
+            await Promise.all([
+                this.storeKeyMaterial({
+                    privateKeyJwk: identity.privateKeyJwk,
+                    publicKeyJwk: identity.publicKeyJwk,
+                    publicKeySpki: identity.publicKeySpki,
+                }),
+                idbSet(this.db, STORE_META, 'deviceId', identity.deviceId),
+            ]);
+        } catch (error) {
+            throw new KeyStorageError('Failed to persist your derived device keys locally.', error);
+        }
+    }
+
+    private async loadStoredKeyMaterial(): Promise<StoredKeyMaterial | null> {
+        const [privateKeyJwk, publicKeyJwk, publicKeySpki] = await Promise.all([
+            idbGet<JsonWebKey>(this.db, STORE_META, META_PRIVATE_JWK),
+            idbGet<JsonWebKey>(this.db, STORE_META, META_PUBLIC_JWK),
+            idbGet<string>(this.db, STORE_META, META_PUBLIC_SPKI),
+        ]);
+
+        if (!privateKeyJwk || !publicKeyJwk || !publicKeySpki) {
+            return null;
+        }
+
+        return { privateKeyJwk, publicKeyJwk, publicKeySpki };
+    }
+
+    private async storeKeyMaterial(keyMaterial: StoredKeyMaterial): Promise<void> {
+        await Promise.all([
+            idbSet(this.db, STORE_META, META_PRIVATE_JWK, keyMaterial.privateKeyJwk),
+            idbSet(this.db, STORE_META, META_PUBLIC_JWK, keyMaterial.publicKeyJwk),
+            idbSet(this.db, STORE_META, META_PUBLIC_SPKI, keyMaterial.publicKeySpki),
+            idbDelete(this.db, STORE_META, META_LEGACY_KEYPAIR),
+        ]);
     }
 }

@@ -1,6 +1,7 @@
 const { createPublicKey } = require('crypto');
 const pino = require('pino');
 require('dotenv').config();
+import { serialiseRequestForLogs, serialiseResponseForLogs } from './logging';
 
 const REQUIRED = [
   'CORS_ORIGIN',
@@ -49,6 +50,22 @@ const config = {
   MAX_REQUEST_BODY_BYTES: parseInt(process.env.MAX_REQUEST_BODY_BYTES ?? '1048576', 10),
 };
 
-const logger = pino({ level: config.LOG_LEVEL });
+const logger = pino({
+  level: config.LOG_LEVEL,
+  serializers: {
+    req: serialiseRequestForLogs,
+    res: serialiseResponseForLogs,
+  },
+  redact: {
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.headers.x-bot-secret',
+      'res.headers.set-cookie',
+      'res.headers["set-cookie"]',
+    ],
+    censor: '[Redacted]',
+  },
+});
 
 export { config, logger };

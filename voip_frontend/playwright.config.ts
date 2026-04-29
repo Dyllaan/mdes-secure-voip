@@ -17,6 +17,11 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      name: 'firefox-key-setup',
+      testMatch: /key-setup\.spec\.ts/,
+      use: { ...devices['Desktop Firefox'] },
+    },
   ],
   webServer: {
     command: 'npx vite --mode test',

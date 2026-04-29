@@ -7,6 +7,7 @@ import HubList from '@/page/HubList';
 import HubView from '@/page/HubView';
 import KeySetupPage from '@/page/KeySetupPage';
 import { Routes, Route, HashRouter, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
 import NotFound from './page/NotFound';
 import AuthPage from "./page/AuthPage";
 import ProtectedRoute from '@/components/auth/routes/ProtectedRoute';
@@ -20,6 +21,7 @@ import ToS from './page/ToS';
 import Privacy from './page/Privacy';
 import RootRoute from './components/auth/routes/RootRoute';
 import ProfilePage from './page/ProfilePage';
+import { useLocation } from 'react-router-dom';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,6 +40,30 @@ function ToasterWrapper() {
   return <Toaster theme={toasterTheme} position="top-right" />
 }
 
+function RouteMetadata() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const path = location.pathname;
+    let pageTitle = 'MDES';
+
+    if (path === '/') pageTitle = 'MDES | Home';
+    else if (path === '/login') pageTitle = 'MDES | Login';
+    else if (path === '/register') pageTitle = 'MDES | Register';
+    else if (path === '/profile') pageTitle = 'MDES | Profile';
+    else if (path === '/keys') pageTitle = 'MDES | Encryption Keys';
+    else if (path === '/hub-list') pageTitle = 'MDES | Hubs';
+    else if (path.startsWith('/hubs/')) pageTitle = 'MDES | Hub';
+    else if (path === '/privacy') pageTitle = 'MDES | Privacy Policy';
+    else if (path === '/terms') pageTitle = 'MDES | Terms of Service';
+    else pageTitle = 'MDES | Page Not Found';
+
+    document.title = pageTitle;
+  }, [location.pathname]);
+
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
@@ -45,6 +71,7 @@ function App() {
         <TooltipProvider>
           <HashRouter>
             <AuthProvider>
+              <RouteMetadata />
               <Routes>
                 <Route path="/" element={<RootRoute />} />
                 <Route path="/privacy" element={<Privacy />} />

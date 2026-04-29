@@ -4,21 +4,23 @@ import { Link } from 'react-router-dom';
 
 function Header() {
   return (
-    <nav className="flex justify-between items-center py-4 mb-4">
-      <Link to="/">
-        <span className="font-extrabold text-2xl font-mono">MDES</span>
-      </Link>
-      <a
-        href={config.GITHUB_URL}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-2 text-sm border border-border rounded-md px-4 py-2 hover:bg-secondary transition"
-      >
-        <Github className="w-4 h-4" />
-        GitHub
-      </a>
-    </nav>
-    );
+    <header className="py-4 mb-4">
+      <nav aria-label="Primary" className="flex justify-between items-center">
+        <Link to="/">
+          <span className="font-extrabold text-2xl font-mono">MDES</span>
+        </Link>
+        <a
+          href={config.GITHUB_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-2 text-sm border border-border rounded-md px-4 py-2 hover:bg-secondary transition"
+        >
+          <Github className="w-4 h-4" />
+          GitHub
+        </a>
+      </nav>
+    </header>
+  );
 }
 
 function Footer() {
@@ -45,7 +47,14 @@ function Footer() {
 export default function Page({ children, header, footer}: { children: React.ReactNode, header?: boolean, footer?: boolean }) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <main className="max-w-3xl mx-auto px-6 flex-1 w-full">
+      <button
+        type="button"
+        onClick={() => document.getElementById('main-content')?.focus()}
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg"
+      >
+        Skip to main content
+      </button>
+      <main id="main-content" tabIndex={-1} className="max-w-3xl mx-auto px-6 flex-1 w-full">
         {header && <Header />}
         {children}
       </main>
