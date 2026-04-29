@@ -3,6 +3,23 @@ import { bootstrapSignedIn } from './fixtures/index';
 
 const INVALID_24_WORD_PHRASE = Array(24).fill('hello').join(' ');
 const VALID_24_WORD_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art';
+const EXPECTED_DEVICE_ID = '6da6416b-270c-6fdc-7a62-737eaaa84d25';
+const EXPECTED_PRIVATE_JWK = {
+  kty: 'EC',
+  crv: 'P-256',
+  d: 'u0BwvMHOKw5-Y9EmNKYT1L7z3ECmNIkRTDAIHacX74Q',
+  x: 'm_PGMiPF3-eHcdiDC4phgYSC-HRwcqPm_2jRQ3bDtnY',
+  y: '41zcQuKkZz-oTPdvvwvKEQDyNO85nlitgmS_IJVTKR4',
+  ext: true,
+} satisfies JsonWebKey;
+const EXPECTED_PUBLIC_JWK = {
+  kty: 'EC',
+  crv: 'P-256',
+  x: 'm_PGMiPF3-eHcdiDC4phgYSC-HRwcqPm_2jRQ3bDtnY',
+  y: '41zcQuKkZz-oTPdvvwvKEQDyNO85nlitgmS_IJVTKR4',
+  ext: true,
+} satisfies JsonWebKey;
+const EXPECTED_PUBLIC_KEY_SPKI = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEm/PGMiPF3+eHcdiDC4phgYSC+HRwcqPm/2jRQ3bDtnbjXNxC4qRnP6hM92+/C8oRAPI07zmeWK2CZL8glVMpHg==';
 
 async function importPhrase(page: Page, phrase: string) {
   const importTab = page.getByRole('tab', { name: 'Import Existing' });
@@ -118,6 +135,10 @@ test.describe('Key setup page', () => {
     expect(stored.privateJwk).toEqual(derived.privateJwk);
     expect(stored.publicJwk).toEqual(derived.publicJwk);
     expect(stored.publicKeySpki).toBe(derived.publicKeySpki);
+    expect(derived.deviceId).toBe(EXPECTED_DEVICE_ID);
+    expect(derived.privateJwk).toEqual(EXPECTED_PRIVATE_JWK);
+    expect(derived.publicJwk).toEqual(EXPECTED_PUBLIC_JWK);
+    expect(derived.publicKeySpki).toBe(EXPECTED_PUBLIC_KEY_SPKI);
   });
 
   test('imported keys survive reloads using the serialized IndexedDB format', async ({ page }) => {
