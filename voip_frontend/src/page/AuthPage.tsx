@@ -45,6 +45,12 @@ export default function AuthPage({
   if (mfaRequired) {
     return (
       <div className="w-full max-w-md mx-auto p-6 pt-12">
+        <div className="mb-6 space-y-2">
+          <h1 className="text-2xl font-medium">Multi-Factor Verification</h1>
+          <p className="text-sm text-muted-foreground">
+            Enter the code from your authenticator app or a backup code to continue.
+          </p>
+        </div>
         <MfaForm onSuccess={() => {}} />
       </div>
     );
@@ -52,7 +58,7 @@ export default function AuthPage({
 
   return (
     <div className="w-full max-w-md mx-auto px-4 pt-12">
-      <Section title={isLogin ? "Login" : "Register"}>
+      <Section title={isLogin ? "Login" : "Register"} headingLevel={1}>
         {isLogin ? <LoginForm /> : <RegisterForm />}
         <AuthSwitcher isLogin={isLogin} onToggle={toggleAuthMode} />
       </Section>

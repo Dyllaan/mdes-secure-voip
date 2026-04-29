@@ -181,7 +181,7 @@ class UserHandler {
             room.users.forEach((userInfo) => {
             if (userInfo.socketId === socket.id) return;
                 const memberSocket = this.io.sockets.sockets.get(userInfo.socketId) as AuthenticatedSocket | undefined;
-                console.log(`[screenshare] checking member ${userInfo.alias} socket=${!!memberSocket} screenPeerId=${(memberSocket as any)?.screenPeerId}`);
+                console.log(`[screenshare] checking member socket=${!!memberSocket}`);
                 if ((memberSocket as any)?.screenPeerId) {
                     roomScreenPeers.push({
                         screenPeerId: (memberSocket as any).screenPeerId,

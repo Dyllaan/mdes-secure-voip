@@ -6,7 +6,7 @@ import { isAuthorisedPeerUpgrade } from './middleware/peerAuth';
 const server = http.createServer(app);
 
 server.on('upgrade', (req, socket, head) => {
-  logger.debug({ url: req.url }, 'Upgrade request');
+  logger.debug('Upgrade request');
 
   if (req.url?.startsWith('/socket.io')) {
     (socketIoProxy as any).upgrade(req as any, socket, head);
@@ -18,7 +18,7 @@ server.on('upgrade', (req, socket, head) => {
     }
     (peerJsProxy as any).upgrade(req as any, socket, head);
   } else {
-    logger.warn({ url: req.url }, 'Unknown upgrade path, destroying socket');
+    logger.warn('Unknown upgrade path, destroying socket');
     socket.destroy();
   }
 });

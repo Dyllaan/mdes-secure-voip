@@ -6,7 +6,11 @@ export default function Errors({ errors }: { errors: ValidationResult[] }) {
   const hasErrors = allErrors.length > 0;
 
   return (
-    <div className={`rounded-lg ${hasErrors && 'border-destructive'} px-4 py-3 w-96 mx-auto`}>
+    <div
+      className={`rounded-lg ${hasErrors && 'border-destructive'} px-4 py-3 w-96 max-w-full mx-auto`}
+      role={hasErrors ? "alert" : "status"}
+      aria-live={hasErrors ? "assertive" : "polite"}
+    >
         <div className="space-y-2 flex flex-col">
             <div className="mx-auto items-center">
             {hasErrors ? (
@@ -24,6 +28,6 @@ export default function Errors({ errors }: { errors: ValidationResult[] }) {
             ))}
             </ul>
         </div>
-        </div>
+    </div>
   );
 }

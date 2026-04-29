@@ -395,6 +395,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                     onClick={handlePauseResume}
                                     disabled={isLoading}
                                     title={paused ? 'Resume' : 'Pause'}
+                                    aria-label={paused ? 'Resume music playback' : 'Pause music playback'}
                                 >
                                     {paused
                                         ? <Play className="h-3 w-3" />
@@ -411,6 +412,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                         onClick={handlePlayNext}
                                         title="Next in queue"
                                         disabled={isLoading}
+                                        aria-label="Play next track"
                                     >
                                         <SkipForward className="h-3 w-3" />
                                     </Button>
@@ -424,6 +426,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                     onClick={handleStop}
                                     disabled={isLoading}
                                     title="Stop"
+                                    aria-label="Stop music playback"
                                 >
                                     {isLoading
                                         ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -473,6 +476,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                             disabled={!seekEnabled}
                             className="flex-1 h-1 accent-emerald-400 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                             title="Seek"
+                            aria-label={currentTrack?.title ? `Seek within ${currentTrack.title}` : 'Seek within current track'}
                         />
                         {currentDurationMs > 0 && (
                             <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-10 shrink-0">
@@ -488,7 +492,11 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <Radio className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <label htmlFor="music-url-input" className="sr-only">
+                                YouTube or SoundCloud URL
+                            </label>
                             <Input
+                                id="music-url-input"
                                 data-testid="music-url-input"
                                 ref={inputRef}
                                 value={urlInput}
@@ -511,7 +519,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                         : 'Video screenshare off - click to stream video as a screenshare'
                             }
                             className={`
-                                shrink-0 h-8 w-8 flex items-center justify-center rounded-md border transition-all
+                                shrink-0 h-8 w-8 flex items-center justify-center rounded-md border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
                                 ${active
                                     ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
                                     : videoMode
@@ -519,6 +527,14 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                                         : 'border-border text-muted-foreground hover:text-foreground hover:border-border/80'
                                 }
                             `}
+                            type="button"
+                            aria-label={
+                                active
+                                    ? `Video screenshare is ${activeVideoMode ? 'enabled' : 'disabled'} for this session`
+                                    : videoMode
+                                        ? 'Disable video screenshare mode'
+                                        : 'Enable video screenshare mode'
+                            }
                         >
                             <Cast className="h-3.5 w-3.5" />
                         </button>
@@ -558,7 +574,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         <button
                             data-testid="music-queue-toggle"
                             onClick={() => setQueueOpen(o => !o)}
-                            className="flex items-center gap-2 flex-1 text-left group"
+                            className="flex items-center gap-2 flex-1 text-left group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            type="button"
+                            aria-expanded={queueOpen}
+                            aria-controls="music-queue-list"
                         >
                             <ListMusic className="h-3.5 w-3.5 text-muted-foreground" />
                             <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors flex-1">
@@ -575,8 +594,10 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
                         <button
                             data-testid="music-clear-queue"
                             onClick={handleClearQueue}
-                            className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all"
+                            className="shrink-0 p-1 rounded text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                             title="Clear queue"
+                            type="button"
+                            aria-label="Clear music queue"
                         >
                             <Trash2 className="h-3 w-3" />
                         </button>
@@ -584,6 +605,7 @@ export default function MusicmanPanel({ roomId, hubId, hasMusicman, onBotJoined 
 
                     {queueOpen && (
                         <Playlist
+                            id="music-queue-list"
                             items={queue}
                             currentIndex={active ? currentIndex : -1}
                             onReorder={handleReorderQueue}

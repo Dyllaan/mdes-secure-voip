@@ -102,8 +102,12 @@ export default function ChannelMessageArea() {
           </div>
 
           <div className="border-t p-4">
+            <label htmlFor="channel-message-input" className="sr-only">
+              Message {channelName ? `channel ${channelName}` : 'channel'}
+            </label>
             <div className="flex items-end gap-3 rounded-2xl border bg-card p-3 shadow-sm">
               <Textarea
+                id="channel-message-input"
                 data-testid="channel-message-input"
                 placeholder="Message #channel"
                 value={messageInput}
@@ -127,6 +131,7 @@ export default function ChannelMessageArea() {
                 size="icon"
                 className="shrink-0 rounded-full"
                 disabled={!messageValid || !messageInput.trim()}
+                aria-label={channelName ? `Send message to ${channelName}` : 'Send message'}
               >
                 <Send className="h-5 w-5" />
               </Button>

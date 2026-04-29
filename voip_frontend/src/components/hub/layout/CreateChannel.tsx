@@ -44,19 +44,27 @@ export default function CreateChannel() {
     return (
         <div className="p-3 border-b">
           <div className="flex gap-1">
-            <Input
-              data-testid="create-channel-input"
-              placeholder="New channel..."
-              value={newChannelName}
-              onChange={e => setNewChannelName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && onCreateChannel()}
-              className="h-8 text-xs"
-            />
+            <div className="flex-1">
+              <label htmlFor="create-channel-input" className="sr-only">
+                New channel name
+              </label>
+              <Input
+                id="create-channel-input"
+                data-testid="create-channel-input"
+                placeholder="New channel..."
+                value={newChannelName}
+                onChange={e => setNewChannelName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && onCreateChannel()}
+                className="h-8 text-xs"
+              />
+            </div>
             <button
               data-testid="create-channel-type-toggle"
               onClick={onNewChannelTypeToggle}
-              className="h-8 px-2 rounded-md border text-muted-foreground hover:text-foreground transition-colors"
+              className="h-8 px-2 rounded-md border text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               title={`Type: ${newChannelType}`}
+              aria-label={`Channel type: ${newChannelType}. Activate to switch to ${newChannelType === 'text' ? 'voice' : 'text'}.`}
+              type="button"
             >
               {newChannelType === "text"
                 ? <Hash className="h-3 w-3" />
@@ -69,6 +77,7 @@ export default function CreateChannel() {
               className="h-8 px-2"
               onClick={onCreateChannel}
               disabled={!newChannelName.trim()}
+              aria-label="Create channel"
             >
               <Plus className="h-3 w-3" />
             </Button>

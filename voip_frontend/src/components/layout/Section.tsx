@@ -1,7 +1,20 @@
-export default function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export default function Section({
+  title,
+  children,
+  headingLevel = 2,
+}: {
+  title: string;
+  children: React.ReactNode;
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+}) {
+  const headings: Record<1|2|3|4|5|6, React.ElementType> = {
+    1: 'h1', 2: 'h2', 3: 'h3', 4: 'h4', 5: 'h5', 6: 'h6'
+  };
+  const HeadingTag = headings[headingLevel];
+
   return (
     <section className="mb-5">
-      <h2 className="text-lg font-medium mb-3">{title}</h2>
+      <HeadingTag className="text-lg font-medium mb-3">{title}</HeadingTag>
       <div className="text-muted-foreground leading-relaxed">{children}</div>
     </section>
   );

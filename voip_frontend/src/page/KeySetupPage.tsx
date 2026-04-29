@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate, type NavigateFunction } from 'react-router-dom';
 import { RefreshCw, ShieldCheck, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,7 @@ function formatError(err: unknown): string {
 async function persistIdentityAndRedirect(mnemonic: string, navigate: NavigateFunction, userId: string): Promise<void> {
     const identity = await deriveDeviceIdentity(mnemonic);
     const storage = await CryptKeyStorage.open(userId);
-    await storage.initFromDerived(identity.keyPair, identity.publicKeySpki, identity.deviceId);
+    await storage.initFromDerived(identity);
     navigate('/', { replace: true });
 }
 
@@ -80,8 +80,10 @@ function GenerateTab({ userId }: { userId: string }) {
                 <button
                     onClick={handleRefresh}
                     disabled={loading}
-                    className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                    className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     title="Generate new phrase"
+                    type="button"
+                    aria-label="Generate a new recovery phrase"
                 >
                     <RefreshCw className="h-4 w-4" />
                 </button>
@@ -140,7 +142,9 @@ function ImportTab({ userId }: { userId: string }) {
     const [loading, setLoading] = useState(false);
 
     // Split on any whitespace to be forgiving about paste formatting
-    const words = raw.trim() === '' ? [] : raw.trim().split(/\s+/);
+    const words = useMemo(() => (
+        raw.trim() === '' ? [] : raw.trim().split(/\s+/)
+    ), [raw]);
     const wordCount = words.length;
     const ready = wordCount === 24;
 

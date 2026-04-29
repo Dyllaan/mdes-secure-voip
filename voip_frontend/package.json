@@ -78,6 +78,7 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.2",
     "@eslint/js": "^9.25.0",
     "@playwright/test": "^1.58.2",
     "@types/node": "^22.19.17",
@@ -91,6 +92,7 @@
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
     "eslint": "^9.25.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",

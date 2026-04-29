@@ -8,6 +8,7 @@ import type { MusicQueueItem } from './types';
 export type PlaylistItem = MusicQueueItem;
 
 interface PlaylistProps {
+    id?: string;
     items: PlaylistItem[];
     currentIndex?: number;
     onReorder: (items: PlaylistItem[]) => void;
@@ -95,8 +96,10 @@ function VideoRow({
             {!isActive && (
                 <button
                     onClick={onPlay}
-                    className="absolute left-[2.35rem] w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity text-foreground hover:text-primary"
+                    className="absolute left-[2.35rem] w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-foreground hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     title="Play this track"
+                    type="button"
+                    aria-label={`Play ${item.title}`}
                 >
                     <Play className="h-3 w-3 fill-current" />
                 </button>
@@ -125,8 +128,10 @@ function VideoRow({
             {/* Remove */}
             <button
                 onClick={onRemove}
-                className="shrink-0 p-1 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                className="shrink-0 p-1 rounded text-muted-foreground/0 group-hover:text-muted-foreground group-focus-within:text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 title="Remove"
+                type="button"
+                aria-label={`Remove ${item.title}`}
             >
                 <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -135,6 +140,7 @@ function VideoRow({
 }
 
 export default function Playlist({
+    id,
     items,
     currentIndex = -1,
     onReorder,
@@ -213,7 +219,7 @@ export default function Playlist({
     }
 
     return (
-        <div className={cn('flex flex-col gap-1', className)}>
+        <div id={id} className={cn('flex flex-col gap-1', className)}>
             {/* Header bar */}
             <div className="flex items-center justify-between pb-1 mb-1 border-b">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">

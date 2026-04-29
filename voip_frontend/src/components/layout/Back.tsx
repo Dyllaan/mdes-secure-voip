@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function Back({showBack} : {showBack?: boolean}) {
   const navigate = useNavigate();
@@ -9,8 +10,20 @@ export default function Back({showBack} : {showBack?: boolean}) {
   };
 
   return (
-    <div onClick={handleBack} className="px-4 py-4 h-10 transition-colors cursor-pointer">
-      {showBack !== false ? <ArrowLeft className="w-5 h-5 text-muted-foreground hover:bg-muted/50" /> : <span className="w-5 h-5" />}
+    <div className="py-2">
+      {showBack !== false ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={handleBack}
+          aria-label="Go back to home"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </Button>
+      ) : (
+        <span aria-hidden="true" className="inline-block w-9 h-9" />
+      )}
     </div>
   );
 }

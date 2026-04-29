@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
-	"net"
 	"net/http"
 	"time"
 
@@ -16,17 +15,6 @@ import (
 	"hub-service/internal/middleware"
 	"hub-service/internal/structs"
 )
-
-func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		return ip
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return ip
-}
 
 // RegisterDeviceKey upserts a P-256 ECDH public key for the calling user's device on this hub.
 // PUT /api/hubs/{hubID}/device-key
@@ -51,7 +39,7 @@ func RegisterDeviceKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.DeviceID) > config.C.MaxDeviceIDLen {
-		log.Printf("validation: deviceId too long (%d bytes) from %s user=%s", len(req.DeviceID), clientIP(r), userID)
+		log.Printf("validation: deviceId too long (%d bytes)", len(req.DeviceID))
 		writeError(w, http.StatusBadRequest, "deviceId too long")
 		return
 	}
@@ -60,12 +48,12 @@ func RegisterDeviceKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.PublicKey) > config.C.MaxPublicKeyLen {
-		log.Printf("validation: publicKey too long (%d bytes) from %s user=%s", len(req.PublicKey), clientIP(r), userID)
+		log.Printf("validation: publicKey too long (%d bytes)", len(req.PublicKey))
 		writeError(w, http.StatusBadRequest, "publicKey too long")
 		return
 	}
 	if _, err := base64.StdEncoding.DecodeString(req.PublicKey); err != nil {
-		log.Printf("validation: publicKey invalid base64 from %s user=%s", clientIP(r), userID)
+		log.Println("validation: publicKey invalid base64")
 		writeError(w, http.StatusBadRequest, "publicKey must be valid base64")
 		return
 	}
@@ -155,7 +143,7 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Bundles) > config.C.MaxBundlesPerRequest {
-		log.Printf("validation: bundle count too high (%d) from %s user=%s", len(req.Bundles), clientIP(r), userID)
+		log.Printf("validation: bundle count too high (%d)", len(req.Bundles))
 		writeError(w, http.StatusBadRequest, "Too many bundles in a single request")
 		return
 	}
@@ -188,32 +176,32 @@ func PostKeyBundles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(payload.SenderEphemeralPub) > config.C.MaxPublicKeyLen {
-			log.Printf("validation: senderEphemeralPub too long (%d bytes) from %s user=%s", len(payload.SenderEphemeralPub), clientIP(r), userID)
+			log.Printf("validation: senderEphemeralPub too long (%d bytes)", len(payload.SenderEphemeralPub))
 			writeError(w, http.StatusBadRequest, "senderEphemeralPub too long")
 			return
 		}
 		if len(payload.Ciphertext) > config.C.MaxCiphertextLen {
-			log.Printf("validation: bundle ciphertext too long (%d bytes) from %s user=%s", len(payload.Ciphertext), clientIP(r), userID)
+			log.Printf("validation: bundle ciphertext too long (%d bytes)", len(payload.Ciphertext))
 			writeError(w, http.StatusBadRequest, "Bundle ciphertext too long")
 			return
 		}
 		if len(payload.IV) > config.C.MaxIVLen {
-			log.Printf("validation: bundle IV too long (%d bytes) from %s user=%s", len(payload.IV), clientIP(r), userID)
+			log.Printf("validation: bundle IV too long (%d bytes)", len(payload.IV))
 			writeError(w, http.StatusBadRequest, "Bundle IV too long")
 			return
 		}
 		if _, err := base64.StdEncoding.DecodeString(payload.SenderEphemeralPub); err != nil {
-			log.Printf("validation: senderEphemeralPub invalid base64 from %s user=%s", clientIP(r), userID)
+			log.Println("validation: senderEphemeralPub invalid base64")
 			writeError(w, http.StatusBadRequest, "senderEphemeralPub must be valid base64")
 			return
 		}
 		if _, err := base64.StdEncoding.DecodeString(payload.Ciphertext); err != nil {
-			log.Printf("validation: bundle ciphertext invalid base64 from %s user=%s", clientIP(r), userID)
+			log.Println("validation: bundle ciphertext invalid base64")
 			writeError(w, http.StatusBadRequest, "Bundle ciphertext must be valid base64")
 			return
 		}
 		if _, err := base64.StdEncoding.DecodeString(payload.IV); err != nil {
-			log.Printf("validation: bundle IV invalid base64 from %s user=%s", clientIP(r), userID)
+			log.Println("validation: bundle IV invalid base64")
 			writeError(w, http.StatusBadRequest, "Bundle IV must be valid base64")
 			return
 		}

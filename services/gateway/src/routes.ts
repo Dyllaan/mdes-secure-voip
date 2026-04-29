@@ -8,6 +8,7 @@ import type { Socket } from 'net';
 import { randomUUID, timingSafeEqual } from 'crypto';
 
 import { config, logger } from './config/config';
+import { sanitiseUrlForLogs, serialiseRequestForLogs, serialiseResponseForLogs } from './config/logging';
 import {
   authLimiter,
   generalLimiter,
@@ -25,7 +26,14 @@ const app = express();
 
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use(pinoHttp({ logger, genReqId: (req: IncomingMessage): string => (req.headers['x-request-id'] as string) ?? randomUUID() }));
+app.use(pinoHttp({
+  logger,
+  genReqId: (req: IncomingMessage): string => (req.headers['x-request-id'] as string) ?? randomUUID(),
+  serializers: {
+    req: serialiseRequestForLogs,
+    res: serialiseResponseForLogs,
+  },
+}));
 app.use(requestId);
 app.use(cors({
   origin: config.CORS_ORIGIN.split(',').map((o) => o.trim()),
@@ -286,7 +294,7 @@ const peerJsProxy = makeProxy(config.PEER_SERVICE_URL, {
   ws: true,
   logLevel: 'silent',
   onProxyReqWs: /* istanbul ignore next */ (_proxyReq: ClientRequest, req: IncomingMessage, socket: Socket) => {
-    logger.debug({ url: req.url }, 'WebSocket upgrade - PeerJS');
+    logger.debug({ url: sanitiseUrlForLogs(req.url) }, 'WebSocket upgrade - PeerJS');
     socket.on('error', (err: Error) => logger.error({ err }, 'PeerJS error'));
   },
   onError: /* istanbul ignore next */ (err: Error) => logger.error({ err }, 'PeerJS proxy error'),

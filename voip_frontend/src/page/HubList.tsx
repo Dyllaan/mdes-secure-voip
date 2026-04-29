@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConnection } from '@/components/providers/ConnectionProvider';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,7 @@ export default function HubList() {
     const [error, setError] = useState<ValidationResult[]>([]);
     const validator = new Validator();
 
-    const fetchHubs = async () => {
+    const fetchHubs = useCallback(async () => {
         try {
             setLoading(true);
             const data = await listHubs();
@@ -39,11 +39,11 @@ export default function HubList() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [listHubs]);
 
     useEffect(() => {
         fetchHubs();
-    }, [listHubs]);
+    }, [fetchHubs]);
 
     const handleCreate = async () => {
         const result = validator.validate("Hub", newHubName);
@@ -94,14 +94,26 @@ export default function HubList() {
     return (
         <Page header footer>
             <div className="flex flex-col max-w-md mx-auto space-y-6 mt-20">
+            <div className="space-y-2">
+                <h1 className="text-3xl font-medium">Your Hubs</h1>
+                <p className="text-sm text-muted-foreground">
+                    Create a hub, join with an invite code, or open an existing workspace.
+                </p>
+            </div>
             <div className="flex gap-2">
-                <Input
-                    data-testid="hub-name-input"
-                    placeholder="Hub name..."
-                    value={newHubName}
-                    onChange={(e) => setNewHubName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-                />
+                <div className="flex-1">
+                    <label htmlFor="hub-name-input" className="sr-only">
+                        Hub name
+                    </label>
+                    <Input
+                        id="hub-name-input"
+                        data-testid="hub-name-input"
+                        placeholder="Hub name..."
+                        value={newHubName}
+                        onChange={(e) => setNewHubName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                    />
+                </div>
                 <Button data-testid="create-hub-button" onClick={handleCreate} disabled={creating || !newHubName.trim()}>
                     <Plus className="h-4 w-4 mr-2" />
                     {creating ? 'Creating...' : 'Create'}
@@ -109,13 +121,19 @@ export default function HubList() {
             </div>
 
             <div className="flex gap-2">
-                <Input
-                    data-testid="invite-input"
-                    placeholder="Invite code..."
-                    value={inviteInput}
-                    onChange={(e) => setInviteInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleRedeem()}
-                />
+                <div className="flex-1">
+                    <label htmlFor="invite-input" className="sr-only">
+                        Invite code
+                    </label>
+                    <Input
+                        id="invite-input"
+                        data-testid="invite-input"
+                        placeholder="Invite code..."
+                        value={inviteInput}
+                        onChange={(e) => setInviteInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleRedeem()}
+                    />
+                </div>
                 <Button
                     data-testid="join-hub-button"
                     variant="outline"
@@ -132,7 +150,7 @@ export default function HubList() {
 
             <div className="space-y-2">
                 {loading ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+                    <p role="status" aria-live="polite" className="text-sm text-muted-foreground text-center py-8">Loading...</p>
                 ) : hubs.length === 0 ? (
                     <div className="text-center py-8 space-y-2">
                         <Server className="h-8 w-8 mx-auto text-muted-foreground/40" />

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -120,7 +121,8 @@ function MemberRow({
               data-testid={`member-actions-${member.id}`}
               variant="ghost"
               size="icon"
-              className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+              aria-label={`Member actions for ${member.username}`}
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
@@ -199,7 +201,7 @@ export function HubMembersDrawer({
     try {
         const data = await createInvite(hub!.id);
         if (data) setInviteCode(data.code);
-    } catch (err) {
+    } catch {
         toast.error('Failed to create invite');
     }
   };
@@ -209,7 +211,7 @@ export function HubMembersDrawer({
         setHiddenMemberIds(prev => prev.includes(memberId) ? prev : [...prev, memberId]);
         await kickMember(hub.id, memberId);
         await onMemberKicked?.();
-    } catch (err) {
+    } catch {
         setHiddenMemberIds(prev => prev.filter(id => id !== memberId));
         toast.error('Failed to kick member:');
     }
@@ -237,6 +239,9 @@ export function HubMembersDrawer({
             </div>
             <SheetTitle className="text-base leading-tight">{hub.name}</SheetTitle>
           </div>
+          <SheetDescription className="sr-only">
+            View members, filter the member list, and manage invite codes for {hub.name}.
+          </SheetDescription>
         </SheetHeader>
 
         <Separator />
@@ -253,7 +258,11 @@ export function HubMembersDrawer({
         <div className="flex gap-2 px-5 py-3">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <label htmlFor="member-search" className="sr-only">
+              Search members
+            </label>
             <Input
+              id="member-search"
               className="pl-8 h-8 text-sm"
               placeholder="Search members…"
               value={search}
@@ -261,7 +270,7 @@ export function HubMembersDrawer({
             />
           </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger className="h-8 w-[110px] text-xs">
+            <SelectTrigger className="h-8 w-[110px] text-xs" aria-label="Filter members by role">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -273,7 +282,7 @@ export function HubMembersDrawer({
             </SelectContent>
           </Select>
           <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="h-8 w-[110px] text-xs">
+            <SelectTrigger className="h-8 w-[110px] text-xs" aria-label="Sort members">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
