@@ -57,12 +57,14 @@ test.describe('Accessibility smoke tests', () => {
     await bootstrapSignedInWithKeys(page);
     await page.goto('/#/hub-list');
 
+    await expect(page).toHaveURL(/#\/hub-list$/);
+    await expect(page).toHaveTitle('MDES | Hubs');
+    await expect(page.getByRole('heading', { level: 1, name: 'Your Hubs' })).toBeVisible();
+
     await page.keyboard.press('Tab');
     await expect(page.getByRole('button', { name: 'Skip to main content' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.locator('#main-content')).toBeFocused();
-    await expect(page.getByRole('heading', { level: 1, name: 'Your Hubs' })).toBeVisible();
-    await expect(page).toHaveTitle('MDES | Hubs');
     await expectNoSeriousViolations(page, 'Hub list page');
   });
 
